@@ -10,6 +10,13 @@
 */
 
 -----------------------------
+-- 0. EXTENSIONS
+-----------------------------
+-- Enable pgcrypto for UUIDs and pgvector for embeddings
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-----------------------------
 -- 1. DOCUMENTS TABLE
 -----------------------------
 CREATE TABLE IF NOT EXISTS documents (
@@ -79,7 +86,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
   document_id uuid REFERENCES documents(id) ON DELETE CASCADE NOT NULL,
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   chunk_text text NOT NULL,
-  embedding vector(1536), -- depends on model (e.g., OpenAI ada-002 = 1536)
+  embedding vector(1536), -- dimension depends on embedding model
   created_at timestamptz DEFAULT now()
 );
 
@@ -107,7 +114,7 @@ CREATE POLICY "Users can delete own document chunks"
 -- Indexes for similarity search
 CREATE INDEX IF NOT EXISTS idx_document_chunks_doc_id ON document_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
-  ON document_chunks USING ivfflat (embedding vector_cosine_ops);
+  ON document_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -----------------------------
 -- 3. DOCUMENT CHATS (chat history)
