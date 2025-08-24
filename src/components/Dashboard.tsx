@@ -1,21 +1,25 @@
 import React, { useState } from 'react';
-import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare } from 'lucide-react';
+import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2 } from 'lucide-react';
 import type { Document, Page } from '../App';
 
 interface DashboardProps {
-  documents: Document[];
+  documents?: Document[];
   onNavigate: (page: Page) => void;
   onAddDocument: () => void;
   onDocumentDelete?: (documentId: string) => Promise<void>;
 }
 
 export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
-  const totalDocuments = documents.length;
-  const expiringDocuments = documents.filter(doc => doc.status === 'expiring').length;
-  const expiredDocuments = documents.filter(doc => doc.status === 'expired').length;
-  const activeDocuments = documents.filter(doc => doc.status === 'active').length;
+  // Ensure documents is always an array to prevent crashes
+  const safeDocuments = documents ?? [];
+  
+  // Safe calculations with fallback to 0
+  const totalDocuments = safeDocuments.length;
+  const expiringDocuments = safeDocuments.filter(doc => doc?.status === 'expiring').length;
+  const expiredDocuments = safeDocuments.filter(doc => doc?.status === 'expired').length;
+  const activeDocuments = safeDocuments.filter(doc => doc?.status === 'active').length;
 
-  const recentDocuments = documents.slice(0, 3);
+  const recentDocuments = safeDocuments.slice(0, 3);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   const handleDeleteDocument = async (documentId: string) => {
@@ -30,6 +34,11 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
       setDeletingDocId(null);
     }
   };
+
+  // Show loading state if documents is undefined (still loading)
+  if (documents === undefined) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -105,7 +114,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
           </div>
           <div className="p-6 space-y-4">
             {recentDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center space-x-4 p-4 hover:bg-gray-50 rounded-lg transition-colors group">
+              <div key={doc?.id || Math.random()} className="flex items-center space-x-4 p-4 hover:bg-gray-50 rounded-lg transition-colors group">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                   doc.category === 'insurance' ? 'bg-blue-100' :
                   doc.category === 'warranty' ? 'bg-green-100' :
@@ -119,7 +128,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                 </div>
                 <div className="flex-1">
                   <h3 className="font-medium text-gray-900">{doc.name}</h3>
-                  <p className="text-sm text-gray-500 capitalize">{doc.category} • {doc.size}</p>
+                  <p className="text-sm text-gray-500 capitalize">{doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}</p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -130,7 +139,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                     {doc.status}
                   </div>
                   <button
-                    onClick={() => handleDeleteDocument(doc.id)}
+                    onClick={() => doc?.id && handleDeleteDocument(doc.id)}
                     disabled={deletingDocId === doc.id}
                     className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 transition-all disabled:opacity-50"
                     title="Delete document"
@@ -145,6 +154,12 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
               </div>
             ))}
           </div>
+          
+          {recentDocuments.length === 0 && (
+            <div className="p-6 text-center text-gray-500">
+              <p>No documents uploaded yet. Upload your first document to get started!</p>
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
@@ -185,7 +200,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
           </div>
 
           {/* Alerts */}
-          {expiringDocuments > 0 && (
+          {expiringDocuments > 0 && safeDocuments.length > 0 && (
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
               <div className="flex items-center space-x-2 mb-3">
                 <AlertTriangle className="h-5 w-5 text-orange-600" />
@@ -203,6 +218,38 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Loading skeleton component
+function DashboardSkeleton() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <div className="h-8 bg-gray-200 rounded w-48 mb-2 animate-pulse"></div>
+        <div className="h-4 bg-gray-200 rounded w-96 animate-pulse"></div>
+      </div>
+
+      {/* Stats Grid Skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2 animate-pulse"></div>
+                <div className="h-8 bg-gray-200 rounded w-16 animate-pulse"></div>
+              </div>
+              <div className="w-12 h-12 bg-gray-200 rounded-lg animate-pulse"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-8">
+        <div className="h-96 bg-white rounded-xl shadow-sm border border-gray-200 animate-pulse"></div>
+        <div className="h-96 bg-white rounded-xl shadow-sm border border-gray-200 animate-pulse"></div>
       </div>
     </div>
   );

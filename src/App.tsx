@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useEffect } from 'react';
 import { Header } from './components/Header';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { DocumentVault } from './components/DocumentVault';
@@ -135,32 +136,42 @@ function App() {
     switch (currentPage) {
       case 'dashboard':
         return (
-          <Dashboard 
-            documents={documents} 
-            onNavigate={setCurrentPage}
-            onAddDocument={() => setShowUploadModal(true)}
-            onDocumentDelete={handleDocumentDelete}
-          />
+          <ErrorBoundary>
+            <Dashboard 
+              documents={documents} 
+              onNavigate={setCurrentPage}
+              onAddDocument={() => setShowUploadModal(true)}
+              onDocumentDelete={handleDocumentDelete}
+            />
+          </ErrorBoundary>
         );
       case 'vault':
         return (
-          <DocumentVault
-            documents={documents}
-            onDocumentSelect={handleDocumentSelect}
-            onDocumentUpload={handleDocumentsUploadNew}
-            onDocumentDelete={handleDocumentDelete}
-          />
+          <ErrorBoundary>
+            <DocumentVault
+              documents={documents}
+              onDocumentSelect={handleDocumentSelect}
+              onDocumentUpload={handleDocumentsUploadNew}
+              onDocumentDelete={handleDocumentDelete}
+            />
+          </ErrorBoundary>
         );
       case 'tracker':
-        return <ExpirationTracker documents={documents} />;
+        return (
+          <ErrorBoundary>
+            <ExpirationTracker documents={documents} />
+          </ErrorBoundary>
+        );
       default:
         return (
-          <Dashboard 
-            documents={documents} 
-            onNavigate={setCurrentPage}
-            onAddDocument={() => setShowUploadModal(true)}
-            onDocumentDelete={handleDocumentDelete}
-          />
+          <ErrorBoundary>
+            <Dashboard 
+              documents={documents} 
+              onNavigate={setCurrentPage}
+              onAddDocument={() => setShowUploadModal(true)}
+              onDocumentDelete={handleDocumentDelete}
+            />
+          </ErrorBoundary>
         );
     }
   };
