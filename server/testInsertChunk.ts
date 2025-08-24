@@ -1,16 +1,17 @@
+import 'dotenv/config';
 import { createClient } from "@supabase/supabase-js";
 
 async function testInsert() {
   const supabase = createClient(
     process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! // must be service role
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
   const dummyChunk = {
-    document_id: "test-doc-123",     // any UUID/string from your documents table
-    user_id: "test-user-123",        // use a real auth.users UUID if possible
+    document_id: "test-doc-123",
+    user_id: "test-user-123",
     chunk_text: "This is a test chunk of text.",
-    embedding: Array(1536).fill(0),  // dummy vector of 1536 zeros
+    embedding: Array(1536).fill(0),
   };
 
   const { data, error } = await supabase
