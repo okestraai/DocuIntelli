@@ -3,14 +3,12 @@
 ### Prerequisites
 - Node.js 18+ 
 - npm or yarn
-- Supabase project with authentication enabled
-- Google OAuth Client ID (for Google login)
-- Facebook App ID (for Facebook login)
+- Supabase project with email authentication enabled
 
 ### Installation
 1. Clone the repository
 2. Install dependencies: `npm install`
-3. Copy `.env.example` to `.env` and configure Supabase and social auth credentials
+3. Copy `.env.example` to `.env` and configure Supabase credentials
 4. Start the development servers: `npm run dev:full`
 
 This will start both the frontend (Vite) and backend (Express) servers concurrently.
@@ -19,43 +17,35 @@ This will start both the frontend (Vite) and backend (Express) servers concurren
 1. Create a new project at [Supabase](https://supabase.com)
 2. Go to Settings > API to get your project URL and anon key
 3. Enable Email authentication in Authentication > Settings
-4. Configure social providers (Google, Facebook) in Authentication > Settings > Auth Providers
+4. Run the database migration to create the documents table
 5. Add your environment variables to `.env`:
    - `VITE_SUPABASE_URL=your-project-url`
    - `VITE_SUPABASE_ANON_KEY=your-anon-key`
 
-### Social Authentication Setup
+### Database Setup
+Run the SQL migration in your Supabase SQL editor:
 
-#### Google OAuth Setup
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials
-5. Add your domain to authorized origins
-6. Copy Client ID to `.env` as `VITE_GOOGLE_CLIENT_ID`
+```sql
+-- Copy and paste the contents of supabase/migrations/create_documents_table.sql
+```
 
-**For Supabase Integration:**
-1. In your Supabase project, go to Authentication > Settings > Auth Providers
-2. Enable Google provider and add your Google OAuth credentials
-3. Set the redirect URL to your Supabase auth callback URL
-
-#### Facebook Login Setup
-1. Go to [Facebook Developers](https://developers.facebook.com/)
-2. Create a new app or select existing one
-3. Add Facebook Login product
-4. Configure Valid OAuth Redirect URIs
-5. Copy App ID to `.env` as `VITE_FACEBOOK_APP_ID`
-
-**For Supabase Integration:**
-1. In your Supabase project, enable Facebook provider in Auth Providers
-2. Add your Facebook App credentials
-3. Configure the redirect URL in Facebook app settings
+This will create:
+- Documents table with proper relationships
+- Row Level Security (RLS) policies
+- Storage bucket for document files
+- Proper user isolation and security
 
 ### Available Scripts
 - `npm run dev` - Start frontend development server only
 - `npm run server` - Start backend server only  
 - `npm run dev:full` - Start both frontend and backend servers
 - `npm run build` - Build for production
+
+### Authentication
+- **Email/Password**: Users can sign up and sign in with email and password
+- **Session Management**: Automatic session persistence across browser refreshes
+- **Authorization**: Users can only access their own documents
+- **Security**: All data is protected with Row Level Security (RLS)
 
 ### API Endpoints
 - `POST /api/documents/upload` - Upload multiple documents
@@ -65,4 +55,4 @@ This will start both the frontend (Vite) and backend (Express) servers concurren
 
 ### File Storage
 Documents are stored in the `server/uploads` directory with unique filenames.
-Document metadata is stored in memory (replace with a real database in production).
+Document metadata is stored in Supabase with proper user isolation.

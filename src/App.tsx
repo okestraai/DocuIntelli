@@ -10,7 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
 import { useDocuments } from './hooks/useDocuments';
 import { DocumentUploadRequest } from './lib/api';
-import { supabase, getCurrentUser, signOut } from './lib/supabase';
+import { supabase, signOut } from './lib/supabase';
 
 export type Page = 'landing' | 'dashboard' | 'vault' | 'tracker';
 
@@ -32,28 +32,15 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const { documents, loading, error, uploadDocuments } = useDocuments();
 
   // Check for existing session on app load
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const currentUser = await getCurrentUser();
-        if (currentUser) {
-          setUser(currentUser);
-          setIsAuthenticated(true);
-          setCurrentPage('dashboard');
-        }
-      } catch (error) {
-        console.error('Session check failed:', error);
-      }
-    };
-
-    checkSession();
-
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        setIsLoading(false);
         if (event === 'SIGNED_IN' && session?.user) {
           setUser(session.user);
           setIsAuthenticated(true);
@@ -64,12 +51,30 @@ function App() {
           setIsAuthenticated(false);
           setCurrentPage('landing');
           setSelectedDocument(null);
+        } else if (event === 'INITIAL_SESSION') {
+          if (session?.user) {
+            setUser(session.user);
+            setIsAuthenticated(true);
+            setCurrentPage('dashboard');
+          }
         }
       }
     );
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleAuth = (authUser: any) => {
     setUser(authUser);
@@ -112,10 +117,12 @@ function App() {
     }
   };
   const renderPage = () => {
+    // Always show landing page if not authenticated
     if (!isAuthenticated) {
       return <LandingPage onGetStarted={handleGetStarted} />;
     }
 
+    // Only show app UI if authenticated
     if (selectedDocument) {
       return (
         <DocumentChat
@@ -156,6 +163,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Only show header if authenticated */}
       {isAuthenticated && (
         <Header
           currentPage={currentPage}
@@ -173,14 +181,16 @@ function App() {
       
       {renderPage()}
 
-      {showAuthModal && (
+      {/* Only show auth modal if not authenticated */}
+      {showAuthModal && !isAuthenticated && (
         <AuthModal
           onClose={() => setShowAuthModal(false)}
           onAuth={handleAuth}
         />
       )}
 
-      {showUploadModal && (
+      {/* Only show upload modal if authenticated */}
+      {showUploadModal && isAuthenticated && (
         <UploadModal
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}

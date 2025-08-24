@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Shield, Mail, Lock, Eye, EyeOff, Chrome } from 'lucide-react';
-import { signUp, signIn, signInWithGoogle, signInWithFacebook } from '../lib/supabase';
+import { X, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { signUp, signIn } from '../lib/supabase';
 
 interface AuthModalProps {
   onClose: () => void;
@@ -13,7 +13,6 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,7 +34,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
         onAuth(result.user);
       } else if (!isLogin && result.session === null) {
         // Sign up successful but needs email confirmation
-        setError('Please check your email to confirm your account before signing in.');
+        setError('Account created successfully! Please check your email to confirm your account before signing in.');
       }
     } catch (err: any) {
       console.error('Auth error:', err);
@@ -45,30 +44,14 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
     }
   };
 
-  const handleSocialLogin = async (provider: 'google' | 'facebook') => {
-    setSocialLoading(provider);
-    setError(null);
-    
-    try {
-      if (provider === 'google') {
-        await signInWithGoogle();
-      } else {
-        await signInWithFacebook();
-      }
-      // OAuth will redirect, so we don't need to handle success here
-    } catch (error) {
-      console.error(`${provider} login error:`, error);
-      setError(`${provider} login failed. Please try again.`);
-      setSocialLoading(null);
-    }
-  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl max-w-md w-full p-8 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+          disabled={isLoading}
         >
           <X className="h-6 w-6" />
         </button>
@@ -88,50 +71,6 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
           </p>
         </div>
 
-        {/* Social Login Buttons */}
-        <div className="space-y-3 mb-6">
-          <button
-            onClick={() => handleSocialLogin('google')}
-            disabled={socialLoading !== null || isLoading}
-            className="w-full flex items-center justify-center space-x-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {socialLoading === 'google' ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-400 border-t-transparent"></div>
-            ) : (
-              <Chrome className="h-5 w-5 text-red-500" />
-            )}
-            <span className="font-medium text-gray-700">
-              {socialLoading === 'google' ? 'Connecting...' : 'Continue with Google'}
-            </span>
-          </button>
-
-          <button
-            onClick={() => handleSocialLogin('facebook')}
-            disabled={socialLoading !== null || isLoading}
-            className="w-full flex items-center justify-center space-x-3 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {socialLoading === 'facebook' ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-            ) : (
-              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-              </svg>
-            )}
-            <span className="font-medium">
-              {socialLoading === 'facebook' ? 'Connecting...' : 'Continue with Facebook'}
-            </span>
-          </button>
-        </div>
-
-        {/* Divider */}
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Or continue with email</span>
-          </div>
-        </div>
 
         {/* Error Message */}
         {error && (
@@ -155,7 +94,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter your email"
                 required
-                disabled={socialLoading !== null}
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -174,14 +113,14 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter your password"
                 required
-                disabled={socialLoading !== null}
+                disabled={isLoading}
                 minLength={6}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                disabled={socialLoading !== null}
+                disabled={isLoading}
               >
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
@@ -190,7 +129,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
           <button
             type="submit"
-            disabled={isLoading || socialLoading !== null}
+            disabled={isLoading}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center"
           >
             {isLoading ? (
@@ -207,7 +146,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
             <button
               onClick={() => setIsLogin(!isLogin)}
               className="text-blue-600 hover:text-blue-700 font-medium"
-              disabled={socialLoading !== null || isLoading}
+              disabled={isLoading}
             >
               {isLogin ? 'Sign up' : 'Sign in'}
             </button>

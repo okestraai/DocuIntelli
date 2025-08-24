@@ -9,11 +9,31 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+// Database types
+export interface Document {
+  id: string
+  user_id: string
+  name: string
+  category: string
+  type: string
+  size: string
+  file_path: string
+  original_name: string
+  upload_date: string
+  expiration_date?: string
+  status: 'active' | 'expiring' | 'expired'
+  created_at: string
+  updated_at: string
+}
+
 // Auth helper functions
 export const signUp = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/auth/callback`
+    }
   })
   
   if (error) throw error
