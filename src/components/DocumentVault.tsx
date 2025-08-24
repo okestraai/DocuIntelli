@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileText, Upload, Search, Filter, Calendar, Eye, Plus, X } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
-import { DocumentUploadRequest } from '../lib/api';
+import { DocumentUploadRequest } from '../hooks/useDocuments';
 
 interface DocumentVaultProps {
   documents: Document[];

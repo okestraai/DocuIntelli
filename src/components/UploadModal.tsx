@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, Trash2 } from 'lucide-react';
-import { DocumentUploadRequest } from '../lib/api';
+import { DocumentUploadRequest } from '../hooks/useDocuments';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ interface DocumentData {
   file: File;
   name: string;
   category: string;
+  expirationDate: string;
 }
 
 export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
@@ -60,12 +61,13 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
     const newDocuments = files.map(file => ({
       file,
       name: '',
-      category: ''
+      category: '',
+      expirationDate: ''
     }));
     setDocuments(prev => [...prev, ...newDocuments]);
   };
 
-  const updateDocument = (index: number, field: 'name' | 'category', value: string) => {
+  const updateDocument = (index: number, field: 'name' | 'category' | 'expirationDate', value: string) => {
     setDocuments(prev => prev.map((doc, i) => 
       i === index ? { ...doc, [field]: value } : doc
     ));
@@ -95,7 +97,8 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
       const uploadData: DocumentUploadRequest[] = documents.map(doc => ({
         name: doc.name.trim(),
         category: doc.category,
-        file: doc.file
+        file: doc.file,
+        expirationDate: doc.expirationDate || undefined
       }));
 
       await onUpload(uploadData);
@@ -215,7 +218,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Document Name *
@@ -229,19 +232,33 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                         />
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Category *
-                        </label>
-                        <select
-                          value={doc.category}
-                          onChange={(e) => updateDocument(index, 'category', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          {categories.map(cat => (
-                            <option key={cat.value} value={cat.value}>{cat.label}</option>
-                          ))}
-                        </select>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Category *
+                          </label>
+                          <select
+                            value={doc.category}
+                            onChange={(e) => updateDocument(index, 'category', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            {categories.map(cat => (
+                              <option key={cat.value} value={cat.value}>{cat.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Expiration Date
+                          </label>
+                          <input
+                            type="date"
+                            value={doc.expirationDate}
+                            onChange={(e) => updateDocument(index, 'expirationDate', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -10,7 +10,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Database types
-export interface Document {
+export interface SupabaseDocument {
   id: string
   user_id: string
   name: string
@@ -26,6 +26,102 @@ export interface Document {
   updated_at: string
 }
 
+// Document operations
+export const uploadDocumentToStorage = async (file: File, userId: string, documentId: string) => {
+  const fileExt = file.name.split('.').pop()
+  const fileName = `${documentId}.${fileExt}`
+  const filePath = `${userId}/${fileName}`
+
+  const { data, error } = await supabase.storage
+    .from('documents')
+    .upload(filePath, file)
+
+  if (error) throw error
+  return data
+}
+
+export const createDocument = async (documentData: {
+  name: string
+  category: string
+  type: string
+  size: string
+  file_path: string
+  original_name: string
+  expiration_date?: string
+}) => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
+  const { data, error } = await supabase
+    .from('documents')
+    .insert([{
+      ...documentData,
+      user_id: user.id,
+      upload_date: new Date().toISOString().split('T')[0],
+      status: 'active'
+    }])
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export const getDocuments = async () => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
+  const { data, error } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return data || []
+}
+
+export const deleteDocument = async (id: string) => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
+  // First get the document to get the file path
+  const { data: document } = await supabase
+    .from('documents')
+    .select('file_path')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .single()
+
+  if (document?.file_path) {
+    // Delete from storage
+    await supabase.storage
+      .from('documents')
+      .remove([document.file_path])
+  }
+
+  // Delete from database
+  const { error } = await supabase
+    .from('documents')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  if (error) throw error
+}
+
+export const updateDocumentStatus = async (id: string, status: 'active' | 'expiring' | 'expired') => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
+  const { error } = await supabase
+    .from('documents')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  if (error) throw error
+}
 // Auth helper functions
 export const signUp = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({
