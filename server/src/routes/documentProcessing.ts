@@ -18,9 +18,8 @@ const supabaseService = new SupabaseService(
 
 router.post('/process-document', upload.single('file'), async (req: Request, res: Response) => {
   let filePath: string | undefined;
-  
+
   try {
-    // Validate required fields
     const { document_id, user_id } = req.body;
     const file = req.file;
 
@@ -42,9 +41,9 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
 
     console.log(`Processing document: ${file.originalname} (${file.mimetype})`);
 
-    // Step 1: Extract text from file
+    // Step 1: Extract text (supports PDF, DOCX, Images)
     const extractedText = await TextExtractor.extractText(filePath, file.mimetype);
-    
+
     if (!extractedText || extractedText.trim().length === 0) {
       return res.status(400).json({
         success: false,
@@ -55,8 +54,8 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
     console.log(`Extracted ${extractedText.length} characters of text`);
 
     // Step 2: Split text into chunks
-    const textChunks = TextChunker.chunkText(extractedText);
-    
+    const textChunks = TextChunker.chunkText(extractedText, 800);
+
     if (textChunks.length === 0) {
       return res.status(400).json({
         success: false,
@@ -68,7 +67,7 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
 
     // Step 3: Generate embeddings for chunks
     const embeddings = await embeddingService.generateEmbeddings(textChunks);
-    
+
     console.log(`Generated ${embeddings.length} embeddings`);
 
     // Step 4: Prepare document chunks for database
@@ -82,12 +81,11 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
     // Step 5: Insert chunks into Supabase
     await supabaseService.insertDocumentChunks(documentChunks);
 
-    console.log(`Successfully inserted ${documentChunks.length} chunks into database`);
+    console.log(`Inserted ${documentChunks.length} chunks into database`);
 
     // Clean up uploaded file
     await fs.unlink(filePath);
 
-    // Return success response
     res.json({
       success: true,
       message: 'Document processed successfully',
@@ -97,7 +95,6 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
   } catch (error) {
     console.error('Document processing error:', error);
 
-    // Clean up uploaded file on error
     if (filePath) {
       try {
         await fs.unlink(filePath);
@@ -126,16 +123,14 @@ router.post('/search-chunks', async (req: Request, res: Response) => {
       });
     }
 
-    // Generate embedding for the query
     const queryEmbedding = await embeddingService.generateSingleEmbedding(query);
 
-    // Search for similar chunks
     const similarChunks = await supabaseService.searchSimilarChunks(queryEmbedding, user_id, limit);
 
     res.json({
       success: true,
       results: similarChunks,
-      query: query
+      query
     });
 
   } catch (error) {
