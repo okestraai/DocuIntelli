@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEffect } from 'react';
 import { Header } from './components/Header';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
@@ -9,6 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
 import { useDocuments } from './hooks/useDocuments';
 import { DocumentUploadRequest } from './lib/api';
+import { supabase, getCurrentUser, signOut } from './lib/supabase';
 
 export type Page = 'landing' | 'dashboard' | 'vault' | 'tracker';
 
@@ -26,13 +28,51 @@ export interface Document {
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const { documents, loading, error, uploadDocuments } = useDocuments();
 
+  // Check for existing session on app load
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          setIsAuthenticated(true);
+          setCurrentPage('dashboard');
+        }
+      } catch (error) {
+        console.error('Session check failed:', error);
+      }
+    };
 
-  const handleAuth = () => {
+    checkSession();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          setUser(session.user);
+          setIsAuthenticated(true);
+          setShowAuthModal(false);
+          setCurrentPage('dashboard');
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setIsAuthenticated(false);
+          setCurrentPage('landing');
+          setSelectedDocument(null);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = (authUser: any) => {
+    setUser(authUser);
     setIsAuthenticated(true);
     setShowAuthModal(false);
     setCurrentPage('dashboard');
@@ -120,10 +160,13 @@ function App() {
         <Header
           currentPage={currentPage}
           onNavigate={setCurrentPage}
-          onSignOut={() => {
-            setIsAuthenticated(false);
-            setCurrentPage('landing');
-            setSelectedDocument(null);
+          onSignOut={async () => {
+            try {
+              await signOut();
+              // Auth state change listener will handle the rest
+            } catch (error) {
+              console.error('Sign out failed:', error);
+            }
           }}
         />
       )}

@@ -1,35 +1,11 @@
 import React, { useState } from 'react';
 import { X, Shield, Mail, Lock, Eye, EyeOff, Chrome } from 'lucide-react';
+import { signUp, signIn, signInWithGoogle, signInWithFacebook } from '../lib/supabase';
 
 interface AuthModalProps {
   onClose: () => void;
-  onAuth: () => void;
+  onAuth: (user: any) => void;
 }
-
-// Social login handlers
-const handleGoogleLogin = async () => {
-  try {
-    // In a real app, you would integrate with Google OAuth
-    console.log('Google login initiated');
-    // Simulate successful login
-    return { success: true, provider: 'google' };
-  } catch (error) {
-    console.error('Google login failed:', error);
-    return { success: false, error: 'Google login failed' };
-  }
-};
-
-const handleFacebookLogin = async () => {
-  try {
-    // In a real app, you would integrate with Facebook SDK
-    console.log('Facebook login initiated');
-    // Simulate successful login
-    return { success: true, provider: 'facebook' };
-  } catch (error) {
-    console.error('Facebook login failed:', error);
-    return { success: false, error: 'Facebook login failed' };
-  }
-};
 
 export function AuthModal({ onClose, onAuth }: AuthModalProps) {
   const [isLogin, setIsLogin] = useState(true);
@@ -38,41 +14,52 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    if (!email || !password) return;
     
-    // Simulate authentication
-    setTimeout(() => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      let result;
+      if (isLogin) {
+        result = await signIn(email, password);
+      } else {
+        result = await signUp(email, password);
+      }
+      
+      if (result.user) {
+        onAuth(result.user);
+      } else if (!isLogin && result.session === null) {
+        // Sign up successful but needs email confirmation
+        setError('Please check your email to confirm your account before signing in.');
+      }
+    } catch (err: any) {
+      console.error('Auth error:', err);
+      setError(err.message || 'Authentication failed');
+    } finally {
       setIsLoading(false);
-      onAuth();
-    }, 1500);
+    }
   };
 
   const handleSocialLogin = async (provider: 'google' | 'facebook') => {
     setSocialLoading(provider);
+    setError(null);
     
     try {
-      let result;
       if (provider === 'google') {
-        result = await handleGoogleLogin();
+        await signInWithGoogle();
       } else {
-        result = await handleFacebookLogin();
+        await signInWithFacebook();
       }
-      
-      if (result.success) {
-        setTimeout(() => {
-          setSocialLoading(null);
-          onAuth();
-        }, 1000);
-      } else {
-        setSocialLoading(null);
-        // Handle error - could show toast notification
-      }
+      // OAuth will redirect, so we don't need to handle success here
     } catch (error) {
-      setSocialLoading(null);
       console.error(`${provider} login error:`, error);
+      setError(`${provider} login failed. Please try again.`);
+      setSocialLoading(null);
     }
   };
 
@@ -146,6 +133,13 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
           </div>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -181,6 +175,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 placeholder="Enter your password"
                 required
                 disabled={socialLoading !== null}
+                minLength={6}
               />
               <button
                 type="button"

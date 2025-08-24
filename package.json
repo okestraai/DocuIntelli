@@ -12,6 +12,7 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.56.0",
     "concurrently": "^9.2.0",
     "cors": "^2.8.5",
     "lucide-react": "^0.344.0",
