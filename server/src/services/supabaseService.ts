@@ -69,4 +69,26 @@ export class SupabaseService {
   ): Promise<any[]> {
     try {
       const { data, error } = await this.supabase.rpc('match_document_chunks', {
-        query_embe_
+        query_embedding: embedding,
+        match_threshold: 0.7,
+        match_count: limit,
+        user_id: userId
+      });
+
+      if (error) {
+        console.error('❌ Supabase search error:', error);
+        throw error;
+      }
+
+      console.log(`✅ Retrieved ${data?.length || 0} similar chunks`);
+      return data || [];
+    } catch (error) {
+      console.error('❌ Supabase search exception:', error);
+      throw new Error(
+        `Failed to search chunks: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+}
