@@ -65,10 +65,20 @@ console.log("Extracted text preview:", extractedText.slice(0, 500));
 
     console.log(`Created ${textChunks.length} text chunks`);
 
-    // Step 3: Generate embeddings for chunks
-    const embeddings = await embeddingService.generateEmbeddings(textChunks);
 
-    console.log(`Generated ${embeddings.length} embeddings`);
+  // Step 3: Generate embeddings for chunks
+let embeddings: number[][] = [];
+try {
+  embeddings = await embeddingService.generateEmbeddings(textChunks);
+  console.log(`Generated ${embeddings.length} embeddings`);
+} catch (err) {
+  console.error("Error generating embeddings:", err);
+  return res.status(500).json({
+    success: false,
+    error: "Failed to generate embeddings",
+  });
+}
+
 
     // Step 4: Prepare document chunks for database
     const documentChunks: DocumentChunk[] = textChunks.map((chunk, index) => ({
