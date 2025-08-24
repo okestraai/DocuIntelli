@@ -1,0 +1,46 @@
+{
+  "name": "legalease-document-processor",
+  "version": "1.0.0",
+  "description": "Document processing server for LegalEase with text extraction and embedding generation",
+  "main": "dist/app.js",
+  "scripts": {
+    "start": "node dist/app.js",
+    "dev": "nodemon src/app.ts",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "document-processing",
+    "text-extraction",
+    "embeddings",
+    "openai",
+    "supabase",
+    "typescript"
+  ],
+  "author": "LegalEase Team",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.11",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mammoth": "^1.6.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemon": "^3.0.2",
+    "openai": "^4.24.1",
+    "pdf-parse": "^1.1.1",
+    "tesseract.js": "^5.0.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/uuid": "^9.0.7"
+  }
+}
