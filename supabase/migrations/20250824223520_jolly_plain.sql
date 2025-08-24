@@ -156,10 +156,7 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('documents', 'documents', false)
 ON CONFLICT (id) DO NOTHING;
 
--- Enable RLS on storage
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
--- Storage RLS Policies
+-- Storage RLS Policies (RLS is already enabled on storage.objects by Supabase)
 CREATE POLICY "Users can upload own documents"
   ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (bucket_id = 'documents' AND auth.uid()::text = (storage.foldername(name))[1]);
