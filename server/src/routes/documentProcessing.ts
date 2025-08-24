@@ -43,7 +43,7 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
 
     // Step 1: Extract text (supports PDF, DOCX, Images)
     const extractedText = await TextExtractor.extractText(filePath, file.mimetype);
-
+console.log("Extracted text preview:", extractedText.slice(0, 500));
     if (!extractedText || extractedText.trim().length === 0) {
       return res.status(400).json({
         success: false,
