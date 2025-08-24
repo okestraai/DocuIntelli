@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Send, MessageSquare, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
+import { useFeedback } from '../hooks/useFeedback';
 
 interface DocumentChatProps {
   document: Document;
@@ -28,6 +29,7 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const feedback = useFeedback();
 
   const suggestedQuestions = [
     "What is covered under this policy?",
@@ -56,8 +58,19 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     setInputValue('');
     setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Simulate AI response with potential failure
+      await new Promise((resolve, reject) => {
+        setTimeout(() => {
+          // Simulate occasional failures for demo
+          if (Math.random() < 0.1) {
+            reject(new Error('AI service temporarily unavailable'));
+          } else {
+            resolve(null);
+          }
+        }, 1000 + Math.random() * 2000);
+      });
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
@@ -67,8 +80,20 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       };
       
       setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      feedback.showError('Failed to get response', 'The AI assistant is temporarily unavailable. Please try again.');
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: "I'm sorry, I'm having trouble processing your request right now. Please try again in a moment.",
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const getSimulatedResponse = (question: string, doc: Document): string => {
@@ -154,7 +179,7 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                 <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg">
                   <div className="flex items-center space-x-2">
                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                    <span className="text-sm">Analyzing document...</span>
+                    <span className="text-sm">Generating answer...</span>
                   </div>
                 </div>
               </div>

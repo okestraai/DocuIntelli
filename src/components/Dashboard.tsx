@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2 } from 'lucide-react';
 import type { Document, Page } from '../App';
+import { useFeedback } from '../hooks/useFeedback';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface DashboardProps {
   documents?: Document[];
   onNavigate: (page: Page) => void;
   onAddDocument: () => void;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  feedback?: ReturnType<typeof useFeedback>;
 }
 
-export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
+export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete, feedback }: DashboardProps) {
   // Ensure documents is always an array to prevent crashes
   const safeDocuments = documents ?? [];
   
@@ -21,6 +24,9 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
 
   const recentDocuments = safeDocuments.slice(0, 3);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const localFeedback = useFeedback();
+  const activeFeedback = feedback || localFeedback;
 
   const handleDeleteDocument = async (documentId: string) => {
     if (!onDocumentDelete) return;
@@ -28,8 +34,9 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
     setDeletingDocId(documentId);
     try {
       await onDocumentDelete(documentId);
+      setShowDeleteConfirm(null);
     } catch (error) {
-      console.error('Delete failed:', error);
+      // Error handling is done in parent component
     } finally {
       setDeletingDocId(null);
     }
@@ -139,7 +146,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                     {doc.status}
                   </div>
                   <button
-                    onClick={() => doc?.id && handleDeleteDocument(doc.id)}
+                    onClick={() => doc?.id && setShowDeleteConfirm(doc.id)}
                     disabled={deletingDocId === doc.id}
                     className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 transition-all disabled:opacity-50"
                     title="Delete document"
@@ -218,6 +225,19 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
             </div>
           )}
         </div>
+
+        {/* Delete Confirmation Dialog */}
+        <ConfirmDialog
+          isOpen={!!showDeleteConfirm}
+          title="Delete Document"
+          message={`Are you sure you want to delete "${safeDocuments.find(d => d.id === showDeleteConfirm)?.name}"? This action cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          confirmVariant="danger"
+          isLoading={deletingDocId === showDeleteConfirm}
+          onConfirm={() => showDeleteConfirm && handleDeleteDocument(showDeleteConfirm)}
+          onCancel={() => setShowDeleteConfirm(null)}
+        />
       </div>
     </div>
   );

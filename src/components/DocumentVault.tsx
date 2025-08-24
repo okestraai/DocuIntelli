@@ -3,21 +3,26 @@ import { FileText, Upload, Search, Filter, Calendar, Eye, Plus, X, Trash2, MoreV
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
+import { useFeedback } from '../hooks/useFeedback';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface DocumentVaultProps {
   documents: Document[];
   onDocumentSelect: (doc: Document) => void;
   onDocumentUpload?: (documentsData: DocumentUploadRequest[]) => Promise<void>;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  feedback?: ReturnType<typeof useFeedback>;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, onDocumentDelete }: DocumentVaultProps) {
+export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, onDocumentDelete, feedback }: DocumentVaultProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const localFeedback = useFeedback();
+  const activeFeedback = feedback || localFeedback;
 
   const categories = [
     { value: 'all', label: 'All Documents' },
@@ -45,10 +50,10 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, o
     try {
       if (onDocumentUpload) {
         await onDocumentUpload(documentsData);
+        setShowUploadModal(false);
       }
-      setShowUploadModal(false);
     } catch (error) {
-      console.error('Upload failed:', error);
+      // Error handling is done in parent component
     }
   };
 
@@ -60,8 +65,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, o
       await onDocumentDelete(documentId);
       setShowDeleteConfirm(null);
     } catch (error) {
-      console.error('Delete failed:', error);
-      // Could show error toast here
+      // Error handling is done in parent component
     } finally {
       setDeletingDocId(null);
     }

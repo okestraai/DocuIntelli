@@ -12,6 +12,9 @@ import { UploadModal } from './components/UploadModal';
 import { useDocuments } from './hooks/useDocuments';
 import { DocumentUploadRequest } from './lib/api';
 import { supabase, signOut } from './lib/supabase';
+import { useFeedback } from './hooks/useFeedback';
+import { ToastContainer } from './components/Toast';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 export type Page = 'landing' | 'dashboard' | 'vault' | 'tracker';
 
@@ -35,6 +38,9 @@ function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
+  const feedback = useFeedback();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Check for existing session on app load
   useEffect(() => {
@@ -110,13 +116,30 @@ function App() {
 
   const handleDocumentsUploadNew = async (documentsData: DocumentUploadRequest[]) => {
     try {
+      const loadingToastId = feedback.showLoading('Uploading documents...', 'Please wait while we process your files');
       await uploadDocuments(documentsData);
+      feedback.removeToast(loadingToastId);
+      feedback.showSuccess('Upload successful!', `${documentsData.length} document${documentsData.length !== 1 ? 's' : ''} uploaded successfully`);
       setShowUploadModal(false);
     } catch (error) {
+      feedback.showError('Upload failed', error instanceof Error ? error.message : 'Failed to upload documents');
       console.error('Upload failed:', error);
-      // Handle error - could show a toast notification
     }
   };
+
+  const handleSignOut = async () => {
+    setIsLoggingOut(true);
+    try {
+      await signOut();
+      feedback.showSuccess('Logged out successfully', 'You have been signed out of your account');
+      setShowLogoutConfirm(false);
+    } catch (error) {
+      feedback.showError('Logout failed', error instanceof Error ? error.message : 'Failed to sign out');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   const renderPage = () => {
     // Always show landing page if not authenticated
     if (!isAuthenticated) {
@@ -142,6 +165,7 @@ function App() {
               onNavigate={setCurrentPage}
               onAddDocument={() => setShowUploadModal(true)}
               onDocumentDelete={handleDocumentDelete}
+              feedback={feedback}
             />
           </ErrorBoundary>
         );
@@ -153,6 +177,7 @@ function App() {
               onDocumentSelect={handleDocumentSelect}
               onDocumentUpload={handleDocumentsUploadNew}
               onDocumentDelete={handleDocumentDelete}
+              feedback={feedback}
             />
           </ErrorBoundary>
         );
@@ -170,6 +195,7 @@ function App() {
               onNavigate={setCurrentPage}
               onAddDocument={() => setShowUploadModal(true)}
               onDocumentDelete={handleDocumentDelete}
+              feedback={feedback}
             />
           </ErrorBoundary>
         );
@@ -178,10 +204,13 @@ function App() {
 
   const handleDocumentDelete = async (documentId: string) => {
     try {
+      const loadingToastId = feedback.showLoading('Deleting document...', 'Please wait while we remove the document');
       await deleteDocument(documentId);
+      feedback.removeToast(loadingToastId);
+      feedback.showSuccess('Document deleted', 'The document has been successfully removed');
     } catch (error) {
+      feedback.showError('Delete failed', error instanceof Error ? error.message : 'Failed to delete document');
       console.error('Delete failed:', error);
-      // Could show error toast notification here
     }
   };
 
@@ -192,14 +221,7 @@ function App() {
         <Header
           currentPage={currentPage}
           onNavigate={setCurrentPage}
-          onSignOut={async () => {
-            try {
-              await signOut();
-              // Auth state change listener will handle the rest
-            } catch (error) {
-              console.error('Sign out failed:', error);
-            }
-          }}
+          onSignOut={() => setShowLogoutConfirm(true)}
         />
       )}
       
@@ -221,6 +243,22 @@ function App() {
           onUpload={handleDocumentsUploadNew}
         />
       )}
+
+      {/* Toast Container */}
+      <ToastContainer toasts={feedback.toasts} onClose={feedback.removeToast} />
+
+      {/* Logout Confirmation */}
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        title="Sign Out"
+        message="Are you sure you want to sign out of your account?"
+        confirmText="Sign Out"
+        cancelText="Cancel"
+        confirmVariant="primary"
+        isLoading={isLoggingOut}
+        onConfirm={handleSignOut}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </div>
   );
 }
