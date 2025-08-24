@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare } from 'lucide-react';
 import type { Document, Page } from '../App';
 
