@@ -6,15 +6,30 @@ interface DashboardProps {
   documents: Document[];
   onNavigate: (page: Page) => void;
   onAddDocument: () => void;
+  onDocumentDelete?: (documentId: string) => Promise<void>;
 }
 
-export function Dashboard({ documents, onNavigate, onAddDocument }: DashboardProps) {
+export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
   const totalDocuments = documents.length;
   const expiringDocuments = documents.filter(doc => doc.status === 'expiring').length;
   const expiredDocuments = documents.filter(doc => doc.status === 'expired').length;
   const activeDocuments = documents.filter(doc => doc.status === 'active').length;
 
   const recentDocuments = documents.slice(0, 3);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!onDocumentDelete) return;
+    
+    setDeletingDocId(documentId);
+    try {
+      await onDocumentDelete(documentId);
+    } catch (error) {
+      console.error('Delete failed:', error);
+    } finally {
+      setDeletingDocId(null);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -90,7 +105,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument }: DashboardPro
           </div>
           <div className="p-6 space-y-4">
             {recentDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center space-x-4 p-4 hover:bg-gray-50 rounded-lg transition-colors">
+              <div key={doc.id} className="flex items-center space-x-4 p-4 hover:bg-gray-50 rounded-lg transition-colors group">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                   doc.category === 'insurance' ? 'bg-blue-100' :
                   doc.category === 'warranty' ? 'bg-green-100' :
@@ -106,12 +121,26 @@ export function Dashboard({ documents, onNavigate, onAddDocument }: DashboardPro
                   <h3 className="font-medium text-gray-900">{doc.name}</h3>
                   <p className="text-sm text-gray-500 capitalize">{doc.category} • {doc.size}</p>
                 </div>
-                <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  doc.status === 'active' ? 'bg-green-100 text-green-800' :
-                  doc.status === 'expiring' ? 'bg-orange-100 text-orange-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {doc.status}
+                <div className="flex items-center space-x-2">
+                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    doc.status === 'active' ? 'bg-green-100 text-green-800' :
+                    doc.status === 'expiring' ? 'bg-orange-100 text-orange-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {doc.status}
+                  </div>
+                  <button
+                    onClick={() => handleDeleteDocument(doc.id)}
+                    disabled={deletingDocId === doc.id}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 transition-all disabled:opacity-50"
+                    title="Delete document"
+                  >
+                    {deletingDocId === doc.id ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent"></div>
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </div>
             ))}

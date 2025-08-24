@@ -33,7 +33,7 @@ function App() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const { documents, loading, error, uploadDocuments } = useDocuments();
+  const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
 
   // Check for existing session on app load
   useEffect(() => {
@@ -139,6 +139,7 @@ function App() {
             documents={documents} 
             onNavigate={setCurrentPage}
             onAddDocument={() => setShowUploadModal(true)}
+            onDocumentDelete={handleDocumentDelete}
           />
         );
       case 'vault':
@@ -146,6 +147,8 @@ function App() {
           <DocumentVault
             documents={documents}
             onDocumentSelect={handleDocumentSelect}
+            onDocumentUpload={handleDocumentsUploadNew}
+            onDocumentDelete={handleDocumentDelete}
           />
         );
       case 'tracker':
@@ -156,8 +159,18 @@ function App() {
             documents={documents} 
             onNavigate={setCurrentPage}
             onAddDocument={() => setShowUploadModal(true)}
+            onDocumentDelete={handleDocumentDelete}
           />
         );
+    }
+  };
+
+  const handleDocumentDelete = async (documentId: string) => {
+    try {
+      await deleteDocument(documentId);
+    } catch (error) {
+      console.error('Delete failed:', error);
+      // Could show error toast notification here
     }
   };
 

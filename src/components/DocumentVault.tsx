@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Upload, Search, Filter, Calendar, Eye, Plus, X } from 'lucide-react';
+import { FileText, Upload, Search, Filter, Calendar, Eye, Plus, X, Trash2, MoreVertical } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
@@ -8,13 +8,16 @@ interface DocumentVaultProps {
   documents: Document[];
   onDocumentSelect: (doc: Document) => void;
   onDocumentUpload?: (documentsData: DocumentUploadRequest[]) => Promise<void>;
+  onDocumentDelete?: (documentId: string) => Promise<void>;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload }: DocumentVaultProps) {
+export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, onDocumentDelete }: DocumentVaultProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   const categories = [
     { value: 'all', label: 'All Documents' },
@@ -46,6 +49,21 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload }:
       setShowUploadModal(false);
     } catch (error) {
       console.error('Upload failed:', error);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!onDocumentDelete) return;
+    
+    setDeletingDocId(documentId);
+    try {
+      await onDocumentDelete(documentId);
+      setShowDeleteConfirm(null);
+    } catch (error) {
+      console.error('Delete failed:', error);
+      // Could show error toast here
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -134,12 +152,22 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload }:
                 <div className="bg-gray-100 w-12 h-12 rounded-lg flex items-center justify-center">
                   <FileText className="h-6 w-6 text-gray-600" />
                 </div>
-                <button
-                  onClick={() => onDocumentSelect(doc)}
-                  className="text-gray-400 hover:text-blue-600 transition-colors"
-                >
-                  <Eye className="h-5 w-5" />
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => onDocumentSelect(doc)}
+                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                    title="Chat with document"
+                  >
+                    <Eye className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(doc.id)}
+                    className="text-gray-400 hover:text-red-600 transition-colors"
+                    title="Delete document"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
 
               <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">{doc.name}</h3>
@@ -181,6 +209,55 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload }:
               ? 'Try adjusting your search or filter criteria.'
               : 'Upload your first document to get started.'}
           </p>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-red-100 w-12 h-12 rounded-full flex items-center justify-center">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Delete Document</h3>
+                <p className="text-sm text-gray-600">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to delete "{documents.find(d => d.id === showDeleteConfirm)?.name}"? 
+              This will permanently remove the document and all associated data.
+            </p>
+            
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                disabled={deletingDocId === showDeleteConfirm}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteDocument(showDeleteConfirm)}
+                disabled={deletingDocId === showDeleteConfirm}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+              >
+                {deletingDocId === showDeleteConfirm ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    <span>Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
