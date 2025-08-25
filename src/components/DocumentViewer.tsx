@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2 } from 'lucide-react';
 import type { Document } from '../App';
-import { supabase } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 
 interface DocumentViewerProps {
@@ -25,44 +24,10 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       setError(null);
       console.log('Loading document:', document);
 
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Get the document from database to get file_path
-      const { data: docData, error: docError } = await supabase
-        .from('documents')
-        .select('file_path')
-        .eq('id', document.id)
-        .eq('user_id', user.id)
-        .single();
-
-      if (docError) {
-        console.error('Database error:', docError);
-        throw new Error('Document not found');
-      }
-
-      console.log('Document data from DB:', docData);
-
-      if (!docData.file_path) {
-        throw new Error('Document file path not found');
-      }
-      // Get signed URL for the document
-      const { data: urlData, error: urlError } = await supabase.storage
-        .from('documents')
-        .createSignedUrl(docData.file_path, 3600, {
-          download: false // Set to false for viewing, true for download
-        });
-
-      if (urlError) {
-        console.error('Storage URL error:', urlError);
-        throw new Error('Failed to load document');
-      }
-
-      console.log('Generated signed URL:', urlData.signedUrl);
-      setDocumentUrl(urlData.signedUrl);
+      // Create URL for local file access via API
+      const fileUrl = `/api/documents/${document.id}/view`;
+      console.log('Generated file URL:', fileUrl);
+      setDocumentUrl(fileUrl);
     } catch (err) {
       console.error('Error loading document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -86,37 +51,8 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     try {
       const loadingToastId = feedback.showLoading('Downloading document...', 'Please wait while we prepare your download');
       
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Get the document from database to get file_path
-      const { data: docData, error: docError } = await supabase
-        .from('documents')
-        .select('file_path, original_name')
-        .eq('id', document.id)
-        .eq('user_id', user.id)
-        .single();
-
-      if (docError || !docData.file_path) {
-        throw new Error('Document not found');
-      }
-
-      // Get signed URL specifically for download
-      const { data: downloadData, error: downloadError } = await supabase.storage
-        .from('documents')
-        .createSignedUrl(docData.file_path, 300, { // 5 minutes for download
-          download: true
-        });
-
-      if (downloadError) {
-        throw new Error('Failed to generate download link');
-      }
-
-      // Fetch the file as a blob
-      const response = await fetch(downloadData.signedUrl);
+      // Fetch the file from local API
+      const response = await fetch(`/api/documents/${document.id}/download`);
       if (!response.ok) {
         throw new Error('Failed to fetch document for download');
       }
@@ -128,7 +64,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         // Create download link using blob URL
         const link = document.createElement('a');
         link.href = objectUrl;
-        link.download = docData.original_name || document.name;
+        link.download = document.name;
         link.style.display = 'none';
         
         // Add to DOM, click, and remove

@@ -14,7 +14,18 @@ app.use(express.json());
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
-fs.mkdir(uploadsDir, { recursive: true }).catch(console.error);
+
+// Ensure uploads directory exists
+const ensureUploadsDir = async () => {
+  try {
+    await fs.mkdir(uploadsDir, { recursive: true });
+    console.log(`📁 Uploads directory ready: ${uploadsDir}`);
+  } catch (error) {
+    console.error('Failed to create uploads directory:', error);
+  }
+};
+
+ensureUploadsDir();
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -163,6 +174,39 @@ app.get('/api/documents/:id/download', (req, res) => {
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Failed to download document' });
+  }
+});
+
+// New route for viewing documents (returns file content for viewer)
+app.get('/api/documents/:id/view', (req, res) => {
+  try {
+    const { id } = req.params;
+    const document = documents.find(doc => doc.id === id);
+    
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Set appropriate content type based on file extension
+    const ext = path.extname(document.originalName).toLowerCase();
+    let contentType = 'application/octet-stream';
+    
+    if (ext === '.pdf') {
+      contentType = 'application/pdf';
+    } else if (['.jpg', '.jpeg'].includes(ext)) {
+      contentType = 'image/jpeg';
+    } else if (ext === '.png') {
+      contentType = 'image/png';
+    } else if (ext === '.gif') {
+      contentType = 'image/gif';
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(path.resolve(document.filePath));
+  } catch (error) {
+    console.error('View error:', error);
+    res.status(500).json({ error: 'Failed to view document' });
   }
 });
 

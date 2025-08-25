@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getDocuments, createDocument, deleteDocument as deleteDocumentFromDB, uploadDocumentToStorage, SupabaseDocument } from '../lib/supabase';
-import { supabase } from '../lib/supabase';
+import { getDocuments, createDocument, deleteDocument as deleteDocumentFromDB, SupabaseDocument } from '../lib/supabase';
+import { apiClient } from '../lib/api';
 import type { Document } from '../App';
 
 export interface DocumentUploadRequest {
@@ -32,38 +32,21 @@ export function useDocuments() {
   const uploadDocuments = async (documentsData: DocumentUploadRequest[]): Promise<Document[]> => {
     try {
       setError(null);
-      const newDocuments: Document[] = [];
       
-      for (const docData of documentsData) {
-        // Generate unique ID for the document
-        const documentId = crypto.randomUUID();
-        
-        // Get file info
-        const fileSize = formatFileSize(docData.file.size);
-        const fileType = getFileType(docData.file.type);
-        
-        // Upload file to Supabase storage
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('User not authenticated');
-        
-        console.log('Uploading document:', { name: docData.name, size: docData.file.size, type: docData.file.type });
-        const storageData = await uploadDocumentToStorage(docData.file, user.id, documentId);
-        console.log('Storage upload result:', storageData);
-        
-        // Create document record in database
-        const documentRecord = await createDocument({
-          name: docData.name,
-          category: docData.category,
-          type: fileType,
-          size: fileSize,
-          file_path: storageData.path,
-          original_name: docData.file.name,
-          expiration_date: docData.expirationDate
-        });
-        
-        console.log('Document record created:', documentRecord);
-        newDocuments.push(transformSupabaseDocument(documentRecord));
-      }
+      // Upload documents using the API client (which stores locally)
+      const uploadedDocs = await apiClient.uploadDocuments(documentsData);
+      
+      // Transform API response to match our Document interface
+      const newDocuments = uploadedDocs.map(doc => ({
+        id: doc.id,
+        name: doc.name,
+        type: doc.type,
+        category: doc.category as Document['category'],
+        uploadDate: doc.uploadDate,
+        size: doc.size,
+        status: doc.status,
+        expirationDate: doc.expirationDate
+      }));
       
       setDocuments(prev => [...prev, ...newDocuments]);
       return newDocuments;
@@ -77,7 +60,7 @@ export function useDocuments() {
   const deleteDocumentById = async (id: string) => {
     try {
       setError(null);
-      await deleteDocumentFromDB(id);
+      await apiClient.deleteDocument(id);
       setDocuments(prev => prev.filter(doc => doc.id !== id));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
@@ -87,7 +70,30 @@ export function useDocuments() {
   };
 
   useEffect(() => {
-    loadDocuments();
+    const loadDocs = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const docs = await apiClient.getDocuments();
+        setDocuments(docs.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          category: doc.category as Document['category'],
+          uploadDate: doc.uploadDate,
+          size: doc.size,
+          status: doc.status,
+          expirationDate: doc.expirationDate
+        })));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load documents');
+        console.error('Failed to load documents:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadDocs();
   }, []);
 
   return {
@@ -96,7 +102,28 @@ export function useDocuments() {
     error,
     uploadDocuments,
     deleteDocument: deleteDocumentById,
-    refetch: loadDocuments
+    refetch: async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const docs = await apiClient.getDocuments();
+        setDocuments(docs.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          category: doc.category as Document['category'],
+          uploadDate: doc.uploadDate,
+          size: doc.size,
+          status: doc.status,
+          expirationDate: doc.expirationDate
+        })));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load documents');
+        console.error('Failed to load documents:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 }
 
