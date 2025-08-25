@@ -43,11 +43,17 @@ export const uploadDocumentToStorage = async (file: File, userId: string, docume
   const fileName = `${documentId}.${fileExt}`
   const filePath = `${userId}/${fileName}`
 
+  console.log('Uploading to storage:', { filePath, fileSize: file.size, fileType: file.type });
   const { data, error } = await supabase.storage
     .from('documents')
     .upload(filePath, file)
 
-  if (error) throw error
+  if (error) {
+    console.error('Storage upload error:', error);
+    throw error;
+  }
+  
+  console.log('Upload successful:', data);
   return data
 }
 

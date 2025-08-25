@@ -23,6 +23,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     try {
       setIsLoading(true);
       setError(null);
+      console.log('Loading document:', document);
 
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -39,18 +40,28 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         .single();
 
       if (docError) {
+        console.error('Database error:', docError);
         throw new Error('Document not found');
       }
 
+      console.log('Document data from DB:', docData);
+
+      if (!docData.file_path) {
+        throw new Error('Document file path not found');
+      }
       // Get signed URL for the document
       const { data: urlData, error: urlError } = await supabase.storage
         .from('documents')
-        .createSignedUrl(docData.file_path, 3600); // 1 hour expiry
+        .createSignedUrl(docData.file_path, 3600, {
+          download: false // Set to false for viewing, true for download
+        });
 
       if (urlError) {
+        console.error('Storage URL error:', urlError);
         throw new Error('Failed to load document');
       }
 
+      console.log('Generated signed URL:', urlData.signedUrl);
       setDocumentUrl(urlData.signedUrl);
     } catch (err) {
       console.error('Error loading document:', err);
@@ -66,22 +77,48 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     try {
       const loadingToastId = feedback.showLoading('Downloading document...', 'Please wait while we prepare your download');
       
-      const response = await fetch(documentUrl);
-      const blob = await response.blob();
-      
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Get the document from database to get file_path
+      const { data: docData, error: docError } = await supabase
+        .from('documents')
+        .select('file_path, original_name')
+        .eq('id', document.id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (docError || !docData.file_path) {
+        throw new Error('Document not found');
+      }
+
+      // Get signed URL specifically for download
+      const { data: downloadData, error: downloadError } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(docData.file_path, 300, { // 5 minutes for download
+          download: true
+        });
+
+      if (downloadError) {
+        throw new Error('Failed to generate download link');
+      }
+
       // Create download link
-      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = document.name;
+      link.href = downloadData.signedUrl;
+      link.download = docData.original_name || document.name;
+      link.target = '_blank';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
 
       feedback.removeToast(loadingToastId);
       feedback.showSuccess('Download started', 'Your document is being downloaded');
     } catch (error) {
+      console.error('Download error:', error);
       feedback.showError('Download failed', 'Unable to download the document');
     }
   };
@@ -169,6 +206,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                 src={documentUrl}
                 className="w-full h-full border-0"
                 title={document.name}
+                onLoad={() => console.log('PDF loaded successfully')}
+                onError={(e) => {
+                  console.error('PDF load error:', e);
+                  setError('Failed to load PDF document');
+                }}
               />
             )}
 
@@ -178,6 +220,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                   src={documentUrl}
                   alt={document.name}
                   className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
+                  onLoad={() => console.log('Image loaded successfully')}
+                  onError={(e) => {
+                    console.error('Image load error:', e);
+                    setError('Failed to load image');
+                  }}
                 />
               </div>
             )}

@@ -46,7 +46,9 @@ export function useDocuments() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error('User not authenticated');
         
+        console.log('Uploading document:', { name: docData.name, size: docData.file.size, type: docData.file.type });
         const storageData = await uploadDocumentToStorage(docData.file, user.id, documentId);
+        console.log('Storage upload result:', storageData);
         
         // Create document record in database
         const documentRecord = await createDocument({
@@ -59,6 +61,7 @@ export function useDocuments() {
           expiration_date: docData.expirationDate
         });
         
+        console.log('Document record created:', documentRecord);
         newDocuments.push(transformSupabaseDocument(documentRecord));
       }
       
