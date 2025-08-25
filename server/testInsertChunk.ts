@@ -4,14 +4,20 @@ import { createClient } from "@supabase/supabase-js";
 async function testInsert() {
   const supabase = createClient(
     process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! // must be service role key
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  const document_id = "b9f07911-3af9-4514-857d-ee882c865e8";
+  const user_id = "ce1072ba-822d-42c0-b705-4ca2e5f991db";
+
+  console.log("📌 Using document_id:", document_id);
+  console.log("📌 Using user_id:", user_id);
+
   const dummyChunk = {
-    document_id: "b9f07911-3af9-4514-857d-ee882c865e8", // from documents.id
-    user_id: "ce1072ba-822d-42c0-b705-4ca2e5f991db",     // from documents.user_id
+    document_id, // Supabase should accept plain UUID strings
+    user_id,
     chunk_text: "This is a test chunk of text.",
-    embedding: Array(1536).fill(0), // dummy embedding vector
+    embedding: Array(1536).fill(0),
   };
 
   const { data, error } = await supabase
