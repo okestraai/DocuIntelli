@@ -6,6 +6,7 @@ import { EmbeddingService } from '../services/embeddingService';
 import { SupabaseService } from '../services/supabaseService';
 import { ProcessingResult, DocumentChunk } from '../types';
 import fs from 'fs/promises';
+import { validate as uuidValidate } from 'uuid';
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
       return res.status(400).json({ success: false, error: 'Missing document_id or user_id' } as ProcessingResult);
     }
 
-    // ✅ Step 0: Validate document exists in DB
+    // ✅ Step 0: Validate that this document/user exists in DB
     console.log("🔎 Checking document in DB:", { document_id, user_id });
     const { data: docData, error: docError } = await supabaseService.getDocumentById(document_id, user_id);
 
@@ -41,13 +42,23 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
       return res.status(400).json({ success: false, error: 'Invalid document_id or user_id' } as ProcessingResult);
     }
 
-    console.log("✅ Validated document from DB:", docData);
     const { id: validDocId, user_id: validUserId } = docData;
+
+    // ✅ Validate UUID formats
+    console.log("📌 Raw UUIDs from DB:", { validDocId, validUserId });
+    console.log("🔎 UUID validation:", {
+      document_id_valid: uuidValidate(validDocId),
+      user_id_valid: uuidValidate(validUserId)
+    });
+
+    if (!uuidValidate(validDocId) || !uuidValidate(validUserId)) {
+      return res.status(400).json({ success: false, error: 'Corrupted UUID detected in database' } as ProcessingResult);
+    }
 
     filePath = file.path;
     console.log(`📂 Processing document: ${file.originalname} (${file.mimetype})`);
 
-    // Step 1: Extract text
+    // Step 1: Extract text (supports PDF, DOCX, Images)
     const extractedText = await TextExtractor.extractText(filePath, file.mimetype);
     console.log("📄 Extracted text preview:", extractedText.slice(0, 200));
 
