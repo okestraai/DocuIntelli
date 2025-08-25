@@ -72,7 +72,16 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   };
 
   const handleDownload = async () => {
-    if (!documentUrl) return;
+    // Check if we're in a browser environment
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      console.warn('Download function called outside browser environment');
+      return;
+    }
+
+    if (!documentUrl) {
+      feedback.showError('Download failed', 'Document URL not available');
+      return;
+    }
 
     try {
       const loadingToastId = feedback.showLoading('Downloading document...', 'Please wait while we prepare your download');
@@ -106,20 +115,36 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         throw new Error('Failed to generate download link');
       }
 
-      // Create download link
-      const link = document.createElement('a');
-      link.href = downloadData.signedUrl;
-      link.download = docData.original_name || document.name;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Fetch the file as a blob
+      const response = await fetch(downloadData.signedUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch document for download');
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      try {
+        // Create download link using blob URL
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = docData.original_name || document.name;
+        link.style.display = 'none';
+        
+        // Add to DOM, click, and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } finally {
+        // Always revoke the object URL to free memory
+        URL.revokeObjectURL(objectUrl);
+      }
 
       feedback.removeToast(loadingToastId);
       feedback.showSuccess('Download started', 'Your document is being downloaded');
     } catch (error) {
       console.error('Download error:', error);
-      feedback.showError('Download failed', 'Unable to download the document');
+      feedback.showError('Download failed', error instanceof Error ? error.message : 'Unable to download the document');
     }
   };
 
