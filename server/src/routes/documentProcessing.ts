@@ -24,74 +24,61 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({
-        success: false,
-        error: 'No file uploaded'
-      } as ProcessingResult);
+      return res.status(400).json({ success: false, error: 'No file uploaded' } as ProcessingResult);
+    }
+    if (!document_id || !user_id) {
+      return res.status(400).json({ success: false, error: 'Missing document_id or user_id' } as ProcessingResult);
     }
 
-    if (!document_id || !user_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing document_id or user_id'
-      } as ProcessingResult);
+    // ✅ Step 0: Validate that this document/user exists in DB
+    const { data: docData, error: docError } = await supabaseService.getDocumentById(document_id, user_id);
+    if (docError || !docData) {
+      return res.status(400).json({ success: false, error: 'Invalid document_id or user_id' } as ProcessingResult);
     }
+
+    const { id: validDocId, user_id: validUserId } = docData;
 
     filePath = file.path;
-
     console.log(`Processing document: ${file.originalname} (${file.mimetype})`);
 
     // Step 1: Extract text (supports PDF, DOCX, Images)
     const extractedText = await TextExtractor.extractText(filePath, file.mimetype);
-console.log("Extracted text preview:", extractedText.slice(0, 500));
+    console.log("Extracted text preview:", extractedText.slice(0, 500));
+
     if (!extractedText || extractedText.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No text could be extracted from the file'
-      } as ProcessingResult);
+      return res.status(400).json({ success: false, error: 'No text could be extracted from the file' } as ProcessingResult);
     }
 
     console.log(`Extracted ${extractedText.length} characters of text`);
 
     // Step 2: Split text into chunks
     const textChunks = TextChunker.chunkText(extractedText, 800);
-
     if (textChunks.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No valid text chunks could be created'
-      } as ProcessingResult);
+      return res.status(400).json({ success: false, error: 'No valid text chunks could be created' } as ProcessingResult);
     }
-
     console.log(`Created ${textChunks.length} text chunks`);
 
+    // Step 3: Generate embeddings
+    let embeddings: number[][] = [];
+    try {
+      embeddings = await embeddingService.generateEmbeddings(textChunks);
+      console.log(`Generated ${embeddings.length} embeddings`);
+    } catch (err) {
+      console.error("Error generating embeddings:", err);
+      return res.status(500).json({ success: false, error: "Failed to generate embeddings" });
+    }
 
-  // Step 3: Generate embeddings for chunks
-let embeddings: number[][] = [];
-try {
-  embeddings = await embeddingService.generateEmbeddings(textChunks);
-  console.log(`Generated ${embeddings.length} embeddings`);
-} catch (err) {
-  console.error("Error generating embeddings:", err);
-  return res.status(500).json({
-    success: false,
-    error: "Failed to generate embeddings",
-  });
-}
-
-
-    // Step 4: Prepare document chunks for database
+    // Step 4: Prepare validated document chunks
     const documentChunks: DocumentChunk[] = textChunks.map((chunk, index) => ({
-      document_id,
-      user_id,
+      document_id: validDocId,
+      user_id: validUserId,
       chunk_text: chunk,
       embedding: embeddings[index]
     }));
 
     // Step 5: Insert chunks into Supabase
     await supabaseService.insertDocumentChunks(documentChunks);
-
-    console.log(`Inserted ${documentChunks.length} chunks into database`);
+    console.log(`✅ Inserted ${documentChunks.length} chunks into database`);
 
     // Clean up uploaded file
     await fs.unlink(filePath);
@@ -103,7 +90,7 @@ try {
     } as ProcessingResult);
 
   } catch (error) {
-    console.error('Document processing error:', error);
+    console.error('❌ Document processing error:', error);
 
     if (filePath) {
       try {
@@ -125,30 +112,17 @@ try {
 router.post('/search-chunks', async (req: Request, res: Response) => {
   try {
     const { query, user_id, limit = 5 } = req.body;
-
     if (!query || !user_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing query or user_id'
-      });
+      return res.status(400).json({ success: false, error: 'Missing query or user_id' });
     }
 
     const queryEmbedding = await embeddingService.generateSingleEmbedding(query);
-
     const similarChunks = await supabaseService.searchSimilarChunks(queryEmbedding, user_id, limit);
 
-    res.json({
-      success: true,
-      results: similarChunks,
-      query
-    });
-
+    res.json({ success: true, results: similarChunks, query });
   } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Search failed'
-    });
+    console.error('❌ Search error:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Search failed' });
   }
 });
 
@@ -157,27 +131,15 @@ router.delete('/document-chunks/:documentId', async (req: Request, res: Response
   try {
     const { documentId } = req.params;
     const { user_id } = req.body;
-
     if (!user_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing user_id'
-      });
+      return res.status(400).json({ success: false, error: 'Missing user_id' });
     }
 
     await supabaseService.deleteDocumentChunks(documentId, user_id);
-
-    res.json({
-      success: true,
-      message: 'Document chunks deleted successfully'
-    });
-
+    res.json({ success: true, message: 'Document chunks deleted successfully' });
   } catch (error) {
-    console.error('Delete chunks error:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to delete chunks'
-    });
+    console.error('❌ Delete chunks error:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Failed to delete chunks' });
   }
 });
 
