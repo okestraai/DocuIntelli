@@ -96,7 +96,21 @@ router.post('/process-document', upload.single('file'), async (req: Request, res
       embedding: embeddings[index]
     }));
 
-    console.log("💾 Preparing to insert:", documentChunks.length, "chunks");
+    console.log("🚀 Final pre-insert check:", {
+      chunksPrepared: documentChunks.length,
+      sampleChunk: {
+        doc_id: documentChunks[0]?.document_id,
+        user_id: documentChunks[0]?.user_id,
+        textPreview: documentChunks[0]?.chunk_text.slice(0, 50),
+        embeddingType: typeof documentChunks[0]?.embedding,
+        embeddingLength: Array.isArray(documentChunks[0]?.embedding)
+          ? documentChunks[0]?.embedding.length
+          : "n/a",
+        embeddingSample: Array.isArray(documentChunks[0]?.embedding)
+          ? documentChunks[0]?.embedding.slice(0, 5)
+          : documentChunks[0]?.embedding
+      }
+    });
 
     // Step 5: Insert into Supabase
     await supabaseService.insertDocumentChunks(documentChunks);
