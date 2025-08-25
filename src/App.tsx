@@ -9,6 +9,7 @@ import { DocumentChat } from './components/DocumentChat';
 import { ExpirationTracker } from './components/ExpirationTracker';
 import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
+import { ProfileModal } from './components/ProfileModal';
 import { useDocuments } from './hooks/useDocuments';
 import { DocumentUploadRequest } from './lib/api';
 import { supabase, signOut } from './lib/supabase';
@@ -36,6 +37,7 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
   const feedback = useFeedback();
@@ -222,6 +224,7 @@ function App() {
           currentPage={currentPage}
           onNavigate={setCurrentPage}
           onSignOut={() => setShowLogoutConfirm(true)}
+          onOpenProfile={() => setShowProfileModal(true)}
         />
       )}
       
@@ -241,6 +244,14 @@ function App() {
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
           onUpload={handleDocumentsUploadNew}
+        />
+      )}
+
+      {/* Profile Modal */}
+      {showProfileModal && isAuthenticated && (
+        <ProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
         />
       )}
 

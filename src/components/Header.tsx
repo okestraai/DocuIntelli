@@ -1,14 +1,15 @@
 import React from 'react';
-import { Shield, FileText, Calendar, LayoutDashboard, LogOut } from 'lucide-react';
+import { Shield, FileText, Calendar, LayoutDashboard, LogOut, User } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
   onSignOut: () => void;
+  onOpenProfile: () => void;
 }
 
-export function Header({ currentPage, onNavigate, onSignOut }: HeaderProps) {
+export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile }: HeaderProps) {
   const navItems = [
     { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vault' as Page, label: 'Document Vault', icon: FileText },
@@ -43,13 +44,23 @@ export function Header({ currentPage, onNavigate, onSignOut }: HeaderProps) {
             </nav>
           </div>
 
-          <button
-            onClick={onSignOut}
-            className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Sign Out</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={onOpenProfile}
+              className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <User className="h-4 w-4" />
+              <span className="hidden sm:inline">Profile</span>
+            </button>
+            
+            <button
+              onClick={onSignOut}
+              className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>

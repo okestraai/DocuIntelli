@@ -157,6 +157,36 @@ export const getCurrentUser = async () => {
   return user
 }
 
+// Password reset function
+export const resetPassword = async (email: string) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`
+  })
+  if (error) throw error
+}
+
+// Update user profile
+export const updateUserProfile = async (updates: {
+  display_name?: string;
+  bio?: string;
+  email_notifications?: boolean;
+  document_reminders?: boolean;
+  security_alerts?: boolean;
+}) => {
+  const { error } = await supabase.auth.updateUser({
+    data: updates
+  })
+  if (error) throw error
+}
+
+// Change password
+export const changePassword = async (newPassword: string) => {
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword
+  })
+  if (error) throw error
+}
+
 // Social auth functions
 export const signInWithGoogle = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
