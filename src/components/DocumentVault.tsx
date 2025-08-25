@@ -9,13 +9,14 @@ import { ConfirmDialog } from './ConfirmDialog';
 interface DocumentVaultProps {
   documents: Document[];
   onDocumentSelect: (doc: Document) => void;
+  onDocumentView: (doc: Document) => void;
   onDocumentUpload?: (documentsData: DocumentUploadRequest[]) => Promise<void>;
   onDocumentDelete?: (documentId: string) => Promise<void>;
   feedback?: ReturnType<typeof useFeedback>;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, onDocumentDelete, feedback }: DocumentVaultProps) {
+export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete, feedback }: DocumentVaultProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -158,9 +159,9 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentUpload, o
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
-                    onClick={() => onDocumentSelect(doc)}
+                    onClick={() => onDocumentView(doc)}
                     className="text-gray-400 hover:text-blue-600 transition-colors"
-                    title="Chat with document"
+                    title="View document"
                   >
                     <Eye className="h-5 w-5" />
                   </button>

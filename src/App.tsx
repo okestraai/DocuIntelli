@@ -6,6 +6,7 @@ import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { DocumentVault } from './components/DocumentVault';
 import { DocumentChat } from './components/DocumentChat';
+import { DocumentViewer } from './components/DocumentViewer';
 import { ExpirationTracker } from './components/ExpirationTracker';
 import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
@@ -36,6 +37,7 @@ function App() {
   const [user, setUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -100,8 +102,16 @@ function App() {
     setSelectedDocument(doc);
   };
 
+  const handleDocumentView = (doc: Document) => {
+    setViewingDocument(doc);
+  };
+
   const handleBackToVault = () => {
     setSelectedDocument(null);
+  };
+
+  const handleBackFromViewer = () => {
+    setViewingDocument(null);
   };
 
   const handleDocumentUpload = (documentData: Partial<Document>) => {
@@ -158,6 +168,15 @@ function App() {
       );
     }
 
+    if (viewingDocument) {
+      return (
+        <DocumentViewer
+          document={viewingDocument}
+          onBack={handleBackFromViewer}
+        />
+      );
+    }
+
     switch (currentPage) {
       case 'dashboard':
         return (
@@ -177,6 +196,7 @@ function App() {
             <DocumentVault
               documents={documents}
               onDocumentSelect={handleDocumentSelect}
+              onDocumentView={handleDocumentView}
               onDocumentUpload={handleDocumentsUploadNew}
               onDocumentDelete={handleDocumentDelete}
               feedback={feedback}
