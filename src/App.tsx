@@ -39,8 +39,6 @@ function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
-  const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -129,19 +127,6 @@ function App() {
     }
   };
 
-  const handleSignOut = async () => {
-    setIsLoggingOut(true);
-    try {
-      await signOut();
-      feedback.showSuccess('Logged out successfully', 'You have been signed out of your account');
-      setShowLogoutConfirm(false);
-    } catch (error) {
-      feedback.showError('Logout failed', error instanceof Error ? error.message : 'Failed to sign out');
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
-
   const renderPage = () => {
     // Always show landing page if not authenticated
     if (!isAuthenticated) {
@@ -223,7 +208,6 @@ function App() {
         <Header
           currentPage={currentPage}
           onNavigate={setCurrentPage}
-          onSignOut={() => setShowLogoutConfirm(true)}
           onOpenProfile={() => setShowProfileModal(true)}
         />
       )}
@@ -258,18 +242,6 @@ function App() {
       {/* Toast Container */}
       <ToastContainer toasts={feedback.toasts} onClose={feedback.removeToast} />
 
-      {/* Logout Confirmation */}
-      <ConfirmDialog
-        isOpen={showLogoutConfirm}
-        title="Sign Out"
-        message="Are you sure you want to sign out of your account?"
-        confirmText="Sign Out"
-        cancelText="Cancel"
-        confirmVariant="primary"
-        isLoading={isLoggingOut}
-        onConfirm={handleSignOut}
-        onCancel={() => setShowLogoutConfirm(false)}
-      />
     </div>
   );
 }

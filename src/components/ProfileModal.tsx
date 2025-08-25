@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Lock, Shield, Calendar, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
-import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile } from '../lib/supabase';
+import { X, User, Mail, Lock, Shield, Calendar, Settings, Eye, EyeOff, AlertCircle, CheckCircle, LogOut } from 'lucide-react';
+import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile, signOut } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSignOut?: () => void;
 }
 
 interface UserProfile {
@@ -20,11 +21,13 @@ interface UserProfile {
 
 type TabType = 'profile' | 'security' | 'preferences';
 
-export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
+export function ProfileModal({ isOpen, onClose, onSignOut }: ProfileModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const feedback = useFeedback();
 
   // Profile form state
@@ -238,6 +241,23 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     }
   };
 
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+      feedback.showSuccess('Logged out successfully', 'You have been signed out of your account');
+      setShowSignOutConfirm(false);
+      onClose();
+      if (onSignOut) {
+        onSignOut();
+      }
+    } catch (error) {
+      feedback.showError('Logout failed', error instanceof Error ? error.message : 'Failed to sign out');
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -251,6 +271,18 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             disabled={isUpdating}
             className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
           >
+              
+              {/* Sign Out Button */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <button
+                  onClick={() => setShowSignOutConfirm(true)}
+                  disabled={isUpdating || isSigningOut}
+                  className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="text-sm font-medium">Sign Out</span>
+                </button>
+              </div>
             <X className="h-6 w-6" />
           </button>
         </div>
@@ -574,6 +606,54 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             )}
           </div>
         </div>
+        
+        {/* Sign Out Confirmation Dialog */}
+        {showSignOutConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 m-4">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-red-100 w-10 h-10 rounded-full flex items-center justify-center">
+                  <LogOut className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Sign Out</h3>
+                  <p className="text-sm text-gray-600">Are you sure you want to sign out?</p>
+                </div>
+              </div>
+              
+              <p className="text-gray-700 mb-6">
+                You will be logged out of your account and redirected to the login page.
+              </p>
+              
+              <div className="flex items-center justify-end space-x-3">
+                <button
+                  onClick={() => setShowSignOutConfirm(false)}
+                  disabled={isSigningOut}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+                >
+                  {isSigningOut ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      <span>Signing Out...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign Out</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
