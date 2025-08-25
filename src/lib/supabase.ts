@@ -26,6 +26,17 @@ export interface SupabaseDocument {
   updated_at: string
 }
 
+export interface UserProfile {
+  id: string
+  display_name?: string
+  bio?: string
+  email_notifications: boolean
+  document_reminders: boolean
+  security_alerts: boolean
+  created_at: string
+  updated_at: string
+}
+
 // Document operations
 export const uploadDocumentToStorage = async (file: File, userId: string, documentId: string) => {
   const fileExt = file.name.split('.').pop()
@@ -173,10 +184,45 @@ export const updateUserProfile = async (updates: {
   document_reminders?: boolean;
   security_alerts?: boolean;
 }) => {
-  const { error } = await supabase.auth.updateUser({
-    data: updates
-  })
-  if (error) throw error
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
+  // Update auth metadata for display_name and bio
+  if (updates.display_name !== undefined || updates.bio !== undefined) {
+    const { error: authError } = await supabase.auth.updateUser({
+      data: {
+        display_name: updates.display_name,
+        bio: updates.bio
+      }
+    })
+    if (authError) throw authError
+  }
+
+  // Update user_profiles table for all preferences
+  const { error: profileError } = await supabase
+    .from('user_profiles')
+    .upsert({
+      id: user.id,
+      ...updates,
+      updated_at: new Date().toISOString()
+    })
+
+  if (profileError) throw profileError
+}
+
+// Get user profile
+export const getUserProfile = async (): Promise<UserProfile | null> => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error // PGRST116 is "not found"
+  return data
 }
 
 // Change password

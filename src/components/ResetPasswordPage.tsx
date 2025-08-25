@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, changePassword } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 
 export function ResetPasswordPage() {
@@ -44,11 +44,7 @@ export function ResetPasswordPage() {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-
-      if (error) throw error;
+      await changePassword(newPassword);
 
       setIsSuccess(true);
       feedback.showSuccess('Password updated', 'Your password has been successfully changed');

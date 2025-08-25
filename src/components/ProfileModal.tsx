@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Mail, Lock, Shield, Calendar, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
-import { supabase, getCurrentUser } from '../lib/supabase';
+import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 
 interface ProfileModalProps {
@@ -14,6 +14,8 @@ interface UserProfile {
   created_at: string;
   last_sign_in_at?: string;
   email_confirmed_at?: string;
+  display_name?: string;
+  bio?: string;
 }
 
 type TabType = 'profile' | 'security' | 'preferences';
@@ -59,21 +61,33 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       setIsLoading(true);
       const user = await getCurrentUser();
       if (user) {
+        // Get basic auth user info
         setUserProfile({
           id: user.id,
           email: user.email || '',
           created_at: user.created_at || '',
           last_sign_in_at: user.last_sign_in_at,
-          email_confirmed_at: user.email_confirmed_at
+          email_confirmed_at: user.email_confirmed_at,
+          display_name: user.user_metadata?.display_name || '',
+          bio: user.user_metadata?.bio || ''
         });
 
-        // Load user metadata if available
-        const metadata = user.user_metadata || {};
-        setDisplayName(metadata.display_name || '');
-        setBio(metadata.bio || '');
-        setEmailNotifications(metadata.email_notifications !== false);
-        setDocumentReminders(metadata.document_reminders !== false);
-        setSecurityAlerts(metadata.security_alerts !== false);
+        // Get extended profile data
+        const profile = await getUserProfile();
+        if (profile) {
+          setDisplayName(profile.display_name || '');
+          setBio(profile.bio || '');
+          setEmailNotifications(profile.email_notifications);
+          setDocumentReminders(profile.document_reminders);
+          setSecurityAlerts(profile.security_alerts);
+        } else {
+          // Set defaults if no profile exists yet
+          setDisplayName(user.user_metadata?.display_name || '');
+          setBio(user.user_metadata?.bio || '');
+          setEmailNotifications(true);
+          setDocumentReminders(true);
+          setSecurityAlerts(true);
+        }
       }
     } catch (error) {
       feedback.showError('Failed to load profile', 'Unable to fetch your profile information');
@@ -87,16 +101,15 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
     setIsUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          display_name: displayName,
-          bio: bio
-        }
+      await updateUserProfile({
+        display_name: displayName,
+        bio: bio
       });
 
-      if (error) throw error;
-
       feedback.showSuccess('Profile updated', 'Your profile information has been saved successfully');
+      
+      // Reload profile to get updated data
+      await loadUserProfile();
     } catch (error) {
       feedback.showError('Update failed', error instanceof Error ? error.message : 'Failed to update profile');
     } finally {
@@ -122,11 +135,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
     setIsUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-
-      if (error) throw error;
+      await changePassword(newPassword);
 
       feedback.showSuccess('Password changed', 'Your password has been updated successfully');
       setCurrentPassword('');
@@ -144,11 +153,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
     setIsUpdating(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(userProfile.email, {
-        redirectTo: `${window.location.origin}/reset-password`
-      });
-
-      if (error) throw error;
+      await resetPassword(userProfile.email);
 
       feedback.showSuccess('Reset email sent', 'Check your email for password reset instructions');
     } catch (error) {
@@ -161,17 +166,16 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const handleUpdatePreferences = async () => {
     setIsUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          email_notifications: emailNotifications,
-          document_reminders: documentReminders,
-          security_alerts: securityAlerts
-        }
+      await updateUserProfile({
+        email_notifications: emailNotifications,
+        document_reminders: documentReminders,
+        security_alerts: securityAlerts
       });
 
-      if (error) throw error;
-
       feedback.showSuccess('Preferences saved', 'Your notification preferences have been updated');
+      
+      // Reload profile to confirm changes
+      await loadUserProfile();
     } catch (error) {
       feedback.showError('Update failed', error instanceof Error ? error.message : 'Failed to update preferences');
     } finally {
@@ -180,23 +184,53 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   };
 
   const handleDeleteAccount = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your documents and data.'
+    const userInput = prompt(
+      'This will permanently delete your account and all data. Type "DELETE" to confirm:'
     );
 
-    if (!confirmed) return;
-
-    const doubleConfirm = window.confirm(
-      'This is your final warning. Deleting your account will permanently remove all your data. Type "DELETE" to confirm.'
-    );
-
-    if (!doubleConfirm) return;
+    if (userInput !== 'DELETE') {
+      feedback.showError('Deletion cancelled', 'Account deletion was cancelled');
+      return;
+    }
 
     setIsUpdating(true);
     try {
-      // Note: Supabase doesn't have a direct delete user method from client
-      // This would typically be handled by a server-side function
-      feedback.showError('Feature unavailable', 'Account deletion must be requested through support');
+      // First delete all user documents and chunks
+      const { data: documents } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('user_id', userProfile.id);
+
+      if (documents && documents.length > 0) {
+        // Delete document chunks first (due to foreign key constraints)
+        await supabase
+          .from('document_chunks')
+          .delete()
+          .eq('user_id', userProfile.id);
+
+        // Delete documents
+        await supabase
+          .from('documents')
+          .delete()
+          .eq('user_id', userProfile.id);
+      }
+
+      // Delete user files from storage
+      const { data: files } = await supabase.storage
+        .from('documents')
+        .list(userProfile.id);
+
+      if (files && files.length > 0) {
+        const filePaths = files.map(file => `${userProfile.id}/${file.name}`);
+        await supabase.storage
+          .from('documents')
+          .remove(filePaths);
+      }
+
+      feedback.showSuccess('Account deleted', 'Your account and all data have been permanently deleted');
+      
+      // Sign out the user
+      await supabase.auth.signOut();
     } catch (error) {
       feedback.showError('Delete failed', error instanceof Error ? error.message : 'Failed to delete account');
     } finally {
