@@ -7,17 +7,11 @@ async function testInsert() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  const document_id = "b9f07911-3af9-4514-857d-ee882c865e8";
-  const user_id = "ce1072ba-822d-42c0-b705-4ca2e5f991db";
-
-  console.log("📌 Using document_id:", document_id);
-  console.log("📌 Using user_id:", user_id);
-
   const dummyChunk = {
-    document_id, // Supabase should accept plain UUID strings
-    user_id,
+    document_id: "b9f07911-3af9-4514-857d-ee882c865e8",
+    user_id: "ce1072ba-822d-42c0-b705-4ca2e5f991db",
     chunk_text: "This is a test chunk of text.",
-    embedding: Array(1536).fill(0),
+    embedding: `{${Array(1536).fill(0).join(",")}}`, // <-- proper vector serialization
   };
 
   const { data, error } = await supabase
