@@ -135,55 +135,31 @@ export const updateDocumentStatus = async (id: string, status: 'active' | 'expir
 }
 // Auth helper functions
 export const signUp = async (email: string, password: string) => {
-  try {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
-      }
-    })
-    
-    if (error) {
-      console.error('Sign up error:', error);
-      throw error;
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/auth/callback`
     }
-    return data;
-  } catch (error) {
-    console.error('Failed to sign up:', error);
-    throw error;
-  }
+  })
+  
+  if (error) throw error
+  return data
 }
 
 export const signIn = async (email: string, password: string) => {
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    
-    if (error) {
-      console.error('Sign in error:', error);
-      throw error;
-    }
-    return data;
-  } catch (error) {
-    console.error('Failed to sign in:', error);
-    throw error;
-  }
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+  
+  if (error) throw error
+  return data
 }
 
 export const signOut = async () => {
-  try {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Sign out error:', error);
-      throw error;
-    }
-  } catch (error) {
-    console.error('Failed to sign out:', error);
-    throw error;
-  }
+  const { error } = await supabase.auth.signOut()
+  if (error) throw error
 }
 
 export const getCurrentUser = async () => {

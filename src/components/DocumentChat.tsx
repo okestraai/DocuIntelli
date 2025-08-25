@@ -81,7 +81,6 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Chat AI error:', error);
       feedback.showError('Failed to get response', 'The AI assistant is temporarily unavailable. Please try again.');
       
       const errorMessage: Message = {
