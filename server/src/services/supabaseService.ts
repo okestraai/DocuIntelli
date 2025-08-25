@@ -26,19 +26,27 @@ export class SupabaseService {
   }
 
   async insertDocumentChunks(chunks: DocumentChunk[]): Promise<void> {
-    try {
-      const { error } = await this.supabase
-        .from('document_chunks')
-        .insert(chunks);
+  try {
+    // Log the first chunk so we can inspect payload shape
+    console.log("💾 Attempting to insert chunks, sample payload:", JSON.stringify(chunks[0], null, 2));
 
-      if (error) {
-        throw error;
-      }
-    } catch (error) {
-      console.error('❌ Supabase insert error:', error);
-      throw new Error(`Failed to insert chunks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const { data, error } = await this.supabase
+      .from('document_chunks')
+      .insert(chunks)
+      .select(); // force Supabase to return inserted rows
+
+    if (error) {
+      console.error("❌ Supabase insert error:", error);
+      throw error;
     }
+
+    console.log("✅ Insert result:", data);
+  } catch (error) {
+    console.error('❌ Supabase insertDocumentChunks failed:', error);
+    throw new Error(`Failed to insert chunks: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
 
   async deleteDocumentChunks(documentId: string, userId: string): Promise<void> {
     try {
