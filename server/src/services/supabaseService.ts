@@ -27,13 +27,24 @@ export class SupabaseService {
 
   async insertDocumentChunks(chunks: DocumentChunk[]): Promise<void> {
   try {
-    // Log the first chunk so we can inspect payload shape
-    console.log("💾 Attempting to insert chunks, sample payload:", JSON.stringify(chunks[0], null, 2));
+    if (!chunks || chunks.length === 0) {
+      console.warn("⚠️ No chunks provided for insert");
+      return;
+    }
+
+    // Log shape of first chunk
+    console.log("💾 Attempting to insert chunks. Sample payload:");
+    console.log("📌 document_id:", chunks[0].document_id);
+    console.log("📌 user_id:", chunks[0].user_id);
+    console.log("📌 chunk_text (preview):", chunks[0].chunk_text.slice(0, 100));
+    console.log("📌 embedding type:", typeof chunks[0].embedding, 
+                "length:", Array.isArray(chunks[0].embedding) ? chunks[0].embedding.length : "n/a");
+    console.log("📌 embedding sample:", Array.isArray(chunks[0].embedding) ? chunks[0].embedding.slice(0, 5) : chunks[0].embedding);
 
     const { data, error } = await this.supabase
       .from('document_chunks')
       .insert(chunks)
-      .select(); // force Supabase to return inserted rows
+      .select(); // force return of inserted rows
 
     if (error) {
       console.error("❌ Supabase insert error:", error);
