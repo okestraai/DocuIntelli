@@ -1,6 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DocumentChunk } from '../types';
 
+// Simple UUID regex validator
+function isValidUUID(value: string): boolean {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value.trim());
+}
+
 export class SupabaseService {
   private supabase: SupabaseClient;
 
@@ -8,13 +15,33 @@ export class SupabaseService {
     this.supabase = createClient(url, serviceRoleKey);
   }
 
-  // Insert document chunks (embeddings)
+  // Insert document chunks (with UUID validation + embedding serialization)
   async insertDocumentChunks(chunks: DocumentChunk[]): Promise<void> {
     try {
+      // Validate UUIDs and convert embedding
+      const safeChunks = chunks.map((chunk) => {
+        if (!isValidUUID(chunk.document_id)) {
+          throw new Error(`Invalid document_id: ${chunk.document_id}`);
+        }
+        if (!isValidUUID(chunk.user_id)) {
+          throw new Error(`Invalid user_id: ${chunk.user_id}`);
+        }
+
+        return {
+          ...chunk,
+          document_id: chunk.document_id.trim(),
+          user_id: chunk.user_id.trim(),
+          // ensure Postgres-compatible embedding
+          embedding: Array.isArray(chunk.embedding)
+            ? `{${chunk.embedding.join(',')}}`
+            : chunk.embedding,
+        };
+      });
+
       const { data, error } = await this.supabase
         .from('document_chunks')
-        .insert(chunks)
-        .select('*'); // return inserted rows
+        .insert(safeChunks)
+        .select('*');
 
       if (error) {
         console.error('❌ Supabase insert error:', error);
@@ -35,15 +62,21 @@ export class SupabaseService {
     }
   }
 
-  // Delete document chunks for a specific doc + user
   async deleteDocumentChunks(documentId: string, userId: string): Promise<void> {
     try {
+      if (!isValidUUID(documentId)) {
+        throw new Error(`Invalid document_id: ${documentId}`);
+      }
+      if (!isValidUUID(userId)) {
+        throw new Error(`Invalid user_id: ${userId}`);
+      }
+
       const { data, error } = await this.supabase
         .from('document_chunks')
         .delete()
-        .eq('document_id', documentId)
-        .eq('user_id', userId)
-        .select('*'); // return deleted rows
+        .eq('document_id', documentId.trim())
+        .eq('user_id', userId.trim())
+        .select('*');
 
       if (error) {
         console.error('❌ Supabase delete error:', error);
@@ -61,18 +94,21 @@ export class SupabaseService {
     }
   }
 
-  // Search similar chunks using pgvector function
   async searchSimilarChunks(
     embedding: number[],
     userId: string,
     limit: number = 5
   ): Promise<any[]> {
     try {
+      if (!isValidUUID(userId)) {
+        throw new Error(`Invalid user_id: ${userId}`);
+      }
+
       const { data, error } = await this.supabase.rpc('match_document_chunks', {
         query_embedding: embedding,
         match_threshold: 0.7,
         match_count: limit,
-        user_id: userId
+        user_id: userId.trim(),
       });
 
       if (error) {
