@@ -3,17 +3,18 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "server": "cd server && npm run dev",
-    "server:build": "cd server && npm run build",
-    "server:start": "cd server && npm start",
-    "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
-    "start": "npm run dev:full"
-  },
+"scripts": {
+  "dev": "vite",
+  "build": "vite build",
+  "lint": "eslint .",
+  "preview": "vite preview",
+  "server": "cd server && npm run dev",
+  "server:build": "cd server && npm run build",
+  "server:start": "cd server && npm start",
+  "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
+  "start": "npm run dev:full"
+}
+
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",
     "@types/cors": "^2.8.19",
