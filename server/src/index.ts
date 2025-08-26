@@ -25,4 +25,6 @@ app.get("/api/health", (req: Request, res: Response) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
+  console.log(`📁 Upload endpoint: http://localhost:${PORT}/api/upload`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
 });
