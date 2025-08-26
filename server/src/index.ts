@@ -32,12 +32,12 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/api", uploadRoutes);
 
 app.get("/api/health", (req: Request, res: Response) => {
-  res.json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || "development",
-    supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
-  });
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+    supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
+  });
 });
 
 app.listen(PORT, () => {
