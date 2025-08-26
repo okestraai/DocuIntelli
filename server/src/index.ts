@@ -1,14 +1,18 @@
-// ✅ Move dotenv.config() to the very top of the file
+// src/index.ts
+
+// The dotenv import and configuration MUST be the first thing to run.
 import dotenv from "dotenv";
 import path from "path";
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-import express from "express";
+// Import necessary modules
+import express, { Request, Response } from "express";
 import cors from "cors";
 import uploadRoutes from "./routes/upload";
 
-// ✅ Explicitly load .env from the server root
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+// Initialize the Express application
+const app = express();
+const PORT = process.env.PORT || 5000;
 
 // Debug log to verify env vars are loaded
 console.log("Loaded ENV:", {
@@ -17,29 +21,28 @@ console.log("Loaded ENV:", {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "present" : "missing"
 });
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-app.use(
-  cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
-    credentials: true,
-  })
-);
+// Configure middleware
+app.use(cors({
+  origin: ["http://localhost:5173", "http://localhost:3000"],
+  credentials: true,
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
+// Define API routes
 app.use("/api", uploadRoutes);
 
+// Define a simple health check endpoint
 app.get("/api/health", (req: Request, res: Response) => {
-  res.json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || "development",
-    supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
-  });
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+    supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
+  });
 });
 
+// Start the server
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
   console.log(`📁 Upload endpoint: http://localhost:${PORT}/api/upload`);
