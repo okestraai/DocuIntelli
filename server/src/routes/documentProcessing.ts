@@ -78,7 +78,7 @@ router.post(
       console.log(`📄 Extracted ${extractedText.length} characters of text`);
 
       // Step 2: Split into chunks
-      const textChunks = TextChunker.chunkText(extractedText, 800);
+      const textChunks = TextChunker.chunkText(extractedText);
       console.log("✂️ Chunks created:", textChunks.length);
 
       if (textChunks.length === 0) {
