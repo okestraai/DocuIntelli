@@ -32,4 +32,13 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
-    environment: process.env.
+    environment: process.env.NODE_ENV || "development",
+    supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on port ${PORT}`);
+  console.log(`📁 Upload endpoint: http://localhost:${PORT}/api/upload`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+});
