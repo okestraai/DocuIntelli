@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/app.js",
-    "dev": "nodemon --exec ts-node --esm server/src/index.ts",
+"dev": "nodemon --exec ts-node --esm src/index.ts",
     "build": "tsc",
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
