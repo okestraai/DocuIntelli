@@ -1,3 +1,5 @@
+// src/routes/upload.ts
+
 import { Router, Request, Response } from "express";
 import multer, { FileFilterCallback } from "multer";
 import { createClient } from "@supabase/supabase-js";
@@ -27,18 +29,19 @@ const upload = multer({
   }
 });
 
-// Supabase client — use backend-safe env vars
-const supabase = createClient(
-  process.env.SUPABASE_URL!,       // ✅ backend uses SUPABASE_URL
-  process.env.SUPABASE_ANON_KEY!   // ✅ backend uses SUPABASE_ANON_KEY
-);
-
 // Upload endpoint
 router.post(
   "/upload",
   upload.single("file"),
   async (req: Request, res: Response): Promise<void> => {
     try {
+      // ✅ Move the Supabase client initialization inside the handler
+      // This ensures environment variables are loaded before the client is created.
+      const supabase = createClient(
+        process.env.SUPABASE_URL!,
+        process.env.SUPABASE_ANON_KEY!
+      );
+
       console.log("📥 Upload request received");
 
       const file = req.file;
