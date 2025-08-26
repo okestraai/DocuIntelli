@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
 
+import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
+
 const router = Router();
 
 // Use memory storage instead of disk storage
@@ -99,4 +103,4 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
   }
 });
 
-module.exports = router;
+export default router;
