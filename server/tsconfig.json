@@ -31,7 +31,7 @@
   },
   "include": [
     "src/**/*",
-    "../server/src/**/*.ts"
+    "types/**/*"          // 👈 add this so pdf-parse.d.ts is included
   ],
   "exclude": [
     "node_modules",
