@@ -1,15 +1,28 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
 import dotenv from "dotenv";
-import uploadRoutes from "./routes/upload"; // ✅ no .js extension needed in TS
+import uploadRoutes from "./routes/upload";
 
-dotenv.config();
+// ✅ Explicitly load .env from the server root
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+// Debug log to verify env vars are loaded
+console.log("Loaded ENV:", {
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? "present" : "missing",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "present" : "missing"
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: ["http://localhost:5173", "http://localhost:3000"], credentials: true }));
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://localhost:3000"],
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -19,12 +32,4 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || "development",
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-  console.log(`📁 Upload endpoint: http://localhost:${PORT}/api/upload`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-});
+    environment: process.env.
