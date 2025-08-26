@@ -34,10 +34,11 @@ router.post(
   "/upload",
   upload.single("file"),
   async (req: Request, res: Response): Promise<void> => {
+    let supabase;
     try {
       // ✅ Move the Supabase client initialization inside the handler
       // This ensures environment variables are loaded before the client is created.
-      const supabase = createClient(
+      supabase = createClient(
         process.env.SUPABASE_URL!,
         process.env.SUPABASE_ANON_KEY!
       );
