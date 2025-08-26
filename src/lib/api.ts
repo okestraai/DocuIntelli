@@ -1,5 +1,5 @@
 // API client for document operations
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export interface DocumentUploadResponse {
   id: string;
@@ -13,11 +13,38 @@ export interface DocumentUploadResponse {
   expirationDate?: string;
 }
 
+export interface UploadResponse {
+  success: boolean;
+  path: string;
+  url: string;
+  filename: string;
+  size: number;
+  mimetype: string;
+}
+
 export interface DocumentUploadRequest {
   name: string;
   category: string;
   file: File;
 }
+
+// Upload a single document to Supabase Storage
+export const uploadDocument = async (file: File): Promise<UploadResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Upload failed');
+  }
+
+  return response.json();
+};
 
 // Mock data for when backend is unavailable
 const mockDocuments: DocumentUploadResponse[] = [
@@ -206,18 +233,45 @@ class ApiClient {
   }
 
   async uploadDocuments(documents: DocumentUploadRequest[]): Promise<DocumentUploadResponse[]> {
-    const formData = new FormData();
-    
-    documents.forEach((doc, index) => {
-      formData.append(`files`, doc.file);
-      formData.append(`names`, doc.name);
-      formData.append(`categories`, doc.category);
-    });
+    try {
+      const uploadPromises = documentsData.map(async (doc) => {
+        const uploadResult = await uploadDocument(doc.file);
+        
+        // Transform upload result to match DocumentUploadResponse
+        return {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          name: doc.name,
+          category: doc.category,
+          type: this.getFileType(uploadResult.mimetype),
+          size: this.formatFileSize(uploadResult.size),
+          filePath: uploadResult.path,
+          uploadDate: new Date().toISOString().split('T')[0],
+          status: 'active' as const,
+          expirationDate: doc.expirationDate
+        };
+      });
 
-    return this.request<DocumentUploadResponse[]>('/documents/upload', {
-      method: 'POST',
-      body: formData,
-    });
+      return Promise.all(uploadPromises);
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
+    }
+  }
+
+  private getFileType(mimeType: string): string {
+    if (mimeType.includes('pdf')) return 'PDF';
+    if (mimeType.includes('word')) return 'Word';
+    if (mimeType.includes('text')) return 'Text';
+    if (mimeType.includes('image')) return 'Image';
+    return 'Document';
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
   async getDocuments(): Promise<DocumentUploadResponse[]> {
