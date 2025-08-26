@@ -32,12 +32,31 @@ const upload = multer({
 // Upload endpoint
 router.post(
   "/upload",
-  upload.single("file"),
+  (req: Request, res: Response, next) => {
+    // Wrap the Multer middleware call in a try/catch to handle upload errors
+    try {
+      upload.single("file")(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+          // A Multer-specific error occurred when uploading.
+          return res.status(400).json({ success: false, error: err.message });
+        } else if (err) {
+          // An unknown error occurred, likely from the fileFilter callback.
+          return res.status(400).json({ success: false, error: err.message });
+        }
+        // If no errors, pass control to the next middleware (the route handler)
+        // ✅ The 'return' here satisfies the TypeScript compiler's check.
+        return next();
+      });
+    } catch (err) {
+      // This catch block is a fail-safe for any unexpected sync errors
+      const message = err instanceof Error ? err.message : "An unexpected Multer error occurred.";
+      res.status(500).json({ success: false, error: message });
+    }
+  },
   async (req: Request, res: Response): Promise<void> => {
     let supabase;
     try {
-      // ✅ Move the Supabase client initialization inside the handler
-      // This ensures environment variables are loaded before the client is created.
+      // ✅ Supabase client initialization is now safe as it's within the request lifecycle
       supabase = createClient(
         process.env.SUPABASE_URL!,
         process.env.SUPABASE_ANON_KEY!
@@ -84,6 +103,16 @@ router.post(
       const { data: urlData } = supabase.storage
         .from("documents")
         .getPublicUrl(uniquePath);
+
+      // ✅ Crucial change: Check if urlData exists before trying to access publicUrl
+      if (!urlData) {
+        console.error("❌ Supabase getPublicUrl error: 'data' object is null.");
+        res.status(500).json({
+          success: false,
+          error: "Failed to retrieve public URL for the uploaded file."
+        });
+        return;
+      }
 
       console.log(`✅ Uploaded: ${urlData.publicUrl}`);
 
