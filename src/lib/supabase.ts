@@ -88,13 +88,19 @@ export const getDocuments = async () => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
 
+  console.log('Fetching documents for user:', user.id);
   const { data, error } = await supabase
     .from('documents')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
-  if (error) throw error
+  if (error) {
+    console.error('Error fetching documents:', error);
+    throw error;
+  }
+  
+  console.log('Raw documents from database:', data);
   return data || []
 }
 
