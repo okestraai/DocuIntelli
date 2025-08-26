@@ -7,8 +7,12 @@ const router = Router();
 // Multer: in-memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (
+    req,
+    file,
+    cb: (error: Error | null, acceptFile: boolean) => void
+  ) => {
     const allowedTypes = [
       "application/pdf",
       "application/msword",
@@ -20,12 +24,13 @@ const upload = multer({
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
+      cb(null, true); // ✅ valid type
     } else {
-      cb(new Error("Invalid file type"), false);
+      cb(new Error("Invalid file type"), false); // ✅ valid type
     }
   }
 });
+
 
 // Supabase client — use backend-safe env vars
 const supabase = createClient(
