@@ -35,23 +35,27 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY!
 );
 
-router.post('/api/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   try {
+    console.log('📥 Upload request received');
     const file = req.file;
 
     if (!file) {
+      console.log('❌ No file in request');
       return res.status(400).json({ 
         success: false, 
         error: 'No file uploaded' 
       });
     }
 
+    console.log(`📄 Processing file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`);
+
     // Create unique path with timestamp and original filename
     const timestamp = Date.now();
     const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const uniquePath = `documents/${timestamp}-${sanitizedFilename}`;
 
-    console.log(`Uploading file to Supabase Storage: ${uniquePath}`);
+    console.log(`☁️ Uploading to Supabase Storage: ${uniquePath}`);
 
     // Upload file buffer to Supabase Storage
     const { data, error } = await supabase.storage
@@ -62,10 +66,11 @@ router.post('/api/upload', upload.single('file'), async (req: Request, res: Resp
       });
 
     if (error) {
-      console.error('Supabase upload error:', error);
+      console.error('❌ Supabase upload error:', error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to upload file to storage'
+        error: 'Failed to upload file to storage',
+        details: error.message
       });
     }
 
@@ -74,7 +79,7 @@ router.post('/api/upload', upload.single('file'), async (req: Request, res: Resp
       .from('documents')
       .getPublicUrl(uniquePath);
 
-    console.log(`File uploaded successfully: ${urlData.publicUrl}`);
+    console.log(`✅ File uploaded successfully: ${urlData.publicUrl}`);
 
     res.json({
       success: true,
@@ -86,7 +91,7 @@ router.post('/api/upload', upload.single('file'), async (req: Request, res: Resp
     });
 
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('❌ Upload error:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred'
@@ -94,4 +99,4 @@ router.post('/api/upload', upload.single('file'), async (req: Request, res: Resp
   }
 });
 
-export default router;
+module.exports = router;
