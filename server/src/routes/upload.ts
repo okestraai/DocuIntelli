@@ -1,18 +1,14 @@
 import { Router, Request, Response } from "express";
-import multer from "multer";
+import multer, { FileFilterCallback } from "multer";
 import { createClient } from "@supabase/supabase-js";
 
 const router = Router();
 
-// Multer: in-memory storage
+// Multer: in-memory storage with type-safe fileFilter
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (
-    req,
-    file,
-    cb: (error: Error | null, acceptFile: boolean) => void
-  ) => {
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
     const allowedTypes = [
       "application/pdf",
       "application/msword",
@@ -24,75 +20,83 @@ const upload = multer({
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true); // ✅ valid type
+      cb(null, true); // ✅ allow file
     } else {
-      cb(new Error("Invalid file type"), false); // ✅ valid type
+      cb(new Error("Invalid file type")); // ✅ reject file
     }
   }
 });
-
 
 // Supabase client — use backend-safe env vars
 const supabase = createClient(
-  process.env.SUPABASE_URL!,        // ✅ backend should use SUPABASE_URL
-  process.env.SUPABASE_ANON_KEY!    // ✅ backend should use SUPABASE_ANON_KEY
+  process.env.SUPABASE_URL!,       // ✅ backend uses SUPABASE_URL
+  process.env.SUPABASE_ANON_KEY!   // ✅ backend uses SUPABASE_ANON_KEY
 );
 
-router.post("/upload", upload.single("file"), async (req: Request, res: Response) => {
-  try {
-    console.log("📥 Upload request received");
+// Upload endpoint
+router.post(
+  "/upload",
+  upload.single("file"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      console.log("📥 Upload request received");
 
-    const file = req.file;
-    if (!file) {
-      return res.status(400).json({ success: false, error: "No file uploaded" });
-    }
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, error: "No file uploaded" });
+        return;
+      }
 
-    console.log(`📄 Processing: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`);
+      console.log(
+        `📄 Processing: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`
+      );
 
-    // Create unique path
-    const timestamp = Date.now();
-    const sanitized = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const uniquePath = `documents/${timestamp}-${sanitized}`;
+      // Create unique storage path
+      const timestamp = Date.now();
+      const sanitized = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_");
+      const uniquePath = `documents/${timestamp}-${sanitized}`;
 
-    console.log(`☁️ Uploading to Supabase Storage: ${uniquePath}`);
+      console.log(`☁️ Uploading to Supabase Storage: ${uniquePath}`);
 
-    // Upload
-    const { error } = await supabase.storage
-      .from("documents")
-      .upload(uniquePath, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false
+      // Upload to Supabase Storage
+      const { error } = await supabase.storage
+        .from("documents")
+        .upload(uniquePath, file.buffer, {
+          contentType: file.mimetype,
+          upsert: false
+        });
+
+      if (error) {
+        console.error("❌ Supabase upload error:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to upload file to storage",
+          details: error.message
+        });
+        return;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("documents")
+        .getPublicUrl(uniquePath);
+
+      console.log(`✅ Uploaded: ${urlData.publicUrl}`);
+
+      res.json({
+        success: true,
+        path: uniquePath,
+        url: urlData.publicUrl,
+        filename: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype
       });
-
-    if (error) {
-      console.error("❌ Supabase upload error:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to upload file to storage",
-        details: error.message
-      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error occurred";
+      console.error("❌ Upload error:", message);
+      res.status(500).json({ success: false, error: message });
     }
-
-    // Public URL
-    const { data: urlData } = supabase.storage
-      .from("documents")
-      .getPublicUrl(uniquePath);
-
-    console.log(`✅ Uploaded: ${urlData.publicUrl}`);
-
-    res.json({
-      success: true,
-      path: uniquePath,
-      url: urlData.publicUrl,
-      filename: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error occurred";
-    console.error("❌ Upload error:", message);
-    res.status(500).json({ success: false, error: message });
   }
-});
+);
 
 export default router;
