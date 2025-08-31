@@ -1,135 +1,449 @@
-// src/routes/upload.ts
-
-import { Router, Request, Response } from "express";
-import multer, { FileFilterCallback } from "multer";
-import { createClient } from "@supabase/supabase-js";
+import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
+import { uploadToCOS, getPresignedUploadUrl, getPresignedDownloadUrl, deleteFromCOS, generateFileKey, fileExistsInCOS } from '../services/storage';
 
 const router = Router();
 
-// Multer: in-memory storage with type-safe fileFilter
+// Initialize Supabase client for database operations
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (req, file, cb) => {
     const allowedTypes = [
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "text/plain",
-      "image/jpeg",
-      "image/png",
-      "image/gif"
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
+      'text/plain',
+      'image/jpeg',
+      'image/png',
+      'image/gif'
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true); // ✅ allow file
+      cb(null, true);
     } else {
-      cb(new Error("Invalid file type")); // ✅ reject file
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
     }
   }
 });
 
-// Upload endpoint
-router.post(
-  "/upload",
-  (req: Request, res: Response, next) => {
-    // Wrap the Multer middleware call in a try/catch to handle upload errors
-    try {
-      upload.single("file")(req, res, (err) => {
-        if (err instanceof multer.MulterError) {
-          // A Multer-specific error occurred when uploading.
-          return res.status(400).json({ success: false, error: err.message });
-        } else if (err) {
-          // An unknown error occurred, likely from the fileFilter callback.
-          return res.status(400).json({ success: false, error: err.message });
-        }
-        // If no errors, pass control to the next middleware (the route handler)
-        // ✅ The 'return' here satisfies the TypeScript compiler's check.
-        return next();
+/**
+ * POST /api/upload - Upload document to IBM COS and create database record
+ */
+router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    console.log('📥 Upload request received');
+
+    // Get user from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authorization header required'
       });
-    } catch (err) {
-      // This catch block is a fail-safe for any unexpected sync errors
-      const message = err instanceof Error ? err.message : "An unexpected Multer error occurred.";
-      res.status(500).json({ success: false, error: message });
     }
-  },
-  async (req: Request, res: Response): Promise<void> => {
-    let supabase;
-    try {
-      // ✅ Supabase client initialization is now safe as it's within the request lifecycle
-      supabase = createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_ANON_KEY!
-      );
 
-      console.log("📥 Upload request received");
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
 
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ success: false, error: "No file uploaded" });
-        return;
-      }
-
-      console.log(
-        `📄 Processing: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`
-      );
-
-      // Create unique storage path
-      const timestamp = Date.now();
-      const sanitized = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_");
-      const uniquePath = `documents/${timestamp}-${sanitized}`;
-
-      console.log(`☁️ Uploading to Supabase Storage: ${uniquePath}`);
-
-      // Upload to Supabase Storage
-      const { error } = await supabase.storage
-        .from("documents")
-        .upload(uniquePath, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false
-        });
-
-      if (error) {
-        console.error("❌ Supabase upload error:", error);
-        res.status(500).json({
-          success: false,
-          error: "Failed to upload file to storage",
-          details: error.message
-        });
-        return;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from("documents")
-        .getPublicUrl(uniquePath);
-
-      // ✅ Crucial change: Check if urlData exists before trying to access publicUrl
-      if (!urlData) {
-        console.error("❌ Supabase getPublicUrl error: 'data' object is null.");
-        res.status(500).json({
-          success: false,
-          error: "Failed to retrieve public URL for the uploaded file."
-        });
-        return;
-      }
-
-      console.log(`✅ Uploaded: ${urlData.publicUrl}`);
-
-      res.json({
-        success: true,
-        path: uniquePath,
-        url: urlData.publicUrl,
-        filename: file.originalname,
-        size: file.size,
-        mimetype: file.mimetype
+    if (userError || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
       });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error occurred";
-      console.error("❌ Upload error:", message);
-      res.status(500).json({ success: false, error: message });
     }
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const { name, category, expirationDate } = req.body;
+    if (!name || !category) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name and category are required'
+      });
+    }
+
+    console.log(`📄 Processing file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`);
+    console.log(`👤 User: ${user.id}`);
+    console.log(`📝 Metadata: name="${name}", category="${category}"`);
+
+    // Generate unique file key
+    const fileKey = generateFileKey(user.id, file.originalname);
+    console.log(`🔑 Generated file key: ${fileKey}`);
+
+    // Check for duplicate uploads (idempotency)
+    const existingFile = await fileExistsInCOS(fileKey);
+    if (existingFile) {
+      console.log(`⚠️ File already exists: ${fileKey}`);
+      return res.status(409).json({
+        success: false,
+        error: 'File already exists'
+      });
+    }
+
+    // Upload to IBM COS
+    const uploadResult = await uploadToCOS(file.buffer, fileKey, file.mimetype);
+    
+    if (!uploadResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload file to storage',
+        details: uploadResult.error
+      });
+    }
+
+    console.log(`✅ File uploaded to IBM COS: ${uploadResult.url}`);
+
+    // Helper functions
+    const formatFileSize = (bytes: number): string => {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    };
+
+    const getFileType = (mimeType: string): string => {
+      if (mimeType.includes('pdf')) return 'PDF';
+      if (mimeType.includes('word')) return 'Word';
+      if (mimeType.includes('text')) return 'Text';
+      if (mimeType.includes('image')) return 'Image';
+      return 'Document';
+    };
+
+    // Create document record in Supabase database
+    const { data: documentData, error: dbError } = await supabase
+      .from('documents')
+      .insert([{
+        user_id: user.id,
+        name: name.trim(),
+        category: category,
+        type: getFileType(file.mimetype),
+        size: formatFileSize(file.size),
+        file_path: fileKey, // Store the COS key instead of Supabase path
+        original_name: file.originalname,
+        upload_date: new Date().toISOString().split('T')[0],
+        expiration_date: expirationDate || null,
+        status: 'active',
+        processed: false
+      }])
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('❌ Database insert error:', dbError);
+      
+      // Clean up uploaded file if database insert fails
+      await deleteFromCOS(fileKey);
+      
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create document record',
+        details: dbError.message
+      });
+    }
+
+    console.log(`✅ Document record created: ${documentData.id}`);
+
+    // Trigger document processing via Edge Function
+    try {
+      console.log(`🔄 Triggering document processing for: ${documentData.id}`);
+      
+      // Call the process-document Edge Function
+      const processResponse = await fetch(`${process.env.SUPABASE_URL}/functions/v1/process-document`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_id: documentData.id,
+          file_key: fileKey,
+          file_type: file.mimetype
+        })
+      });
+
+      if (processResponse.ok) {
+        const processResult = await processResponse.json();
+        console.log(`✅ Document processing initiated: ${processResult.chunks_processed || 0} chunks`);
+      } else {
+        console.error('⚠️ Document processing failed (non-blocking):', await processResponse.text());
+      }
+    } catch (processError) {
+      console.error('⚠️ Document processing error (non-blocking):', processError);
+      // Don't fail the upload if processing fails
+    }
+
+    console.log(`🎉 Upload workflow completed successfully`);
+    console.log(`📊 Summary:`);
+    console.log(`   - File: ${file.originalname} (${getFileType(file.mimetype)})`);
+    console.log(`   - COS Key: ${fileKey}`);
+    console.log(`   - Document ID: ${documentData.id}`);
+    console.log(`   - Public URL: ${uploadResult.url}`);
+
+    res.json({
+      success: true,
+      data: {
+        document_id: documentData.id,
+        file_key: fileKey,
+        public_url: uploadResult.url,
+        file_type: getFileType(file.mimetype),
+        size: formatFileSize(file.size)
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
-);
+});
+
+/**
+ * GET /api/signed-url - Generate presigned URL for direct client uploads
+ */
+router.get('/signed-url', async (req: Request, res: Response) => {
+  try {
+    console.log('🔗 Presigned URL request received');
+
+    // Get user from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authorization header required'
+      });
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
+      });
+    }
+
+    const { filename, contentType } = req.query;
+    if (!filename || !contentType) {
+      return res.status(400).json({
+        success: false,
+        error: 'filename and contentType query parameters are required'
+      });
+    }
+
+    // Generate unique file key
+    const fileKey = generateFileKey(user.id, filename as string);
+    
+    // Generate presigned URL (expires in 1 hour)
+    const presignedResult = await getPresignedUploadUrl(
+      fileKey, 
+      contentType as string, 
+      3600
+    );
+
+    if (!presignedResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate presigned URL',
+        details: presignedResult.error
+      });
+    }
+
+    console.log(`✅ Presigned URL generated for user: ${user.id}`);
+
+    res.json({
+      success: true,
+      data: {
+        upload_url: presignedResult.uploadUrl,
+        file_key: fileKey,
+        expires_in: 3600
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Presigned URL error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /api/documents/:id/download - Get presigned download URL
+ */
+router.get('/documents/:id/download', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Get user from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authorization header required'
+      });
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
+      });
+    }
+
+    // Get document from database
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('file_path, name')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (docError || !document) {
+      return res.status(404).json({
+        success: false,
+        error: 'Document not found'
+      });
+    }
+
+    // Generate presigned download URL
+    const downloadUrl = await getPresignedDownloadUrl(document.file_path, 3600);
+
+    res.json({
+      success: true,
+      download_url: downloadUrl,
+      filename: document.name
+    });
+
+  } catch (error) {
+    console.error('❌ Download URL error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * DELETE /api/documents/:id - Delete document and file
+ */
+router.delete('/documents/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Get user from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authorization header required'
+      });
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
+      });
+    }
+
+    // Get document from database
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('file_path')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (docError || !document) {
+      return res.status(404).json({
+        success: false,
+        error: 'Document not found'
+      });
+    }
+
+    console.log(`🗑️ Deleting document: ${id}`);
+
+    // Delete from IBM COS
+    const cosDeleted = await deleteFromCOS(document.file_path);
+    if (!cosDeleted) {
+      console.error('⚠️ Failed to delete file from COS (continuing with database deletion)');
+    }
+
+    // Delete document chunks first (foreign key constraint)
+    const { error: chunksError } = await supabase
+      .from('document_chunks')
+      .delete()
+      .eq('document_id', id)
+      .eq('user_id', user.id);
+
+    if (chunksError) {
+      console.error('⚠️ Chunks deletion error:', chunksError);
+    }
+
+    // Delete document record
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (deleteError) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete document',
+        details: deleteError.message
+      });
+    }
+
+    console.log(`✅ Document deleted successfully: ${id}`);
+
+    res.json({
+      success: true,
+      message: 'Document deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 export default router;

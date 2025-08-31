@@ -65,47 +65,17 @@ export const deleteDocument = async (id: string) => {
 
   console.log(`🗑️ Deleting document: ${id}`);
 
-  // First get the document to get the file path
-  const { data: document } = await supabase
-    .from('documents')
-    .select('file_path')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  // Use backend API for deletion (handles both IBM COS and database)
+  const response = await fetch(`/api/documents/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+    },
+  });
 
-  if (document?.file_path) {
-    // Delete from storage
-    console.log(`🗑️ Removing file from storage: ${document.file_path}`);
-    const { error: storageError } = await supabase.storage
-      .from('documents')
-      .remove([document.file_path])
-    
-    if (storageError) {
-      console.error('⚠️ Storage deletion error (non-critical):', storageError);
-    }
-  }
-
-  // Delete document chunks first (due to foreign key constraints)
-  const { error: chunksError } = await supabase
-    .from('document_chunks')
-    .delete()
-    .eq('document_id', id)
-    .eq('user_id', user.id)
-
-  if (chunksError) {
-    console.error('⚠️ Chunks deletion error (non-critical):', chunksError);
-  }
-
-  // Delete from database
-  const { error } = await supabase
-    .from('documents')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user.id)
-
-  if (error) {
-    console.error('❌ Document deletion error:', error);
-    throw error;
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to delete document');
   }
 
   console.log(`✅ Document deleted successfully: ${id}`);

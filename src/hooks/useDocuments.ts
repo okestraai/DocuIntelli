@@ -23,7 +23,7 @@ export function useDocuments(isAuthenticated: boolean) {
       const uploadPromises = documentsData.map(async (docData, index) => {
         console.log(`📄 Uploading document ${index + 1}/${documentsData.length}: ${docData.name}`);
         
-        // Upload file using Edge Function (includes automatic processing)
+        // Upload file using backend API (which uses IBM COS)
         const uploadResult = await uploadDocumentWithMetadata(
           docData.file,
           docData.name,
@@ -37,7 +37,7 @@ export function useDocuments(isAuthenticated: boolean) {
 
         console.log(`✅ Document ${index + 1} uploaded successfully:`, {
           document_id: uploadResult.data.document_id,
-          chunks_processed: uploadResult.data.chunks_processed,
+          file_key: uploadResult.data.file_key,
           file_type: uploadResult.data.file_type
         });
 
@@ -65,7 +65,26 @@ export function useDocuments(isAuthenticated: boolean) {
     try {
       setError(null);
       console.log(`🗑️ Deleting document: ${id}`);
-      await deleteDocumentFromDB(id);
+      
+      // Delete via backend API (which handles both COS and database)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated');
+      }
+
+      const response = await fetch(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete document');
+      }
+
+      // Update local state
       setDocuments(prev => prev.filter(doc => doc.id !== id));
       console.log(`✅ Document deleted successfully`);
     } catch (err) {
