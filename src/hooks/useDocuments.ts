@@ -10,7 +10,7 @@ export interface DocumentUploadRequest {
   expirationDate?: string;
 }
 
-export function useDocuments() {
+export function useDocuments(isAuthenticated: boolean) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +77,12 @@ export function useDocuments() {
   };
 
   const refetchDocuments = async () => {
+    if (!isAuthenticated) {
+      setDocuments([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -96,7 +102,7 @@ export function useDocuments() {
 
   useEffect(() => {
     refetchDocuments();
-  }, []);
+  }, [isAuthenticated]);
 
   return {
     documents,

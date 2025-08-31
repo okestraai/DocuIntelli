@@ -41,7 +41,7 @@ function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
+  const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments(isAuthenticated);
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
