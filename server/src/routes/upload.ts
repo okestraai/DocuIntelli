@@ -484,32 +484,40 @@ router.get(
 
       const authHeader = req.headers.authorization;
       if (!authHeader) {
+        console.error('❌ Missing Authorization header in presigned URL request');
         return res.status(401).json({
           success: false,
-          error: 'Authorization header required',
+          error: 'Authorization header required for presigned URL generation',
         });
       }
 
+      console.log('🔐 Validating user token for presigned URL...');
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
 
       if (userError || !user) {
+        console.error('❌ Invalid user token for presigned URL:', userError?.message || 'No user found');
         return res.status(401).json({
           success: false,
-          error: 'Invalid or expired token',
+          error: 'Invalid or expired token for presigned URL generation',
+          details: userError?.message || 'User authentication failed',
         });
       }
 
+      console.log(`✅ User authenticated for presigned URL: ${user.id}`);
+
       const { filename, contentType } = req.query;
       if (!filename || !contentType) {
+        console.error('❌ Missing filename or contentType in presigned URL request');
         return res.status(400).json({
           success: false,
           error: 'filename and contentType required',
         });
       }
 
+      console.log(`📝 Generating presigned URL for: ${filename} (${contentType})`);
       const fileKey = generateFileKey(user.id, filename as string);
 
       const presignedResult: PresignedUrlResult = await getPresignedUploadUrl(
@@ -519,6 +527,7 @@ router.get(
       );
 
       if (!presignedResult.success) {
+        console.error('❌ Failed to generate presigned URL:', presignedResult.error);
         return res.status(500).json({
           success: false,
           error: 'Failed to generate presigned URL',
@@ -526,6 +535,7 @@ router.get(
         });
       }
 
+      console.log(`✅ Presigned URL generated successfully for key: ${fileKey}`);
       return res.json({
         success: true,
         data: {

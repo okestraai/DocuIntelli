@@ -76,12 +76,14 @@ export const uploadDocumentWithMetadata = async (
     console.log(`📤 Uploading document: ${name} (${file.name})`);
 
     // Step 1: Get presigned URL from backend
+    const presignedUrl = `${API_BASE_URL}/signed-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}`;
     const presignedResponse = await fetch(
-      `${API_BASE_URL}/signed-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}`,
+      presignedUrl,
       {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
       }
     );
@@ -186,12 +188,14 @@ export const getPresignedUploadUrl = async (
 
     console.log(`🔗 Getting presigned URL for: ${filename}`);
 
+    const presignedUrl = `${API_BASE_URL}/signed-url?filename=${encodeURIComponent(filename)}&contentType=${encodeURIComponent(contentType)}`;
     const response = await fetch(
-      `${API_BASE_URL}/signed-url?filename=${encodeURIComponent(filename)}&contentType=${encodeURIComponent(contentType)}`,
+      presignedUrl,
       {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
       }
     );
