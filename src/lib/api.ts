@@ -91,11 +91,27 @@ export const uploadDocumentWithMetadata = async (
       },
     });
 
+    // Handle response parsing safely for IBM COS errors
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+      let errorMessage = `Upload failed with status ${response.status}`;
+      try {
+        // Try parsing as JSON first
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (jsonError) {
+        // If JSON parsing fails, get the raw text (likely XML or plain text from IBM COS)
+        try {
+          const errorText = await response.text();
+          console.error(`❌ IBM COS Error Response (${response.status}):`, errorText);
+          errorMessage = errorText || errorMessage;
+        } catch (textError) {
+          console.error(`❌ Failed to parse error response:`, textError);
+        }
+      }
+      throw new Error(errorMessage);
     }
 
+    // Parse successful response as JSON
     const result = await response.json();
     console.log(`✅ Upload successful:`, result);
     return result;
@@ -129,8 +145,20 @@ export const getPresignedUploadUrl = async (
     );
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Failed to get presigned URL with status ${response.status}`);
+      let errorMessage = `Failed to get presigned URL with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (jsonError) {
+        try {
+          const errorText = await response.text();
+          console.error(`❌ IBM COS Presigned URL Error (${response.status}):`, errorText);
+          errorMessage = errorText || errorMessage;
+        } catch (textError) {
+          console.error(`❌ Failed to parse presigned URL error response:`, textError);
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();
