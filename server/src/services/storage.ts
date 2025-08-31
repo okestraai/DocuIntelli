@@ -87,6 +87,10 @@ export async function getPresignedUploadUrl(
   expiresIn: number = 3600
 ): Promise<PresignedUrlResult> {
   try {
+    console.log(`🔗 Generating presigned URL for: ${key}`);
+    console.log(`📋 Content-Type: ${contentType}`);
+    console.log(`⏰ Expires in: ${expiresIn} seconds`);
+
     const command = new PutObjectCommand({
       Bucket: cosConfig.bucket,
       Key: key,
@@ -101,14 +105,25 @@ export async function getPresignedUploadUrl(
       expiresIn,
     });
 
-    console.log(`✅ Presigned URL generated for: ${key}`);
+    console.log(`✅ Presigned URL generated:`);
+    console.log(`   - Key: ${key}`);
+    console.log(`   - URL: ${uploadUrl.substring(0, 100)}...`);
+    console.log(`   - Expires: ${new Date(Date.now() + expiresIn * 1000).toISOString()}`);
+
     return {
       success: true,
       uploadUrl,
       key,
     };
   } catch (error: any) {
-    console.error('❌ Presigned URL generation error:', error.message);
+    console.error('❌ Presigned URL generation error:', {
+      message: error.message,
+      code: error.code,
+      statusCode: error.$metadata?.httpStatusCode,
+      bucket: cosConfig.bucket,
+      key,
+      contentType
+    });
     return {
       success: false,
       error: error.message,

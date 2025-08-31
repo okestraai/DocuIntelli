@@ -317,6 +317,163 @@ router.post(
 );
 
 /**
+ * POST /api/upload-metadata - Create document metadata record after successful COS upload
+ */
+router.post(
+  '/upload-metadata',
+  async (req: Request, res: Response): Promise<Response<UploadApiResponse>> => {
+    try {
+      console.log('📝 Metadata creation request received');
+
+      // Get user from Authorization header
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header required',
+        });
+      }
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+
+      if (userError || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or expired token',
+        });
+      }
+
+      const { name, category, expirationDate, file_key, file_type, file_size, original_name } = req.body;
+      if (!name || !category || !file_key || !file_type || !file_size || !original_name) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required metadata fields',
+        });
+      }
+
+      console.log(`📝 Creating metadata for: ${name} (${file_key})`);
+
+      // Helpers
+      const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (
+          parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+        );
+      };
+
+      const getFileType = (mimeType: string): string => {
+        if (mimeType.includes('pdf')) return 'PDF';
+        if (mimeType.includes('word')) return 'Word';
+        if (mimeType.includes('text')) return 'Text';
+        if (mimeType.includes('image')) return 'Image';
+        return 'Document';
+      };
+
+      // Create document record
+      const { data: documentData, error: dbError }: { 
+        data: DocumentData | null; 
+        error: any 
+      } = await supabase
+        .from('documents')
+        .insert([
+          {
+            user_id: user.id,
+            name: name.trim(),
+            category: category,
+            type: getFileType(file_type),
+            size: formatFileSize(file_size),
+            file_path: file_key,
+            original_name: original_name,
+            upload_date: new Date().toISOString().split('T')[0],
+            expiration_date: expirationDate || null,
+            status: 'active',
+            processed: false,
+          },
+        ])
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error('❌ Database insert error:', dbError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create document record',
+          details: dbError.message,
+        });
+      }
+
+      console.log(`✅ Document record created: ${documentData.id}`);
+
+      // Trigger document processing (non-blocking)
+      try {
+        console.log(`🔄 Triggering document processing for: ${documentData.id}`);
+        const processResponse = await fetch(
+          `${process.env.SUPABASE_URL}/functions/v1/process-document`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              document_id: documentData.id,
+              file_key: file_key,
+              file_type: file_type,
+            }),
+          }
+        );
+
+        if (processResponse.ok) {
+          const processResult: ProcessingResult = await processResponse.json();
+          console.log(
+            `✅ Document processing initiated: ${
+              processResult.chunks_processed || 0
+            } chunks`
+          );
+        } else {
+          console.error(
+            '⚠️ Document processing failed:',
+            await processResponse.text()
+          );
+        }
+      } catch (processError) {
+        console.error(
+          '⚠️ Document processing error (non-blocking):',
+          processError
+        );
+      }
+
+      // Generate public URL for response
+      const publicUrl = `${process.env.IBM_COS_ENDPOINT}/${process.env.IBM_COS_BUCKET}/${file_key}`;
+
+      return res.json({
+        success: true,
+        data: {
+          document_id: documentData.id,
+          file_key: file_key,
+          public_url: publicUrl,
+          file_type: getFileType(file_type),
+          size: formatFileSize(file_size),
+        },
+      });
+    } catch (error) {
+      console.error('❌ Metadata creation error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/signed-url
  */
 router.get(
