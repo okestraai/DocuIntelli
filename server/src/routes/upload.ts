@@ -8,9 +8,14 @@ dotenv.config();
 const router = Router();
 
 // Supabase client for JWT validation (use ANON_KEY here, not service role)
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
+// const supabase = createClient(
+ // process.env.SUPABASE_URL!,
+  // process.env.SUPABASE_ANON_KEY!
+);
+
+const supabaseAuth = createClient(
+  process.env.SUPABASE_URL || "https://caygpjhiakabaxtklnlw.supabase.co",
+  process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNheWdwamhpYWthYmF4dGtsbmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYwNzMzMTQsImV4cCI6MjA3MTY0OTMxNH0.UYaF1hW_j2HGcFP5W1FMV_G7ODGJuz8qieyf9Qe4Z90"
 );
 
 /**
