@@ -8,15 +8,87 @@ import {
   deleteFromCOS,
   generateFileKey,
   fileExistsInCOS,
+  UploadResult,
+  PresignedUrlResult,
 } from '../services/storage';
+
+// Type definitions for API responses
+interface ProcessingResult {
+  success: boolean;
+  chunks_processed?: number;
+  document_id?: string;
+  message?: string;
+  error?: string;
+}
+
+interface DocumentData {
+  id: string;
+  user_id: string;
+  name: string;
+  category: string;
+  type: string;
+  size: string;
+  file_path: string;
+  original_name: string;
+  upload_date: string;
+  expiration_date: string | null;
+  status: string;
+  processed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UploadApiResponse {
+  success: boolean;
+  data?: {
+    document_id: string;
+    file_key: string;
+    public_url: string;
+    file_type: string;
+    size: string;
+  };
+  error?: string;
+  details?: string;
+}
+
+interface PresignedUrlApiResponse {
+  success: boolean;
+  data?: {
+    upload_url: string;
+    file_key: string;
+    expires_in: number;
+  };
+  error?: string;
+  details?: string;
+}
+
+interface DownloadUrlApiResponse {
+  success: boolean;
+  download_url?: string;
+  filename?: string;
+  error?: string;
+  details?: string;
+}
+
+interface DeleteApiResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+  details?: string;
+}
 
 const router = Router();
 
 // Initialize Supabase client for database operations
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
+
+// Validate Supabase configuration
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Missing required Supabase environment variables');
+}
 
 // Configure multer for memory storage
 const upload = multer({
@@ -49,7 +121,7 @@ const upload = multer({
 router.post(
   '/upload',
   upload.single('file'),
-  async (req: Request, res: Response): Promise<Response> => {
+  async (req: Request, res: Response): Promise<Response<UploadApiResponse>> => {
     try {
       console.log('📥 Upload request received');
 
@@ -113,7 +185,7 @@ router.post(
       }
 
       // Upload to IBM COS
-      const uploadResult = await uploadToCOS(
+      const uploadResult: UploadResult = await uploadToCOS(
         file.buffer,
         fileKey,
         file.mimetype
@@ -149,7 +221,10 @@ router.post(
       };
 
       // Create document record
-      const { data: documentData, error: dbError } = await supabase
+      const { data: documentData, error: dbError }: { 
+        data: DocumentData | null; 
+        error: any 
+      } = await supabase
         .from('documents')
         .insert([
           {
@@ -201,7 +276,7 @@ router.post(
         );
 
         if (processResponse.ok) {
-          const processResult: any = await processResponse.json(); // 👈 casted from unknown
+          const processResult: ProcessingResult = await processResponse.json();
           console.log(
             `✅ Document processing initiated: ${
               processResult.chunks_processed || 0
@@ -246,7 +321,7 @@ router.post(
  */
 router.get(
   '/signed-url',
-  async (req: Request, res: Response): Promise<Response> => {
+  async (req: Request, res: Response): Promise<Response<PresignedUrlApiResponse>> => {
     try {
       console.log('🔗 Presigned URL request received');
 
@@ -280,7 +355,7 @@ router.get(
 
       const fileKey = generateFileKey(user.id, filename as string);
 
-      const presignedResult = await getPresignedUploadUrl(
+      const presignedResult: PresignedUrlResult = await getPresignedUploadUrl(
         fileKey,
         contentType as string,
         3600
@@ -318,7 +393,7 @@ router.get(
  */
 router.get(
   '/documents/:id/download',
-  async (req: Request, res: Response): Promise<Response> => {
+  async (req: Request, res: Response): Promise<Response<DownloadUrlApiResponse>> => {
     try {
       const { id } = req.params;
 
@@ -342,7 +417,10 @@ router.get(
         });
       }
 
-      const { data: document, error: docError } = await supabase
+      const { data: document, error: docError }: {
+        data: { file_path: string; name: string } | null;
+        error: any;
+      } = await supabase
         .from('documents')
         .select('file_path, name')
         .eq('id', id)
@@ -382,7 +460,7 @@ router.get(
  */
 router.delete(
   '/documents/:id',
-  async (req: Request, res: Response): Promise<Response> => {
+  async (req: Request, res: Response): Promise<Response<DeleteApiResponse>> => {
     try {
       const { id } = req.params;
 
@@ -406,7 +484,10 @@ router.delete(
         });
       }
 
-      const { data: document, error: docError } = await supabase
+      const { data: document, error: docError }: {
+        data: { file_path: string } | null;
+        error: any;
+      } = await supabase
         .from('documents')
         .select('file_path')
         .eq('id', id)

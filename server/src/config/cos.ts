@@ -1,11 +1,25 @@
-import { S3Client } from '@aws-sdk/client-s3';
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from both server/.env and root .env
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-// Validate required environment variables
-const requiredEnvVars = [
+import { S3Client } from '@aws-sdk/client-s3';
+
+/**
+ * Helper function to safely get required environment variables
+ */
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+// Required environment variables for IBM COS
+const requiredEnvVars: string[] = [
   'IBM_COS_ACCESS_KEY_ID',
   'IBM_COS_SECRET_ACCESS_KEY',
   'IBM_COS_BUCKET',
@@ -13,19 +27,18 @@ const requiredEnvVars = [
   'IBM_COS_REGION'
 ];
 
+// Validate all required environment variables
 for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    throw new Error(`Missing required environment variable: ${envVar}`);
-  }
+  requireEnv(envVar);
 }
 
 // IBM Cloud Object Storage configuration
 export const cosConfig = {
-  accessKeyId: process.env.IBM_COS_ACCESS_KEY_ID!,
-  secretAccessKey: process.env.IBM_COS_SECRET_ACCESS_KEY!,
-  bucket: process.env.IBM_COS_BUCKET!,
-  endpoint: process.env.IBM_COS_ENDPOINT!,
-  region: process.env.IBM_COS_REGION!
+  accessKeyId: requireEnv('IBM_COS_ACCESS_KEY_ID'),
+  secretAccessKey: requireEnv('IBM_COS_SECRET_ACCESS_KEY'),
+  bucket: requireEnv('IBM_COS_BUCKET'),
+  endpoint: requireEnv('IBM_COS_ENDPOINT'),
+  region: requireEnv('IBM_COS_REGION')
 };
 
 // Create S3 client configured for IBM COS
