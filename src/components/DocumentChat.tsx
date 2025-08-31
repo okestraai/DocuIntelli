@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Send, MessageSquare, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
+import { searchDocuments } from '../lib/api';
 
 interface DocumentChatProps {
   document: Document;
@@ -59,24 +60,29 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     setIsLoading(true);
 
     try {
-      // Simulate AI response with potential failure
-      await new Promise((resolve, reject) => {
-        setTimeout(() => {
-          // Simulate occasional failures for demo
-          if (Math.random() < 0.1) {
-            reject(new Error('AI service temporarily unavailable'));
-          } else {
-            resolve(null);
-          }
-        }, 1000 + Math.random() * 2000);
-      });
+      // Search for relevant document chunks using Edge Function
+      const searchResult = await searchDocuments(inputValue, 3);
+      
+      let assistantResponse = '';
+      let reference = '';
+      
+      if (searchResult.success && searchResult.data?.results?.length > 0) {
+        // Use the most relevant chunk to generate a response
+        const topResult = searchResult.data.results[0];
+        assistantResponse = generateContextualResponse(inputValue, topResult.chunk_text, document);
+        reference = `Found in ${topResult.document_name} (${Math.round(topResult.similarity * 100)}% match)`;
+      } else {
+        // Fallback to simulated response if no chunks found
+        assistantResponse = getSimulatedResponse(inputValue, document);
+        reference = 'Based on document analysis';
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: getSimulatedResponse(inputValue, document),
+        content: assistantResponse,
         timestamp: new Date(),
-        reference: 'Section 3.2 of your policy document'
+        reference: reference
       };
       
       setMessages(prev => [...prev, assistantMessage]);
@@ -96,6 +102,22 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     }
   };
 
+  const generateContextualResponse = (question: string, context: string, doc: Document): string => {
+    // Generate a response based on the actual document content
+    const lowerQuestion = question.toLowerCase();
+    const lowerContext = context.toLowerCase();
+    
+    if (lowerQuestion.includes('covered') || lowerQuestion.includes('coverage')) {
+      return `Based on your ${doc.category} document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;
+    }
+    
+    if (lowerQuestion.includes('claim') || lowerQuestion.includes('file')) {
+      return `Here's what I found about claims in your document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;
+    }
+    
+    // Default contextual response
+    return `Based on your document content: ${context.slice(0, 400)}${context.length > 400 ? '...' : ''}`;
+  };
   const getSimulatedResponse = (question: string, doc: Document): string => {
     const lowerQuestion = question.toLowerCase();
     

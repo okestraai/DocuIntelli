@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getDocuments, createDocument, deleteDocument as deleteDocumentFromDB, uploadDocumentToStorage, SupabaseDocument } from '../lib/supabase';
-import { uploadDocument } from '../lib/api';
+import { uploadDocumentWithMetadata, processDocument } from '../lib/api';
 import type { Document } from '../App';
 
 export interface DocumentUploadRequest {
@@ -21,21 +21,38 @@ export function useDocuments() {
       setError(null);
       
       const uploadPromises = documentsData.map(async (docData) => {
-        // Upload file to Supabase Storage
-        const uploadResult = await uploadDocument(docData.file);
+        // Upload file to Supabase Storage using Edge Function
+        const uploadResult = await uploadDocumentWithMetadata(
+          docData.file,
+          docData.name,
+          docData.category,
+          docData.expirationDate
+        );
         
-        // Create document record in database
-        const documentRecord = await createDocument({
-          name: docData.name,
-          category: docData.category,
-          type: getFileType(docData.file.type),
-          size: formatFileSize(docData.file.size),
-          file_path: uploadResult.path,
-          original_name: docData.file.name,
-          expiration_date: docData.expirationDate
-        });
+        if (!uploadResult.success || !uploadResult.data) {
+          throw new Error(uploadResult.error || 'Upload failed');
+        }
+
+        console.log('✅ Document uploaded via Edge Function:', uploadResult.data);
+
+        // Process document for text extraction and chunking (optional)
+        try {
+          const processingResult = await processDocument(uploadResult.data.document_id);
+          console.log('✅ Document processed:', processingResult);
+        } catch (processingError) {
+          console.warn('⚠️ Document processing failed (non-critical):', processingError);
+          // Continue even if processing fails - the document is still uploaded
+        }
         
-        return transformSupabaseDocument(documentRecord);
+        // Fetch the created document from database
+        const docs = await getDocuments();
+        const newDocument = docs.find(doc => doc.id === uploadResult.data!.document_id);
+        
+        if (!newDocument) {
+          throw new Error('Document was uploaded but not found in database');
+        }
+        
+        return transformSupabaseDocument(newDocument);
       });
 
       const uploadedDocs = await Promise.all(uploadPromises);
