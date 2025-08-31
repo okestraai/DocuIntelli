@@ -75,44 +75,96 @@ export const uploadDocumentWithMetadata = async (
 
     console.log(`📤 Uploading document: ${name} (${file.name})`);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('name', name);
-    formData.append('category', category);
-    if (expirationDate) {
-      formData.append('expirationDate', expirationDate);
-    }
+    // Step 1: Get presigned URL from backend
+    const presignedResponse = await fetch(
+      `${API_BASE_URL}/signed-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      }
+    );
 
-    const response = await fetch(`${API_BASE_URL}/upload`, {
-      method: 'POST',
-      body: formData,
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-    });
-
-    // Handle response parsing safely for IBM COS errors
-    if (!response.ok) {
-      let errorMessage = `Upload failed with status ${response.status}`;
+    if (!presignedResponse.ok) {
+      let errorMessage = `Failed to get presigned URL with status ${presignedResponse.status}`;
       try {
-        // Try parsing as JSON first
-        const errorData = await response.json();
+        const errorData = await presignedResponse.json();
         errorMessage = errorData.error || errorData.message || errorMessage;
       } catch (jsonError) {
-        // If JSON parsing fails, get the raw text (likely XML or plain text from IBM COS)
         try {
-          const errorText = await response.text();
-          console.error(`❌ IBM COS Error Response (${response.status}):`, errorText);
+          const errorText = await presignedResponse.text();
+          console.error(`❌ Presigned URL Error (${presignedResponse.status}):`, errorText);
           errorMessage = errorText || errorMessage;
         } catch (textError) {
-          console.error(`❌ Failed to parse error response:`, textError);
+          console.error(`❌ Failed to parse presigned URL error response:`, textError);
         }
       }
       throw new Error(errorMessage);
     }
 
-    // Parse successful response as JSON
-    const result = await response.json();
+    const presignedResult = await presignedResponse.json();
+    console.log(`🔗 Got presigned URL for upload`);
+
+    // Step 2: Upload file directly to IBM COS using presigned URL
+    const uploadResponse = await fetch(presignedResult.data.upload_url, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type,
+      },
+    });
+
+    if (!uploadResponse.ok) {
+      let errorMessage = `Upload to COS failed with status ${uploadResponse.status}`;
+      try {
+        const errorText = await uploadResponse.text();
+        console.error(`❌ IBM COS Upload Error (${uploadResponse.status}):`, errorText);
+        errorMessage = errorText || errorMessage;
+      } catch (textError) {
+        console.error(`❌ Failed to parse COS upload error response:`, textError);
+      }
+      throw new Error(errorMessage);
+    }
+
+    console.log(`✅ File uploaded to IBM COS successfully`);
+
+    // Step 3: Create document metadata record
+    const metadataResponse = await fetch(`${API_BASE_URL}/upload-metadata`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name,
+        category,
+        expirationDate,
+        file_key: presignedResult.data.file_key,
+        file_type: file.type,
+        file_size: file.size,
+        original_name: file.name,
+      }),
+    });
+
+    if (!metadataResponse.ok) {
+      let errorMessage = `Metadata creation failed with status ${metadataResponse.status}`;
+      try {
+        const errorData = await metadataResponse.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (jsonError) {
+        try {
+          const errorText = await metadataResponse.text();
+          console.error(`❌ Metadata Error (${metadataResponse.status}):`, errorText);
+          errorMessage = errorText || errorMessage;
+        } catch (textError) {
+          console.error(`❌ Failed to parse metadata error response:`, textError);
+        }
+      }
+      throw new Error(errorMessage);
+    }
+
+    const result = await metadataResponse.json();
     console.log(`✅ Upload successful:`, result);
     return result;
   } catch (error) {
