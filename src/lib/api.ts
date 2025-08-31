@@ -251,8 +251,20 @@ export const getDocumentDownloadUrl = async (documentId: string): Promise<string
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Failed to get download URL with status ${response.status}`);
+      let errorMessage = `Failed to get download URL with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (jsonError) {
+        try {
+          const errorText = await response.text();
+          console.error(`❌ Download URL Error (${response.status}):`, errorText);
+          errorMessage = errorText || errorMessage;
+        } catch (textError) {
+          console.error(`❌ Failed to parse download URL error response:`, textError);
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();

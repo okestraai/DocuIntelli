@@ -80,8 +80,20 @@ export function useDocuments(isAuthenticated: boolean) {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete document');
+        let errorMessage = `Failed to delete document with status ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (jsonError) {
+          try {
+            const errorText = await response.text();
+            console.error(`❌ Delete Error (${response.status}):`, errorText);
+            errorMessage = errorText || errorMessage;
+          } catch (textError) {
+            console.error(`❌ Failed to parse delete error response:`, textError);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       // Update local state
