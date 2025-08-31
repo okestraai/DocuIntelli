@@ -1,6 +1,7 @@
-// API client for document operations
+// API client for document operations using Supabase Edge Functions
+import { supabase } from './supabase';
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export interface DocumentUploadResponse {
   id: string;
@@ -17,11 +18,14 @@ export interface DocumentUploadResponse {
 export interface UploadResponse {
   success: boolean;
   data?: {
-    path: string;
-    url: string;
     document_id: string;
+    file_path: string;
+    public_url: string;
+    chunks_processed: number;
+    file_type: string;
   };
   error?: string;
+  details?: string;
 }
 
 export interface DocumentUploadRequest {
@@ -31,34 +35,19 @@ export interface DocumentUploadRequest {
   expirationDate?: string;
 }
 
-// Upload a single document using Edge Function
-export const uploadDocument = async (file: File): Promise<UploadResponse> => {
-  // Get auth token
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    throw new Error('User not authenticated');
-  }
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('name', file.name);
-  formData.append('category', 'other'); // Default category
-
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/upload-document`, {
-    method: 'POST',
-    body: formData,
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-    },
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Upload failed');
-  }
-
-  return response.json();
-};
+export interface SearchResponse {
+  success: boolean;
+  data?: {
+    results: Array<{
+      chunk_text: string;
+      document_name: string;
+      similarity: number;
+      document_id: string;
+    }>;
+    query: string;
+  };
+  error?: string;
+}
 
 // Upload document with metadata using Edge Function
 export const uploadDocumentWithMetadata = async (
@@ -67,89 +56,88 @@ export const uploadDocumentWithMetadata = async (
   category: string, 
   expirationDate?: string
 ): Promise<UploadResponse> => {
-  // Get auth token
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    throw new Error('User not authenticated');
+  try {
+    // Get auth token
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error('User not authenticated');
+    }
+
+    console.log(`📤 Uploading document: ${name} (${file.name})`);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    formData.append('category', category);
+    if (expirationDate) {
+      formData.append('expirationDate', expirationDate);
+    }
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/upload-document`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Upload successful:`, result);
+    return result;
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    throw error;
   }
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('name', name);
-  formData.append('category', category);
-  if (expirationDate) {
-    formData.append('expirationDate', expirationDate);
-  }
-
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/upload-document`, {
-    method: 'POST',
-    body: formData,
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-    },
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Upload failed');
-  }
-
-  return response.json();
-};
-
-// Process document text and generate chunks using Edge Function
-export const processDocument = async (documentId: string, textContent?: string) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    throw new Error('User not authenticated');
-  }
-
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/process-document`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      document_id: documentId,
-      text_content: textContent
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Processing failed');
-  }
-
-  return response.json();
 };
 
 // Search documents using Edge Function
-export const searchDocuments = async (query: string, limit = 5) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    throw new Error('User not authenticated');
+export const searchDocuments = async (query: string, limit = 5): Promise<SearchResponse> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error('User not authenticated');
+    }
+
+    console.log(`🔍 Searching documents with query: "${query}"`);
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/search-documents`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        limit
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Search failed with status ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Search completed:`, result);
+    return result;
+  } catch (error) {
+    console.error('❌ Search error:', error);
+    throw error;
   }
-
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/search-documents`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      query,
-      limit
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Search failed');
-  }
-
-  return response.json();
 };
 
-// Import supabase client
-import { supabase } from './supabase';
+// Legacy function for backward compatibility
+export const uploadDocument = async (file: File): Promise<UploadResponse> => {
+  return uploadDocumentWithMetadata(file, file.name, 'other');
+};
+
+// Legacy function for backward compatibility  
+export const processDocument = async (documentId: string, textContent?: string) => {
+  console.log('📝 Document processing is now handled automatically during upload');
+  return { success: true, message: 'Processing handled during upload' };
+};

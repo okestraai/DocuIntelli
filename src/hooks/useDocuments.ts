@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getDocuments, createDocument, deleteDocument as deleteDocumentFromDB, uploadDocumentToStorage, SupabaseDocument } from '../lib/supabase';
-import { uploadDocumentWithMetadata, processDocument } from '../lib/api';
+import { getDocuments, deleteDocument as deleteDocumentFromDB, SupabaseDocument } from '../lib/supabase';
+import { uploadDocumentWithMetadata } from '../lib/api';
 import type { Document } from '../App';
 
 export interface DocumentUploadRequest {
@@ -15,13 +15,15 @@ export function useDocuments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-
   const uploadDocuments = async (documentsData: DocumentUploadRequest[]): Promise<Document[]> => {
     try {
       setError(null);
+      console.log(`📤 Starting upload of ${documentsData.length} documents`);
       
-      const uploadPromises = documentsData.map(async (docData) => {
-        // Upload file to Supabase Storage using Edge Function
+      const uploadPromises = documentsData.map(async (docData, index) => {
+        console.log(`📄 Uploading document ${index + 1}/${documentsData.length}: ${docData.name}`);
+        
+        // Upload file using Edge Function (includes automatic processing)
         const uploadResult = await uploadDocumentWithMetadata(
           docData.file,
           docData.name,
@@ -33,34 +35,27 @@ export function useDocuments() {
           throw new Error(uploadResult.error || 'Upload failed');
         }
 
-        console.log('✅ Document uploaded via Edge Function:', uploadResult.data);
+        console.log(`✅ Document ${index + 1} uploaded successfully:`, {
+          document_id: uploadResult.data.document_id,
+          chunks_processed: uploadResult.data.chunks_processed,
+          file_type: uploadResult.data.file_type
+        });
 
-        // Process document for text extraction and chunking (optional)
-        try {
-          const processingResult = await processDocument(uploadResult.data.document_id);
-          console.log('✅ Document processed:', processingResult);
-        } catch (processingError) {
-          console.warn('⚠️ Document processing failed (non-critical):', processingError);
-          // Continue even if processing fails - the document is still uploaded
-        }
-        
-        // Fetch the created document from database
-        const docs = await getDocuments();
-        const newDocument = docs.find(doc => doc.id === uploadResult.data!.document_id);
-        
-        if (!newDocument) {
-          throw new Error('Document was uploaded but not found in database');
-        }
-        
-        return transformSupabaseDocument(newDocument);
+        return uploadResult.data.document_id;
       });
 
-      const uploadedDocs = await Promise.all(uploadPromises);
+      const uploadedDocIds = await Promise.all(uploadPromises);
+      console.log(`🎉 All ${uploadedDocIds.length} documents uploaded successfully`);
       
-      setDocuments(prev => [...prev, ...uploadedDocs]);
-      return uploadedDocs;
+      // Refresh documents list to get the new uploads
+      await refetchDocuments();
+      
+      // Return the newly uploaded documents
+      const newDocuments = documents.filter(doc => uploadedDocIds.includes(doc.id));
+      return newDocuments;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to upload documents';
+      console.error('❌ Upload failed:', errorMessage);
       setError(errorMessage);
       throw new Error(errorMessage);
     }
@@ -69,34 +64,38 @@ export function useDocuments() {
   const deleteDocumentById = async (id: string) => {
     try {
       setError(null);
+      console.log(`🗑️ Deleting document: ${id}`);
       await deleteDocumentFromDB(id);
       setDocuments(prev => prev.filter(doc => doc.id !== id));
+      console.log(`✅ Document deleted successfully`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
+      console.error('❌ Delete failed:', errorMessage);
       setError(errorMessage);
       throw new Error(errorMessage);
     }
   };
 
+  const refetchDocuments = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('🔄 Fetching documents from Supabase...');
+      const docs = await getDocuments();
+      console.log(`📊 Loaded ${docs.length} documents from database`);
+      const transformedDocs = docs.map(transformSupabaseDocument);
+      setDocuments(transformedDocs);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load documents';
+      console.error('❌ Failed to load documents:', errorMessage);
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadDocs = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('Loading documents from Supabase...');
-        const docs = await getDocuments();
-        console.log('Loaded documents:', docs);
-        const transformedDocs = docs.map(transformSupabaseDocument);
-        setDocuments(transformedDocs);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load documents');
-        console.error('Failed to load documents:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    loadDocs();
+    refetchDocuments();
   }, []);
 
   return {
@@ -105,22 +104,7 @@ export function useDocuments() {
     error,
     uploadDocuments,
     deleteDocument: deleteDocumentById,
-    refetch: async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('Refetching documents from Supabase...');
-        const docs = await getDocuments();
-        console.log('Refetched documents:', docs);
-        const transformedDocs = docs.map(transformSupabaseDocument);
-        setDocuments(transformedDocs);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load documents');
-        console.error('Failed to load documents:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
+    refetch: refetchDocuments
   };
 }
 
@@ -150,21 +134,4 @@ function transformSupabaseDocument(supabaseDoc: SupabaseDocument): Document {
     status: status,
     expirationDate: supabaseDoc.expiration_date
   };
-}
-
-// Helper functions
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-};
-
-const getFileType = (mimeType: string): string => {
-  if (mimeType.includes('pdf')) return 'PDF';
-  if (mimeType.includes('word')) return 'Word';
-  if (mimeType.includes('text')) return 'Text';
-  if (mimeType.includes('image')) return 'Image';
-  return 'Document';
 }

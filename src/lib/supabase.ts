@@ -22,6 +22,7 @@ export interface SupabaseDocument {
   upload_date: string
   expiration_date?: string
   status: 'active' | 'expiring' | 'expired'
+  processed: boolean
   created_at: string
   updated_at: string
 }
@@ -38,57 +39,11 @@ export interface UserProfile {
 }
 
 // Document operations
-export const uploadDocumentToStorage = async (file: File, userId: string, documentId: string) => {
-  const fileExt = file.name.split('.').pop()
-  const fileName = `${documentId}.${fileExt}`
-  const filePath = `${userId}/${fileName}`
-
-  console.log('Uploading to storage:', { filePath, fileSize: file.size, fileType: file.type });
-  const { data, error } = await supabase.storage
-    .from('documents')
-    .upload(filePath, file)
-
-  if (error) {
-    console.error('Storage upload error:', error);
-    throw error;
-  }
-  
-  console.log('Upload successful:', data);
-  return data
-}
-
-export const createDocument = async (documentData: {
-  name: string
-  category: string
-  type: string
-  size: string
-  file_path: string
-  original_name: string
-  expiration_date?: string
-}) => {
+export const getDocuments = async (): Promise<SupabaseDocument[]> => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
 
-  const { data, error } = await supabase
-    .from('documents')
-    .insert([{
-      ...documentData,
-      user_id: user.id,
-      upload_date: new Date().toISOString().split('T')[0],
-      status: 'active'
-    }])
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-export const getDocuments = async () => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('User not authenticated')
-
-  console.log('Fetching documents for user:', user.id);
+  console.log('📊 Fetching documents for user:', user.id);
   const { data, error } = await supabase
     .from('documents')
     .select('*')
@@ -96,17 +51,19 @@ export const getDocuments = async () => {
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching documents:', error);
+    console.error('❌ Error fetching documents:', error);
     throw error;
   }
   
-  console.log('Raw documents from database:', data);
+  console.log(`✅ Fetched ${data?.length || 0} documents from database`);
   return data || []
 }
 
 export const deleteDocument = async (id: string) => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
+
+  console.log(`🗑️ Deleting document: ${id}`);
 
   // First get the document to get the file path
   const { data: document } = await supabase
@@ -118,9 +75,25 @@ export const deleteDocument = async (id: string) => {
 
   if (document?.file_path) {
     // Delete from storage
-    await supabase.storage
+    console.log(`🗑️ Removing file from storage: ${document.file_path}`);
+    const { error: storageError } = await supabase.storage
       .from('documents')
       .remove([document.file_path])
+    
+    if (storageError) {
+      console.error('⚠️ Storage deletion error (non-critical):', storageError);
+    }
+  }
+
+  // Delete document chunks first (due to foreign key constraints)
+  const { error: chunksError } = await supabase
+    .from('document_chunks')
+    .delete()
+    .eq('document_id', id)
+    .eq('user_id', user.id)
+
+  if (chunksError) {
+    console.error('⚠️ Chunks deletion error (non-critical):', chunksError);
   }
 
   // Delete from database
@@ -130,7 +103,12 @@ export const deleteDocument = async (id: string) => {
     .eq('id', id)
     .eq('user_id', user.id)
 
-  if (error) throw error
+  if (error) {
+    console.error('❌ Document deletion error:', error);
+    throw error;
+  }
+
+  console.log(`✅ Document deleted successfully: ${id}`);
 }
 
 export const updateDocumentStatus = async (id: string, status: 'active' | 'expiring' | 'expired') => {
@@ -145,6 +123,7 @@ export const updateDocumentStatus = async (id: string, status: 'active' | 'expir
 
   if (error) throw error
 }
+
 // Auth helper functions
 export const signUp = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({
@@ -243,29 +222,4 @@ export const changePassword = async (newPassword: string) => {
     password: newPassword
   })
   if (error) throw error
-}
-
-// Social auth functions
-export const signInWithGoogle = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`
-    }
-  })
-  
-  if (error) throw error
-  return data
-}
-
-export const signInWithFacebook = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'facebook',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`
-    }
-  })
-  
-  if (error) throw error
-  return data
 }
