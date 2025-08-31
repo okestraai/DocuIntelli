@@ -1,4 +1,9 @@
-import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { cosClient, cosConfig } from '../config/cos';
 
@@ -20,8 +25,8 @@ export interface PresignedUrlResult {
  * Upload a file buffer to IBM Cloud Object Storage
  */
 export async function uploadToCOS(
-  file: Buffer, 
-  key: string, 
+  file: Buffer,
+  key: string,
   contentType?: string
 ): Promise<UploadResult> {
   try {
@@ -34,18 +39,20 @@ export async function uploadToCOS(
       Key: key,
       Body: file,
       ContentType: contentType || 'application/octet-stream',
-      // Add metadata for tracking
       Metadata: {
         'upload-timestamp': new Date().toISOString(),
-        'upload-source': 'legalease-app'
-      }
+        'upload-source': 'legalease-app',
+      },
     });
 
     const result = await cosClient.send(command);
-    
-    // Construct public URL
-    const publicUrl = `${cosConfig.endpoint}/${cosConfig.bucket}/${key}`;
-    
+
+    // ✅ Correct public URL style
+    const publicUrl = `https://${cosConfig.bucket}.${cosConfig.endpoint.replace(
+      /^https?:\/\//,
+      ''
+    )}/${key}`;
+
     console.log(`✅ Upload successful to IBM COS:`);
     console.log(`   - Key: ${key}`);
     console.log(`   - URL: ${publicUrl}`);
@@ -53,14 +60,20 @@ export async function uploadToCOS(
 
     return {
       success: true,
-      key: key,
-      url: publicUrl
+      key,
+      url: publicUrl,
     };
-  } catch (error) {
-    console.error('❌ IBM COS upload error:', error);
+  } catch (error: any) {
+    console.error('❌ IBM COS upload error:', {
+      name: error.name,
+      message: error.message,
+      code: error.$metadata?.httpStatusCode,
+      bucket: cosConfig.bucket,
+      key,
+    });
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Upload failed'
+      error: error instanceof Error ? error.message : 'Upload failed',
     };
   }
 }
@@ -69,42 +82,36 @@ export async function uploadToCOS(
  * Generate a presigned URL for direct client uploads
  */
 export async function getPresignedUploadUrl(
-  key: string, 
+  key: string,
   contentType: string,
   expiresIn: number = 3600
 ): Promise<PresignedUrlResult> {
   try {
-    console.log(`🔗 Generating presigned URL for: ${key}`);
-    console.log(`⏰ Expires in: ${expiresIn} seconds`);
-
     const command = new PutObjectCommand({
       Bucket: cosConfig.bucket,
       Key: key,
       ContentType: contentType,
       Metadata: {
         'upload-timestamp': new Date().toISOString(),
-        'upload-source': 'legalease-presigned'
-      }
+        'upload-source': 'legalease-presigned',
+      },
     });
 
-    const uploadUrl = await getSignedUrl(cosClient, command, { 
-      expiresIn: expiresIn 
+    const uploadUrl = await getSignedUrl(cosClient, command, {
+      expiresIn,
     });
 
-    console.log(`✅ Presigned URL generated successfully`);
-    console.log(`   - Key: ${key}`);
-    console.log(`   - Expires: ${new Date(Date.now() + expiresIn * 1000).toISOString()}`);
-
+    console.log(`✅ Presigned URL generated for: ${key}`);
     return {
       success: true,
-      uploadUrl: uploadUrl,
-      key: key
+      uploadUrl,
+      key,
     };
-  } catch (error) {
-    console.error('❌ Presigned URL generation error:', error);
+  } catch (error: any) {
+    console.error('❌ Presigned URL generation error:', error.message);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to generate presigned URL'
+      error: error.message,
     };
   }
 }
@@ -113,24 +120,19 @@ export async function getPresignedUploadUrl(
  * Generate a presigned URL for downloading/viewing files
  */
 export async function getPresignedDownloadUrl(
-  key: string, 
+  key: string,
   expiresIn: number = 3600
 ): Promise<string> {
   try {
     const command = new GetObjectCommand({
       Bucket: cosConfig.bucket,
-      Key: key
+      Key: key,
     });
 
-    const downloadUrl = await getSignedUrl(cosClient, command, { 
-      expiresIn: expiresIn 
-    });
-
-    console.log(`🔗 Generated download URL for: ${key}`);
-    return downloadUrl;
-  } catch (error) {
-    console.error('❌ Download URL generation error:', error);
-    throw new Error(`Failed to generate download URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return await getSignedUrl(cosClient, command, { expiresIn });
+  } catch (error: any) {
+    console.error('❌ Download URL generation error:', error.message);
+    throw new Error(`Failed to generate download URL: ${error.message}`);
   }
 }
 
@@ -139,19 +141,15 @@ export async function getPresignedDownloadUrl(
  */
 export async function deleteFromCOS(key: string): Promise<boolean> {
   try {
-    console.log(`🗑️ Deleting from IBM COS: ${key}`);
-
     const command = new DeleteObjectCommand({
       Bucket: cosConfig.bucket,
-      Key: key
+      Key: key,
     });
-
     await cosClient.send(command);
-    
     console.log(`✅ File deleted successfully: ${key}`);
     return true;
-  } catch (error) {
-    console.error('❌ IBM COS delete error:', error);
+  } catch (error: any) {
+    console.error('❌ IBM COS delete error:', error.message);
     return false;
   }
 }
@@ -161,15 +159,13 @@ export async function deleteFromCOS(key: string): Promise<boolean> {
  */
 export async function fileExistsInCOS(key: string): Promise<boolean> {
   try {
-    const command = new GetObjectCommand({
+    const command = new HeadObjectCommand({
       Bucket: cosConfig.bucket,
-      Key: key
+      Key: key,
     });
-
     await cosClient.send(command);
     return true;
-  } catch (error) {
-    // File doesn't exist or access denied
+  } catch {
     return false;
   }
 }
@@ -177,7 +173,10 @@ export async function fileExistsInCOS(key: string): Promise<boolean> {
 /**
  * Generate a unique file key with user isolation
  */
-export function generateFileKey(userId: string, originalFilename: string): string {
+export function generateFileKey(
+  userId: string,
+  originalFilename: string
+): string {
   const timestamp = Date.now();
   const sanitizedName = originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_');
   return `documents/${userId}/${timestamp}-${sanitizedName}`;
