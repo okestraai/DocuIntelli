@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
-import { uploadToCOS, getPresignedUploadUrl, getPresignedDownloadUrl, deleteFromCOS, generateFileKey, fileExistsInCOS } from '../services/storage';
+import {
+  uploadToCOS,
+  getPresignedUploadUrl,
+  getPresignedDownloadUrl,
+  deleteFromCOS,
+  generateFileKey,
+  fileExistsInCOS,
+} from '../services/storage';
 
 const router = Router();
 
@@ -25,7 +32,7 @@ const upload = multer({
       'text/plain',
       'image/jpeg',
       'image/png',
-      'image/gif'
+      'image/gif',
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
@@ -33,417 +40,422 @@ const upload = multer({
     } else {
       cb(new Error(`Unsupported file type: ${file.mimetype}`));
     }
-  }
+  },
 });
 
 /**
  * POST /api/upload - Upload document to IBM COS and create database record
  */
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
-  try {
-    console.log('📥 Upload request received');
-
-    // Get user from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authorization header required'
-      });
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
-
-    if (userError || !user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token'
-      });
-    }
-
-    const file = req.file;
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        error: 'No file uploaded'
-      });
-    }
-
-    const { name, category, expirationDate } = req.body;
-    if (!name || !category) {
-      return res.status(400).json({
-        success: false,
-        error: 'Name and category are required'
-      });
-    }
-
-    console.log(`📄 Processing file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`);
-    console.log(`👤 User: ${user.id}`);
-    console.log(`📝 Metadata: name="${name}", category="${category}"`);
-
-    // Generate unique file key
-    const fileKey = generateFileKey(user.id, file.originalname);
-    console.log(`🔑 Generated file key: ${fileKey}`);
-
-    // Check for duplicate uploads (idempotency)
-    const existingFile = await fileExistsInCOS(fileKey);
-    if (existingFile) {
-      console.log(`⚠️ File already exists: ${fileKey}`);
-      return res.status(409).json({
-        success: false,
-        error: 'File already exists'
-      });
-    }
-
-    // Upload to IBM COS
-    const uploadResult = await uploadToCOS(file.buffer, fileKey, file.mimetype);
-    
-    if (!uploadResult.success) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to upload file to storage',
-        details: uploadResult.error
-      });
-    }
-
-    console.log(`✅ File uploaded to IBM COS: ${uploadResult.url}`);
-
-    // Helper functions
-    const formatFileSize = (bytes: number): string => {
-      if (bytes === 0) return '0 Bytes';
-      const k = 1024;
-      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    };
-
-    const getFileType = (mimeType: string): string => {
-      if (mimeType.includes('pdf')) return 'PDF';
-      if (mimeType.includes('word')) return 'Word';
-      if (mimeType.includes('text')) return 'Text';
-      if (mimeType.includes('image')) return 'Image';
-      return 'Document';
-    };
-
-    // Create document record in Supabase database
-    const { data: documentData, error: dbError } = await supabase
-      .from('documents')
-      .insert([{
-        user_id: user.id,
-        name: name.trim(),
-        category: category,
-        type: getFileType(file.mimetype),
-        size: formatFileSize(file.size),
-        file_path: fileKey, // Store the COS key instead of Supabase path
-        original_name: file.originalname,
-        upload_date: new Date().toISOString().split('T')[0],
-        expiration_date: expirationDate || null,
-        status: 'active',
-        processed: false
-      }])
-      .select()
-      .single();
-
-    if (dbError) {
-      console.error('❌ Database insert error:', dbError);
-      
-      // Clean up uploaded file if database insert fails
-      await deleteFromCOS(fileKey);
-      
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to create document record',
-        details: dbError.message
-      });
-    }
-
-    console.log(`✅ Document record created: ${documentData.id}`);
-
-    // Trigger document processing via Edge Function
+router.post(
+  '/upload',
+  upload.single('file'),
+  async (req: Request, res: Response): Promise<Response> => {
     try {
-      console.log(`🔄 Triggering document processing for: ${documentData.id}`);
-      
-      // Call the process-document Edge Function
-      const processResponse = await fetch(`${process.env.SUPABASE_URL}/functions/v1/process-document`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      console.log('📥 Upload request received');
+
+      // Get user from Authorization header
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header required',
+        });
+      }
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+
+      if (userError || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or expired token',
+        });
+      }
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No file uploaded',
+        });
+      }
+
+      const { name, category, expirationDate } = req.body;
+      if (!name || !category) {
+        return res.status(400).json({
+          success: false,
+          error: 'Name and category are required',
+        });
+      }
+
+      console.log(
+        `📄 Processing file: ${file.originalname} (${file.mimetype}, ${file.size} bytes)`
+      );
+      console.log(`👤 User: ${user.id}`);
+      console.log(
+        `📝 Metadata: name="${name}", category="${category}"`
+      );
+
+      // Generate unique file key
+      const fileKey = generateFileKey(user.id, file.originalname);
+      console.log(`🔑 Generated file key: ${fileKey}`);
+
+      // Check for duplicate uploads (idempotency)
+      const existingFile = await fileExistsInCOS(fileKey);
+      if (existingFile) {
+        console.log(`⚠️ File already exists: ${fileKey}`);
+        return res.status(409).json({
+          success: false,
+          error: 'File already exists',
+        });
+      }
+
+      // Upload to IBM COS
+      const uploadResult = await uploadToCOS(
+        file.buffer,
+        fileKey,
+        file.mimetype
+      );
+
+      if (!uploadResult.success) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to upload file to storage',
+          details: uploadResult.error,
+        });
+      }
+
+      console.log(`✅ File uploaded to IBM COS: ${uploadResult.url}`);
+
+      // Helpers
+      const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (
+          parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+        );
+      };
+
+      const getFileType = (mimeType: string): string => {
+        if (mimeType.includes('pdf')) return 'PDF';
+        if (mimeType.includes('word')) return 'Word';
+        if (mimeType.includes('text')) return 'Text';
+        if (mimeType.includes('image')) return 'Image';
+        return 'Document';
+      };
+
+      // Create document record
+      const { data: documentData, error: dbError } = await supabase
+        .from('documents')
+        .insert([
+          {
+            user_id: user.id,
+            name: name.trim(),
+            category: category,
+            type: getFileType(file.mimetype),
+            size: formatFileSize(file.size),
+            file_path: fileKey,
+            original_name: file.originalname,
+            upload_date: new Date().toISOString().split('T')[0],
+            expiration_date: expirationDate || null,
+            status: 'active',
+            processed: false,
+          },
+        ])
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error('❌ Database insert error:', dbError);
+        await deleteFromCOS(fileKey); // cleanup
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create document record',
+          details: dbError.message,
+        });
+      }
+
+      console.log(`✅ Document record created: ${documentData.id}`);
+
+      // Trigger document processing (non-blocking)
+      try {
+        console.log(`🔄 Triggering document processing for: ${documentData.id}`);
+        const processResponse = await fetch(
+          `${process.env.SUPABASE_URL}/functions/v1/process-document`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              document_id: documentData.id,
+              file_key: fileKey,
+              file_type: file.mimetype,
+            }),
+          }
+        );
+
+        if (processResponse.ok) {
+          const processResult: any = await processResponse.json(); // 👈 casted from unknown
+          console.log(
+            `✅ Document processing initiated: ${
+              processResult.chunks_processed || 0
+            } chunks`
+          );
+        } else {
+          console.error(
+            '⚠️ Document processing failed:',
+            await processResponse.text()
+          );
+        }
+      } catch (processError) {
+        console.error(
+          '⚠️ Document processing error (non-blocking):',
+          processError
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: {
           document_id: documentData.id,
           file_key: fileKey,
-          file_type: file.mimetype
-        })
+          public_url: uploadResult.url,
+          file_type: getFileType(file.mimetype),
+          size: formatFileSize(file.size),
+        },
       });
-
-      if (processResponse.ok) {
-        const processResult = await processResponse.json();
-        console.log(`✅ Document processing initiated: ${processResult.chunks_processed || 0} chunks`);
-      } else {
-        console.error('⚠️ Document processing failed (non-blocking):', await processResponse.text());
-      }
-    } catch (processError) {
-      console.error('⚠️ Document processing error (non-blocking):', processError);
-      // Don't fail the upload if processing fails
-    }
-
-    console.log(`🎉 Upload workflow completed successfully`);
-    console.log(`📊 Summary:`);
-    console.log(`   - File: ${file.originalname} (${getFileType(file.mimetype)})`);
-    console.log(`   - COS Key: ${fileKey}`);
-    console.log(`   - Document ID: ${documentData.id}`);
-    console.log(`   - Public URL: ${uploadResult.url}`);
-
-    res.json({
-      success: true,
-      data: {
-        document_id: documentData.id,
-        file_key: fileKey,
-        public_url: uploadResult.url,
-        file_type: getFileType(file.mimetype),
-        size: formatFileSize(file.size)
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Upload error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * GET /api/signed-url - Generate presigned URL for direct client uploads
- */
-router.get('/signed-url', async (req: Request, res: Response) => {
-  try {
-    console.log('🔗 Presigned URL request received');
-
-    // Get user from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authorization header required'
-      });
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
-
-    if (userError || !user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token'
-      });
-    }
-
-    const { filename, contentType } = req.query;
-    if (!filename || !contentType) {
-      return res.status(400).json({
-        success: false,
-        error: 'filename and contentType query parameters are required'
-      });
-    }
-
-    // Generate unique file key
-    const fileKey = generateFileKey(user.id, filename as string);
-    
-    // Generate presigned URL (expires in 1 hour)
-    const presignedResult = await getPresignedUploadUrl(
-      fileKey, 
-      contentType as string, 
-      3600
-    );
-
-    if (!presignedResult.success) {
+    } catch (error) {
+      console.error('❌ Upload error:', error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to generate presigned URL',
-        details: presignedResult.error
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+);
 
-    console.log(`✅ Presigned URL generated for user: ${user.id}`);
+/**
+ * GET /api/signed-url
+ */
+router.get(
+  '/signed-url',
+  async (req: Request, res: Response): Promise<Response> => {
+    try {
+      console.log('🔗 Presigned URL request received');
 
-    res.json({
-      success: true,
-      data: {
-        upload_url: presignedResult.uploadUrl,
-        file_key: fileKey,
-        expires_in: 3600
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header required',
+        });
       }
-    });
 
-  } catch (error) {
-    console.error('❌ Presigned URL error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
 
-/**
- * GET /api/documents/:id/download - Get presigned download URL
- */
-router.get('/documents/:id/download', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    
-    // Get user from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authorization header required'
+      if (userError || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or expired token',
+        });
+      }
+
+      const { filename, contentType } = req.query;
+      if (!filename || !contentType) {
+        return res.status(400).json({
+          success: false,
+          error: 'filename and contentType required',
+        });
+      }
+
+      const fileKey = generateFileKey(user.id, filename as string);
+
+      const presignedResult = await getPresignedUploadUrl(
+        fileKey,
+        contentType as string,
+        3600
+      );
+
+      if (!presignedResult.success) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to generate presigned URL',
+          details: presignedResult.error,
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          upload_url: presignedResult.uploadUrl,
+          file_key: fileKey,
+          expires_in: 3600,
+        },
       });
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
-
-    if (userError || !user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token'
-      });
-    }
-
-    // Get document from database
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('file_path, name')
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (docError || !document) {
-      return res.status(404).json({
-        success: false,
-        error: 'Document not found'
-      });
-    }
-
-    // Generate presigned download URL
-    const downloadUrl = await getPresignedDownloadUrl(document.file_path, 3600);
-
-    res.json({
-      success: true,
-      download_url: downloadUrl,
-      filename: document.name
-    });
-
-  } catch (error) {
-    console.error('❌ Download URL error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * DELETE /api/documents/:id - Delete document and file
- */
-router.delete('/documents/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    
-    // Get user from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authorization header required'
-      });
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
-
-    if (userError || !user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token'
-      });
-    }
-
-    // Get document from database
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('file_path')
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (docError || !document) {
-      return res.status(404).json({
-        success: false,
-        error: 'Document not found'
-      });
-    }
-
-    console.log(`🗑️ Deleting document: ${id}`);
-
-    // Delete from IBM COS
-    const cosDeleted = await deleteFromCOS(document.file_path);
-    if (!cosDeleted) {
-      console.error('⚠️ Failed to delete file from COS (continuing with database deletion)');
-    }
-
-    // Delete document chunks first (foreign key constraint)
-    const { error: chunksError } = await supabase
-      .from('document_chunks')
-      .delete()
-      .eq('document_id', id)
-      .eq('user_id', user.id);
-
-    if (chunksError) {
-      console.error('⚠️ Chunks deletion error:', chunksError);
-    }
-
-    // Delete document record
-    const { error: deleteError } = await supabase
-      .from('documents')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
-
-    if (deleteError) {
+    } catch (error) {
+      console.error('❌ Presigned URL error:', error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to delete document',
-        details: deleteError.message
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
-
-    console.log(`✅ Document deleted successfully: ${id}`);
-
-    res.json({
-      success: true,
-      message: 'Document deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ Delete error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
   }
-});
+);
+
+/**
+ * GET /api/documents/:id/download
+ */
+router.get(
+  '/documents/:id/download',
+  async (req: Request, res: Response): Promise<Response> => {
+    try {
+      const { id } = req.params;
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header required',
+        });
+      }
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+
+      if (userError || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or expired token',
+        });
+      }
+
+      const { data: document, error: docError } = await supabase
+        .from('documents')
+        .select('file_path, name')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (docError || !document) {
+        return res.status(404).json({
+          success: false,
+          error: 'Document not found',
+        });
+      }
+
+      const downloadUrl = await getPresignedDownloadUrl(
+        document.file_path,
+        3600
+      );
+
+      return res.json({
+        success: true,
+        download_url: downloadUrl,
+        filename: document.name,
+      });
+    } catch (error) {
+      console.error('❌ Download URL error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * DELETE /api/documents/:id
+ */
+router.delete(
+  '/documents/:id',
+  async (req: Request, res: Response): Promise<Response> => {
+    try {
+      const { id } = req.params;
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header required',
+        });
+      }
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+
+      if (userError || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or expired token',
+        });
+      }
+
+      const { data: document, error: docError } = await supabase
+        .from('documents')
+        .select('file_path')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (docError || !document) {
+        return res.status(404).json({
+          success: false,
+          error: 'Document not found',
+        });
+      }
+
+      console.log(`🗑️ Deleting document: ${id}`);
+
+      const cosDeleted = await deleteFromCOS(document.file_path);
+      if (!cosDeleted) {
+        console.error('⚠️ Failed to delete file from COS');
+      }
+
+      await supabase.from('document_chunks').delete().eq('document_id', id);
+
+      const { error: deleteError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to delete document',
+          details: deleteError.message,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Document deleted successfully',
+      });
+    } catch (error) {
+      console.error('❌ Delete error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
 
 export default router;
