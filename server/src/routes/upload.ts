@@ -38,15 +38,13 @@ router.get("/signed-url", async (req: Request, res: Response) => {
     const token = authHeader.replace("Bearer ", "").trim();
 
     // 2. Validate JWT with Supabase
- const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token);
-
-if (userError || !user) {
-  console.warn("❌ Supabase JWT validation failed:", userError?.message);
-  return res.status(401).json({
-    success: false,
-    error: "Invalid or expired Supabase token",
-  });
+ const { data: { user }, error: userError } = await // Simple API key validation
+const authHeader = req.headers.authorization;
+if (!authHeader || authHeader !== `Bearer ${process.env.APP_UPLOAD_KEY}`) {
+  console.warn("❌ Unauthorized request to /signed-url");
+  return res.status(401).json({ success: false, error: "Unauthorized" });
 }
+
     // 3. Validate query params
     const { filename, contentType } = req.query;
     if (!filename || !contentType) {
