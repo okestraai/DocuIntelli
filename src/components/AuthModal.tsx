@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import React, { useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { X, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { signUp, signIn } from '../lib/supabase';
