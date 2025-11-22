@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, Trash2 } from 'lucide-react';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
-import { useFeedback } from '../hooks/useFeedback';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -20,7 +19,6 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   const [documents, setDocuments] = useState<DocumentData[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const feedback = useFeedback();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categories = [

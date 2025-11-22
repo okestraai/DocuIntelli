@@ -1,6 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import path from "path";
 import dotenv from "dotenv";
 import uploadRoutes from "./routes/upload"; // ✅ adjust path if routes live elsewhere
 
@@ -35,7 +34,8 @@ app.get("/api/health", (req: Request, res: Response) => {
 });
 
 // Error handling middleware
-app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
+  void _next;
   console.error("Unhandled error:", error);
   res.status(500).json({
     success: false,

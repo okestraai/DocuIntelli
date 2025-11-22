@@ -42,9 +42,17 @@ export const initializeGoogleAuth = () => {
   });
 };
 
-const handleGoogleCallback = (response: any) => {
+const handleGoogleCallback = (response: unknown) => {
+  if (!response || typeof response !== 'object' || !('credential' in response)) {
+    console.warn('Unexpected Google auth response', response);
+    return;
+  }
+
+  const credential = (response as { credential?: string }).credential;
+  if (!credential) return;
+
   // Decode JWT token to get user info
-  const userInfo = parseJwt(response.credential);
+  const userInfo = parseJwt(credential);
   console.log('Google user info:', userInfo);
   
   // In a real app, you would send this to your backend
@@ -84,8 +92,8 @@ export const loginWithGoogle = async (): Promise<SocialAuthResult> => {
   try {
     await initializeGoogleAuth();
     
-    return new Promise((resolve) => {
-      window.google.accounts.id.prompt((notification: any) => {
+      return new Promise((resolve) => {
+        window.google.accounts.id.prompt((notification: GooglePromptNotification) => {
         if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
           // Fallback to popup
           window.google.accounts.id.renderButton(
@@ -109,10 +117,11 @@ export const loginWithGoogle = async (): Promise<SocialAuthResult> => {
         });
       }, 1000);
     });
-  } catch (error) {
-    return {
-      success: false,
-      error: 'Google login failed'
+    } catch (error) {
+      console.error('Google login failed:', error);
+      return {
+        success: false,
+        error: 'Google login failed'
     };
   }
 };
@@ -121,11 +130,11 @@ export const loginWithFacebook = async (): Promise<SocialAuthResult> => {
   try {
     await initializeFacebookSDK();
     
-    return new Promise((resolve) => {
-      window.FB.login((response: any) => {
-        if (response.authResponse) {
-          // Get user info
-          window.FB.api('/me', { fields: 'name,email,picture' }, (userInfo: any) => {
+      return new Promise((resolve) => {
+        window.FB.login((response: FacebookLoginResponse) => {
+          if (response.authResponse) {
+            // Get user info
+            window.FB.api('/me', { fields: 'name,email,picture' }, (userInfo: FacebookUserInfo) => {
             resolve({
               success: true,
               user: {
@@ -145,10 +154,11 @@ export const loginWithFacebook = async (): Promise<SocialAuthResult> => {
         }
       }, { scope: 'email' });
     });
-  } catch (error) {
-    return {
-      success: false,
-      error: 'Facebook login failed'
+    } catch (error) {
+      console.error('Facebook login failed:', error);
+      return {
+        success: false,
+        error: 'Facebook login failed'
     };
   }
 };
@@ -174,8 +184,40 @@ const parseJwt = (token: string) => {
 // Type declarations for global objects
 declare global {
   interface Window {
-    google: any;
-    FB: any;
+    google: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: unknown) => void }) => void;
+          prompt: (cb: (notification: GooglePromptNotification) => void) => void;
+          renderButton: (element: HTMLElement | null, options: Record<string, unknown>) => void;
+        };
+      };
+    };
+    FB: {
+      init: (config: Record<string, unknown>) => void;
+      login: (cb: (response: FacebookLoginResponse) => void, options: Record<string, string>) => void;
+      api: (
+        path: string,
+        params: Record<string, string>,
+        cb: (userInfo: FacebookUserInfo) => void
+      ) => void;
+    };
     fbAsyncInit: () => void;
   }
+}
+
+interface GooglePromptNotification {
+  isNotDisplayed: () => boolean;
+  isSkippedMoment: () => boolean;
+}
+
+interface FacebookLoginResponse {
+  authResponse?: unknown;
+}
+
+interface FacebookUserInfo {
+  id: string;
+  email: string;
+  name: string;
+  picture?: { data?: { url?: string } };
 }
