@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDocuments, deleteDocument as deleteDocumentFromDB, SupabaseDocument } from '../lib/supabase';
+import { getDocuments, deleteDocument as deleteDocumentFromDB, SupabaseDocument, supabase } from '../lib/supabase';
 import { uploadDocumentWithMetadata } from '../lib/api';
 import type { Document } from '../App';
 
@@ -72,7 +72,7 @@ export function useDocuments(isAuthenticated: boolean) {
         throw new Error('User not authenticated');
       }
 
-      const response = await fetch(`/api/documents/${id}`, {
+      const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -161,13 +161,22 @@ function transformSupabaseDocument(supabaseDoc: SupabaseDocument): Document {
     }
   }
 
+  // Format size from bytes to human-readable string
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
   return {
     id: supabaseDoc.id,
     name: supabaseDoc.name,
     type: supabaseDoc.type,
     category: supabaseDoc.category as Document['category'],
     uploadDate: supabaseDoc.upload_date,
-    size: supabaseDoc.size,
+    size: formatSize(supabaseDoc.size),
     status: status,
     expirationDate: supabaseDoc.expiration_date
   };

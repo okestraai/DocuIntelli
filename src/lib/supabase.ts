@@ -16,7 +16,7 @@ export interface SupabaseDocument {
   name: string
   category: string
   type: string
-  size: string
+  size: number
   file_path: string
   original_name: string
   upload_date: string
@@ -66,7 +66,7 @@ export const deleteDocument = async (id: string) => {
   console.log(`🗑️ Deleting document: ${id}`);
 
   // Use backend API for deletion (handles both IBM COS and database)
-  const response = await fetch(`/api/documents/${id}`, {
+  const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,

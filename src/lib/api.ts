@@ -1,49 +1,76 @@
 // src/lib/api.ts
 // Frontend API helpers
+import { supabase } from './supabase';
 
 export interface UploadResponse {
-  file_key: string;
-  public_url?: string;
-  size?: string;
-  file_type?: string;
+  success: boolean;
+  data?: {
+    document_id: string;
+    file_key: string;
+    public_url?: string;
+    file_type?: string;
+  };
+  error?: string;
+}
+
+export interface DocumentUploadRequest {
+  name: string;
+  category: string;
+  file: File;
+  expirationDate?: string;
 }
 
 /**
- * Upload a document with metadata via IBM COS presigned URL
+ * Upload a document with metadata to IBM COS via backend API
  */
-export async function uploadDocumentWithMetadata(file: File): Promise<UploadResponse> {
-  const res = await fetch(
-    `http://localhost:5000/api/signed-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${import.meta.env.VITE_APP_UPLOAD_KEY}`,
-      },
+export async function uploadDocumentWithMetadata(
+  file: File,
+  name: string,
+  category: string,
+  expirationDate?: string
+): Promise<UploadResponse> {
+  try {
+    // Get auth token
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'User not authenticated' };
     }
-  );
 
-  if (!res.ok) {
-    throw new Error(`Failed to get presigned URL with status ${res.status}`);
+    // Create FormData for multipart upload
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    formData.append('category', category);
+    if (expirationDate) {
+      formData.append('expirationDate', expirationDate);
+    }
+
+    // Upload to backend API
+    const res = await fetch('http://localhost:5000/api/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Upload failed' }));
+      return {
+        success: false,
+        error: errorData.error || `Upload failed with status ${res.status}`,
+      };
+    }
+
+    const result = await res.json();
+    return result;
+  } catch (error) {
+    console.error('Upload error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Upload failed',
+    };
   }
-
-  const { data } = await res.json();
-  const { upload_url, file_key } = data;
-
-  const uploadRes = await fetch(upload_url, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type },
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Upload failed with status ${uploadRes.status}`);
-  }
-
-  return {
-    file_key,
-    public_url: upload_url.split("?")[0],
-    size: `${(file.size / 1024).toFixed(1)} KB`,
-    file_type: file.type,
-  };
 }
 
 /**

@@ -88,6 +88,8 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
       return;
     }
 
+    const sizeFormatted = `${(file.size / 1024).toFixed(1)} KB`;
+
     const { data: documentData, error: dbError } = await supabase
       .from("documents")
       .insert([{

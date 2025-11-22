@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, Trash2 } from 'lucide-react';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
-import { uploadDocument } from '../lib/api';
 import { useFeedback } from '../hooks/useFeedback';
 
 interface UploadModalProps {
