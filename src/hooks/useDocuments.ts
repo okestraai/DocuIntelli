@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getDocuments, deleteDocument as deleteDocumentFromDB, SupabaseDocument, supabase } from '../lib/supabase';
+import { useState, useEffect, useCallback } from 'react';
+import { getDocuments, SupabaseDocument, supabase } from '../lib/supabase';
 import { uploadDocumentWithMetadata } from '../lib/api';
 import type { Document } from '../App';
 
@@ -79,22 +79,23 @@ export function useDocuments(isAuthenticated: boolean) {
         },
       });
 
-      if (!response.ok) {
-        let errorMessage = `Failed to delete document with status ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch (jsonError) {
+        if (!response.ok) {
+          let errorMessage = `Failed to delete document with status ${response.status}`;
           try {
-            const errorText = await response.text();
-            console.error(`❌ Delete Error (${response.status}):`, errorText);
-            errorMessage = errorText || errorMessage;
-          } catch (textError) {
-            console.error(`❌ Failed to parse delete error response:`, textError);
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch (_jsonError) {
+            console.error('❌ Failed to parse delete response JSON:', _jsonError);
+            try {
+              const errorText = await response.text();
+              console.error(`❌ Delete Error (${response.status}):`, errorText);
+              errorMessage = errorText || errorMessage;
+            } catch (textError) {
+              console.error(`❌ Failed to parse delete error response:`, textError);
+            }
           }
+          throw new Error(errorMessage);
         }
-        throw new Error(errorMessage);
-      }
 
       // Update local state
       setDocuments(prev => prev.filter(doc => doc.id !== id));
@@ -107,7 +108,7 @@ export function useDocuments(isAuthenticated: boolean) {
     }
   };
 
-  const refetchDocuments = async () => {
+  const refetchDocuments = useCallback(async () => {
     if (!isAuthenticated) {
       setDocuments([]);
       setLoading(false);
@@ -129,11 +130,11 @@ export function useDocuments(isAuthenticated: boolean) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     refetchDocuments();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refetchDocuments]);
 
   return {
     documents,

@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import type { Request } from 'express';
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -10,10 +11,14 @@ const storage = multer.diskStorage({
     const uniqueId = uuidv4();
     const extension = path.extname(file.originalname);
     cb(null, `${uniqueId}${extension}`);
-  }
+  },
 });
 
-const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
   const allowedTypes = [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -35,5 +40,5 @@ export const upload = multer({
   limits: {
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
-  fileFilter
+  fileFilter,
 });

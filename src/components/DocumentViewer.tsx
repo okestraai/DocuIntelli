@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2 } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
@@ -15,11 +15,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const feedback = useFeedback();
 
-  useEffect(() => {
-    loadDocument();
-  }, [document.id]);
-
-  const loadDocument = async () => {
+  const loadDocument = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -35,7 +31,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [document]);
+
+  useEffect(() => {
+    loadDocument();
+  }, [loadDocument]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment

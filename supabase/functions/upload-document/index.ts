@@ -267,7 +267,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Generate unique file path
     const timestamp = Date.now()
-    const fileExt = file.name.split('.').pop()
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
     const uniquePath = `${user.id}/${timestamp}-${sanitizedName}`
 

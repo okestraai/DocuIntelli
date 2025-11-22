@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Send, MessageSquare, FileText, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { searchDocuments } from '../lib/api';
@@ -112,7 +112,6 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
   const generateContextualResponse = (question: string, context: string, doc: Document): string => {
     // Generate a response based on the actual document content
     const lowerQuestion = question.toLowerCase();
-    const lowerContext = context.toLowerCase();
     
     if (lowerQuestion.includes('covered') || lowerQuestion.includes('coverage')) {
       return `Based on your ${doc.category} document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;

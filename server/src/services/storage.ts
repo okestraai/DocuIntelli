@@ -21,6 +21,43 @@ export interface PresignedUrlResult {
   error?: string;
 }
 
+function buildPublicUrl(key: string): string {
+  const base = cosConfig.publicEndpoint.replace(/\/$/, '');
+  const hasBucketInEndpoint = new RegExp(`/${cosConfig.bucket}(/|$)`).test(base);
+  const prefix = hasBucketInEndpoint ? base : `${base}/${cosConfig.bucket}`;
+  return `${prefix}/${key}`;
+}
+
+interface S3ErrorDetails {
+  name: string;
+  message: string;
+  code?: string;
+  statusCode?: number;
+  requestId?: string;
+}
+
+function extractS3ErrorDetails(error: unknown): S3ErrorDetails {
+  const name = error instanceof Error ? error.name : 'UnknownError';
+  const message = error instanceof Error ? error.message : 'Unexpected S3 error';
+  const metadata =
+    typeof error === 'object' && error !== null && '$metadata' in error
+      ? (error as { $metadata?: { httpStatusCode?: number; requestId?: string } }).$metadata
+      : undefined;
+
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: string }).code
+      : undefined;
+
+  return {
+    name,
+    message,
+    code,
+    statusCode: metadata?.httpStatusCode,
+    requestId: metadata?.requestId,
+  };
+}
+
 /**
  * Upload a file buffer to IBM Cloud Object Storage
  */
@@ -47,11 +84,7 @@ export async function uploadToCOS(
 
     const result = await cosClient.send(command);
 
-    // ✅ Correct public URL style
-    const publicUrl = `https://${cosConfig.bucket}.${cosConfig.endpoint.replace(
-      /^https?:\/\//,
-      ''
-    )}/${key}`;
+    const publicUrl = buildPublicUrl(key);
 
     console.log(`✅ Upload successful to IBM COS:`);
     console.log(`   - Key: ${key}`);
@@ -63,17 +96,17 @@ export async function uploadToCOS(
       key,
       url: publicUrl,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const details = extractS3ErrorDetails(error);
+
     console.error('❌ IBM COS upload error:', {
-      name: error.name,
-      message: error.message,
-      code: error.$metadata?.httpStatusCode,
+      ...details,
       bucket: cosConfig.bucket,
       key,
     });
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Upload failed',
+      error: details.message,
     };
   }
 }
@@ -115,18 +148,18 @@ export async function getPresignedUploadUrl(
       uploadUrl,
       key,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const details = extractS3ErrorDetails(error);
+
     console.error('❌ Presigned URL generation error:', {
-      message: error.message,
-      code: error.code,
-      statusCode: error.$metadata?.httpStatusCode,
+      ...details,
       bucket: cosConfig.bucket,
       key,
-      contentType
+      contentType,
     });
     return {
       success: false,
-      error: error.message,
+      error: details.message,
     };
   }
 }
@@ -145,9 +178,10 @@ export async function getPresignedDownloadUrl(
     });
 
     return await getSignedUrl(cosClient, command, { expiresIn });
-  } catch (error: any) {
-    console.error('❌ Download URL generation error:', error.message);
-    throw new Error(`Failed to generate download URL: ${error.message}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Download URL generation error:', message);
+    throw new Error(`Failed to generate download URL: ${message}`);
   }
 }
 
@@ -163,8 +197,9 @@ export async function deleteFromCOS(key: string): Promise<boolean> {
     await cosClient.send(command);
     console.log(`✅ File deleted successfully: ${key}`);
     return true;
-  } catch (error: any) {
-    console.error('❌ IBM COS delete error:', error.message);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ IBM COS delete error:', message);
     return false;
   }
 }

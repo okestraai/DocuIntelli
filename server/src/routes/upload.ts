@@ -25,7 +25,7 @@ const supabase = createClient(
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = [
       "application/pdf",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -88,8 +88,6 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
       return;
     }
 
-    const sizeFormatted = `${(file.size / 1024).toFixed(1)} KB`;
-
     const { data: documentData, error: dbError } = await supabase
       .from("documents")
       .insert([{
@@ -122,9 +120,10 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
         public_url: uploadResult.url,
       },
     });
-  } catch (err: any) {
-    console.error("❌ Upload error:", err.message);
-    res.status(500).json({ success: false, error: "Internal server error", details: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("❌ Upload error:", message);
+    res.status(500).json({ success: false, error: "Internal server error", details: message });
   }
 });
 
@@ -168,9 +167,10 @@ router.get("/signed-url", async (req: Request, res: Response): Promise<void> => 
         expires_in: 3600,
       },
     });
-  } catch (err: any) {
-    console.error("❌ Signed URL error:", err.message);
-    res.status(500).json({ success: false, error: "Internal server error", details: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("❌ Signed URL error:", message);
+    res.status(500).json({ success: false, error: "Internal server error", details: message });
   }
 });
 
@@ -211,9 +211,10 @@ router.get("/documents/:id/download", async (req: Request, res: Response): Promi
 
     const downloadUrl = await getPresignedDownloadUrl(document.file_path, 3600);
     res.json({ success: true, download_url: downloadUrl, filename: document.name });
-  } catch (err: any) {
-    console.error("❌ Download error:", err.message);
-    res.status(500).json({ success: false, error: "Internal server error", details: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("❌ Download error:", message);
+    res.status(500).json({ success: false, error: "Internal server error", details: message });
   }
 });
 
@@ -258,9 +259,10 @@ router.delete("/documents/:id", async (req: Request, res: Response): Promise<voi
     await supabase.from("documents").delete().eq("id", id).eq("user_id", user.id);
 
     res.json({ success: true, message: "Document deleted" });
-  } catch (err: any) {
-    console.error("❌ Delete error:", err.message);
-    res.status(500).json({ success: false, error: "Internal server error", details: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("❌ Delete error:", message);
+    res.status(500).json({ success: false, error: "Internal server error", details: message });
   }
 });
 
