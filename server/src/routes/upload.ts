@@ -2,13 +2,12 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import { createClient } from "@supabase/supabase-js";
 import {
-  uploadToCOS,
-  getPresignedUploadUrl,
-  getPresignedDownloadUrl,
-  deleteFromCOS,
+  uploadToSupabase,
+  getSignedDownloadUrl,
+  deleteFromSupabase,
   generateFileKey,
-  fileExistsInCOS,
-} from "../services/storage";
+  fileExistsInSupabase,
+} from "../services/supabaseStorage";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -16,8 +15,9 @@ dotenv.config();
 const router = Router();
 
 // Supabase client for database operations
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL!;
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
+  supabaseUrl,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -42,7 +42,7 @@ const upload = multer({
 
 /**
  * POST /api/upload
- * Upload document to IBM COS and create DB record
+ * Upload document to Supabase Storage and create DB record
  */
 router.post("/upload", upload.single("file"), async (req: Request, res: Response): Promise<void> => {
   try {
@@ -77,12 +77,12 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
 
     const fileKey = generateFileKey(user.id, file.originalname);
 
-    if (await fileExistsInCOS(fileKey)) {
+    if (await fileExistsInSupabase(fileKey)) {
       res.status(409).json({ success: false, error: "File already exists" });
       return;
     }
 
-    const uploadResult = await uploadToCOS(file.buffer, fileKey, file.mimetype);
+    const uploadResult = await uploadToSupabase(file.buffer, fileKey, file.mimetype);
     if (!uploadResult.success) {
       res.status(500).json({ success: false, error: uploadResult.error });
       return;
@@ -107,7 +107,7 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
       .single();
 
     if (dbError) {
-      await deleteFromCOS(fileKey);
+      await deleteFromSupabase(fileKey);
       res.status(500).json({ success: false, error: "DB insert failed", details: dbError.message });
       return;
     }
@@ -128,55 +128,8 @@ router.post("/upload", upload.single("file"), async (req: Request, res: Response
 });
 
 /**
- * GET /api/signed-url
- * Generate presigned URL (API key authorization)
- */
-router.get("/signed-url", async (req: Request, res: Response): Promise<void> => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      res.status(401).json({ success: false, error: "Missing Authorization header" });
-      return;
-    }
-
-    const token = authHeader.replace("Bearer ", "").trim();
-    if (token !== process.env.APP_UPLOAD_KEY) {
-      res.status(401).json({ success: false, error: "Unauthorized" });
-      return;
-    }
-
-    const { filename, contentType } = req.query;
-    if (!filename || !contentType) {
-      res.status(400).json({ success: false, error: "filename and contentType required" });
-      return;
-    }
-
-    const fileKey = generateFileKey("appuser", filename as string);
-    const presigned = await getPresignedUploadUrl(fileKey, contentType as string, 3600);
-
-    if (!presigned.success) {
-      res.status(500).json({ success: false, error: "Presigned URL error", details: presigned.error });
-      return;
-    }
-
-    res.json({
-      success: true,
-      data: {
-        upload_url: presigned.uploadUrl,
-        file_key: fileKey,
-        expires_in: 3600,
-      },
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("❌ Signed URL error:", message);
-    res.status(500).json({ success: false, error: "Internal server error", details: message });
-  }
-});
-
-/**
  * GET /api/documents/:id/download
- * Generate presigned download URL
+ * Generate signed download URL
  */
 router.get("/documents/:id/download", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -209,7 +162,7 @@ router.get("/documents/:id/download", async (req: Request, res: Response): Promi
       return;
     }
 
-    const downloadUrl = await getPresignedDownloadUrl(document.file_path, 3600);
+    const downloadUrl = await getSignedDownloadUrl(document.file_path, 3600);
     res.json({ success: true, download_url: downloadUrl, filename: document.name });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -220,7 +173,7 @@ router.get("/documents/:id/download", async (req: Request, res: Response): Promi
 
 /**
  * DELETE /api/documents/:id
- * Delete document and COS file
+ * Delete document from Supabase Storage and database
  */
 router.delete("/documents/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -253,7 +206,7 @@ router.delete("/documents/:id", async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    await deleteFromCOS(document.file_path);
+    await deleteFromSupabase(document.file_path);
 
     await supabase.from("document_chunks").delete().eq("document_id", id).eq("user_id", user.id);
     await supabase.from("documents").delete().eq("id", id).eq("user_id", user.id);
