@@ -37,12 +37,6 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       setError(null);
       console.log('📂 Loading document files for:', document.id);
 
-      // Clean up previous blob URL if it exists
-      if (documentUrl && documentUrl.startsWith('blob:')) {
-        console.log('🧹 Cleaning up previous blob URL');
-        URL.revokeObjectURL(documentUrl);
-      }
-
       const documentFiles = await getDocumentFiles(document.id);
       console.log('📄 Found files:', documentFiles.length);
       console.log('📋 File details:', documentFiles.map(f => ({
@@ -63,7 +57,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       console.log('📝 File type:', documentFiles[0].type);
 
       const fileUrl = await getFileUrl(documentFiles[0].file_path);
-      console.log('✅ File URL generated:', fileUrl.substring(0, 80) + '...');
+      console.log('✅ File URL generated:', fileUrl);
 
       setDocumentUrl(fileUrl);
     } catch (err) {
@@ -72,34 +66,17 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [document.id, documentUrl]);
+  }, [document.id]);
 
   useEffect(() => {
     loadDocumentFiles();
   }, [loadDocumentFiles]);
-
-  // Cleanup blob URL on unmount
-  useEffect(() => {
-    return () => {
-      if (documentUrl && documentUrl.startsWith('blob:')) {
-        console.log('🧹 Cleaning up blob URL on unmount');
-        URL.revokeObjectURL(documentUrl);
-      }
-    };
-  }, [documentUrl]);
 
   const handleFileChange = async (index: number) => {
     if (index === currentFileIndex || !files[index]) return;
 
     try {
       setIsLoading(true);
-
-      // Clean up previous blob URL
-      if (documentUrl && documentUrl.startsWith('blob:')) {
-        console.log('🧹 Cleaning up previous blob URL before switching files');
-        URL.revokeObjectURL(documentUrl);
-      }
-
       setCurrentFileIndex(index);
       const fileUrl = await getFileUrl(files[index].file_path);
       setDocumentUrl(fileUrl);
