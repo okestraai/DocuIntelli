@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import os from 'os';
+import path from 'path';
+import fs from 'fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
+import { runPythonExtractor } from '../services/pythonRunner';
 
 const router = Router();
 
@@ -123,27 +127,55 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     console.log(`✅ Document uploaded successfully: ${documentData.id}`);
 
-    // Trigger document processing in background (non-blocking)
-    console.log(`🔄 Triggering document processing for: ${documentData.id}`);
-    fetch(`${supabaseUrl}/functions/v1/process-document`, {
-      method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ document_id: documentData.id }),
-    })
-      .then(async (response) => {
-        if (response.ok) {
-          const result = await response.json() as { data?: { chunks_processed?: number } };
-          console.log(`✅ Document processing completed: ${result.data?.chunks_processed || 0} chunks`);
-        } else {
-          console.error(`⚠️ Document processing failed: ${response.status}`);
+    // Trigger document processing using Python extractor (non-blocking)
+    console.log(`🔄 Triggering Python document processing for: ${documentData.id}`);
+
+    (async () => {
+      let tempDir: string | null = null;
+      try {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'legalease-'));
+        const tempFilePath = path.join(tempDir, file.originalname);
+        await fs.writeFile(tempFilePath, file.buffer);
+
+        const extractionResult = await runPythonExtractor(tempFilePath, file.mimetype);
+        console.log(`✂️ Python created ${extractionResult.chunks.length} text chunks`);
+
+        if (extractionResult.chunks.length > 0) {
+          const { error: chunkError } = await supabase
+            .from('document_chunks')
+            .insert(
+              extractionResult.chunks.map(({ index, content }) => ({
+                document_id: documentData.id,
+                user_id: user.id,
+                chunk_index: index,
+                chunk_text: content,
+              }))
+            );
+
+          if (chunkError) {
+            throw new Error(`Failed to insert document chunks: ${chunkError.message}`);
+          }
         }
-      })
-      .catch((error) => {
-        console.error(`⚠️ Document processing error (non-blocking):`, error.message);
-      });
+
+        const { error: updateError } = await supabase
+          .from('documents')
+          .update({ processed: true })
+          .eq('id', documentData.id)
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('⚠️ Failed to update document processed flag:', updateError.message);
+        } else {
+          console.log(`✅ Document processed: ${documentData.id}`);
+        }
+      } catch (processingError: any) {
+        console.error('❌ Python document processing error:', processingError.message || processingError);
+      } finally {
+        if (tempDir) {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        }
+      }
+    })();
 
     res.json({
       success: true,

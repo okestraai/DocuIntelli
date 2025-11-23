@@ -6,7 +6,7 @@ export function runPythonExtractor(
   mimeType: string
 ): Promise<{ text: string; chunks: { index: number; content: string }[] }> {
   return new Promise((resolve, reject) => {
-    const script = path.join(__dirname, "../../../python/extract_and_chunk.py");
+    const script = path.join(__dirname, "../../../python/python/extract_and_chunk.py");
 
     execFile(
       "python3",
