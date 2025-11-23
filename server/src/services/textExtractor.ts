@@ -1,5 +1,6 @@
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import Tesseract from 'tesseract.js';
 
 export interface ExtractionResult {
   text: string;
@@ -18,6 +19,15 @@ export class TextExtractor {
 
       case 'text/plain':
         return buffer.toString('utf-8');
+
+      case 'image/jpeg':
+      case 'image/jpg':
+      case 'image/png':
+      case 'image/gif':
+      case 'image/webp':
+      case 'image/bmp':
+      case 'image/tiff':
+        return await this.extractFromImage(buffer);
 
       default:
         try {
@@ -45,6 +55,30 @@ export class TextExtractor {
     } catch (error) {
       console.error('DOCX extraction error:', error);
       throw new Error('Failed to extract text from DOCX');
+    }
+  }
+
+  static async extractFromImage(buffer: Buffer): Promise<string> {
+    try {
+      console.log('Starting OCR extraction from image...');
+      const { data: { text } } = await Tesseract.recognize(buffer, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            console.log(`OCR progress: ${Math.round(m.progress * 100)}%`);
+          }
+        }
+      });
+
+      console.log('OCR extraction completed');
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('No text found in image');
+      }
+
+      return text;
+    } catch (error) {
+      console.error('Image OCR extraction error:', error);
+      throw new Error('Failed to extract text from image');
     }
   }
 

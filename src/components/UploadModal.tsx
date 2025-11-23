@@ -170,10 +170,10 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"
-                accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
+                accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff"
               />
               <p className="text-sm text-gray-500 mt-4">
-                Supports PDF, Word, Text, and Image files (max 10MB each)
+                Supports PDF, Word, Text, and Image files with OCR (max 10MB each)
               </p>
             </div>
           )}
@@ -197,7 +197,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                   multiple
                   onChange={handleFileSelect}
                   className="hidden"
-                  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
+                  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff"
                 />
               </div>
 
