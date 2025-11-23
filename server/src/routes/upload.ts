@@ -1,3 +1,4 @@
+import '../env';
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
