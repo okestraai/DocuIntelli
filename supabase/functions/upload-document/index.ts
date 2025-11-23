@@ -431,7 +431,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           },
           body: JSON.stringify({
             document_id: documentData.id,
-            limit: 10
+            limit: 1
           })
         })
 

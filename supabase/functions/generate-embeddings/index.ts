@@ -36,17 +36,16 @@ Deno.serve(async (req: Request) => {
     console.log("📊 Starting embedding generation...");
 
     let document_id: string | undefined;
-    let limit = 3; // Process 3 chunks at a time to avoid timeouts
+    let limit = 1;
 
     if (req.method === "POST") {
       try {
         const body: RequestBody = await req.json();
         document_id = body.document_id;
         if (body.limit && body.limit > 0) {
-          limit = Math.min(body.limit, 10); // Max 10 at a time
+          limit = Math.min(body.limit, 3);
         }
       } catch {
-        // No body or invalid JSON, use defaults
       }
     }
 
@@ -92,14 +91,12 @@ Deno.serve(async (req: Request) => {
     let updatedCount = 0;
     const errors: Array<{ chunkId: string; error: string }> = [];
 
-    // Create embedding model session outside the loop
     const session = new Supabase.ai.Session("gte-small");
 
     for (const chunk of chunks as DocumentChunk[]) {
       try {
         console.log(`🔄 Chunk ${chunk.id} (${chunk.chunk_index}): text length = ${chunk.chunk_text.length}`);
 
-        // Generate embedding using Supabase AI
         const embedding = await session.run(chunk.chunk_text, {
           mean_pool: true,
           normalize: true,
@@ -111,7 +108,6 @@ Deno.serve(async (req: Request) => {
           throw new Error("Embedding is null or undefined");
         }
 
-        // Convert to array if needed
         let embeddingArray: number[];
         if (Array.isArray(embedding)) {
           embeddingArray = embedding;
@@ -144,7 +140,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Check if there are more chunks to process
     const { count: remainingCount } = await supabase
       .from("document_chunks")
       .select("id", { count: "exact", head: true })
