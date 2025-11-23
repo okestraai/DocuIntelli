@@ -109,13 +109,14 @@ function App() {
   };
 
   const handleDocumentsUploadNew = async (documentsData: DocumentUploadRequest[]) => {
+    const loadingToastId = feedback.showLoading('Uploading documents...', 'Please wait while we process your files');
     try {
-      const loadingToastId = feedback.showLoading('Uploading documents...', 'Please wait while we process your files');
       await uploadDocuments(documentsData);
       feedback.removeToast(loadingToastId);
       feedback.showSuccess('Upload successful!', `${documentsData.length} document${documentsData.length !== 1 ? 's' : ''} uploaded successfully`);
       setShowUploadModal(false);
     } catch (error) {
+      feedback.removeToast(loadingToastId);
       feedback.showError('Upload failed', error instanceof Error ? error.message : 'Failed to upload documents');
       console.error('Upload failed:', error);
     }

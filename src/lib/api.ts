@@ -30,11 +30,16 @@ export async function uploadDocumentWithMetadata(
   expirationDate?: string
 ): Promise<UploadResponse> {
   try {
+    console.log('📤 Starting upload for:', { name, category, fileSize: file.size, fileType: file.type });
+
     // Get auth token
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
+      console.error('❌ No session found');
       return { success: false, error: 'User not authenticated' };
     }
+
+    console.log('✅ Session valid, preparing FormData');
 
     // Create FormData for multipart upload
     const formData = new FormData();
@@ -45,6 +50,8 @@ export async function uploadDocumentWithMetadata(
       formData.append('expirationDate', expirationDate);
     }
 
+    console.log('📡 Sending request to backend...');
+
     // Upload to backend API
     const res = await fetch('http://localhost:5000/api/upload', {
       method: 'POST',
@@ -54,8 +61,11 @@ export async function uploadDocumentWithMetadata(
       body: formData,
     });
 
+    console.log('📥 Response received:', res.status, res.statusText);
+
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ error: 'Upload failed' }));
+      console.error('❌ Upload failed:', errorData);
       return {
         success: false,
         error: errorData.error || `Upload failed with status ${res.status}`,
@@ -63,9 +73,10 @@ export async function uploadDocumentWithMetadata(
     }
 
     const result = await res.json();
+    console.log('✅ Upload successful:', result);
     return result;
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('❌ Upload error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Upload failed',

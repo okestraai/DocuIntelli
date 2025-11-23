@@ -35,30 +35,40 @@ const upload = multer({
 router.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     console.log('📥 Upload request received');
+    console.log('Headers:', { hasAuth: !!req.headers.authorization });
+    console.log('Body:', { name: req.body.name, category: req.body.category });
+    console.log('File:', req.file ? { name: req.file.originalname, size: req.file.size, type: req.file.mimetype } : 'No file');
 
     const authHeader = req.headers.authorization;
     if (!authHeader) {
+      console.error('❌ No authorization header');
       res.status(401).json({ success: false, error: 'Authorization header required' });
       return;
     }
 
+    console.log('🔐 Validating user token...');
     const { data: { user }, error: userError } = await supabase.auth.getUser(
       authHeader.replace('Bearer ', '')
     );
 
     if (userError || !user) {
+      console.error('❌ Invalid token:', userError?.message);
       res.status(401).json({ success: false, error: 'Invalid or expired token' });
       return;
     }
 
+    console.log('✅ User authenticated:', user.id);
+
     const file = req.file;
     if (!file) {
+      console.error('❌ No file in request');
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
     }
 
     const { name, category, expirationDate } = req.body;
     if (!name || !category) {
+      console.error('❌ Missing required fields:', { name, category });
       res.status(400).json({ success: false, error: 'Name and category are required' });
       return;
     }
