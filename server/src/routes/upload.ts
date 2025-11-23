@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
 import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
+import { extractText } from '../services/textExtraction';
+import { chunkText } from '../services/chunking';
 
 const router = Router();
 
@@ -123,8 +125,55 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     console.log(`✅ Document uploaded successfully: ${documentData.id}`);
 
+    console.log('📝 Extracting text from document...');
+    const extractionResult = await extractText(file.buffer, file.mimetype);
+
+    let totalChunks = 0;
+    if (extractionResult.success && extractionResult.text) {
+      console.log(`✅ Text extracted: ${extractionResult.text.length} characters`);
+
+      console.log('✂️ Chunking text...');
+      const chunks = chunkText(extractionResult.text, {
+        chunkSize: 1000,
+        overlap: 100
+      });
+
+      console.log(`✅ Created ${chunks.length} chunks`);
+
+      if (chunks.length > 0) {
+        console.log('💾 Saving chunks to database...');
+        const chunksToInsert = chunks.map(chunk => ({
+          document_id: documentData.id,
+          user_id: user.id,
+          chunk_index: chunk.index,
+          chunk_text: chunk.content,
+          created_at: new Date().toISOString()
+        }));
+
+        const { error: chunkError } = await supabase
+          .from('document_chunks')
+          .insert(chunksToInsert);
+
+        if (chunkError) {
+          console.error('❌ Failed to save chunks:', chunkError.message);
+        } else {
+          console.log(`✅ Saved ${chunks.length} chunks to database`);
+          totalChunks = chunks.length;
+
+          await supabase
+            .from('documents')
+            .update({ processed: true })
+            .eq('id', documentData.id);
+        }
+      }
+    } else {
+      console.log('⚠️ Text extraction not supported or failed for this file type');
+    }
+
     res.json({
       success: true,
+      message: 'Document processed',
+      total_chunks: totalChunks,
       data: {
         document_id: documentData.id,
         file_key: uploadResult.filePath,
