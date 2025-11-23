@@ -304,7 +304,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     let totalChunksProcessed = 0
     const uploadedFilePaths: string[] = []
-    const model = new Supabase.ai.Session('gte-small')
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
       const file = files[fileIndex]
@@ -362,29 +361,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
             console.log(`✂️ Created ${textChunks.length} chunks`)
 
             if (textChunks.length > 0) {
-              console.log(`🧠 Generating embeddings for ${textChunks.length} chunks`)
+              console.log(`💾 Storing ${textChunks.length} text chunks`)
 
               const documentChunks = []
 
               for (let i = 0; i < textChunks.length; i++) {
                 try {
-                  const embedding = await model.run(textChunks[i], {
-                    mean_pool: true,
-                    normalize: true
-                  })
-
                   documentChunks.push({
                     document_id: documentData.id,
                     file_id: fileRecord.id,
                     user_id: user.id,
                     chunk_index: i,
                     chunk_text: textChunks[i],
-                    embedding: embedding
+                    embedding: null
                   })
 
-                  console.log(`✅ Embedding ${i + 1}/${textChunks.length}`)
-                } catch (embeddingError) {
-                  console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
+                  console.log(`✅ Chunk ${i + 1}/${textChunks.length} prepared`)
+                } catch (chunkError) {
+                  console.error(`❌ Chunk preparation error for chunk ${i + 1}:`, chunkError)
                 }
               }
 
