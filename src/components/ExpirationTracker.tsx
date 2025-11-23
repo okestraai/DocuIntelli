@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, AlertTriangle, Clock, CheckCircle, Filter, Bell } from 'lucide-react';
 import type { Document } from '../App';
+import { formatUTCDate } from '../lib/dateUtils';
 
 interface ExpirationTrackerProps {
   documents: Document[];
@@ -177,7 +178,7 @@ export function ExpirationTracker({ documents }: ExpirationTrackerProps) {
                   <div className="flex items-center space-x-4">
                     <div className="text-right">
                       <p className="text-sm font-medium text-gray-900">
-                        {doc.expirationDate ? new Date(doc.expirationDate).toLocaleDateString() : 'No date set'}
+                        {doc.expirationDate ? formatUTCDate(doc.expirationDate) : 'No date set'}
                       </p>
                       {doc.expirationDate && (
                         <p className="text-sm text-gray-500">

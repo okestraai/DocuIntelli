@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { getCurrentUTCTimestamp } from './dateUtils'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -87,7 +88,7 @@ export const updateDocumentStatus = async (id: string, status: 'active' | 'expir
 
   const { error } = await supabase
     .from('documents')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, updated_at: getCurrentUTCTimestamp() })
     .eq('id', id)
     .eq('user_id', user.id)
 
@@ -165,7 +166,7 @@ export const updateUserProfile = async (updates: {
     .upsert({
       id: user.id,
       ...updates,
-      updated_at: new Date().toISOString()
+      updated_at: getCurrentUTCTimestamp()
     })
 
   if (profileError) throw profileError

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, User, Lock, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
+import { formatUTCDate } from '../lib/dateUtils';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -290,9 +291,9 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                   </div>
                 </div>
                 <div className="text-xs text-gray-500">
-                  <p>Member since {new Date(userProfile.created_at).toLocaleDateString()}</p>
+                  <p>Member since {formatUTCDate(userProfile.created_at)}</p>
                   {userProfile.last_sign_in_at && (
-                    <p>Last login {new Date(userProfile.last_sign_in_at).toLocaleDateString()}</p>
+                    <p>Last login {formatUTCDate(userProfile.last_sign_in_at)}</p>
                   )}
                 </div>
               </div>

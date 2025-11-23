@@ -3,6 +3,7 @@ import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2 } from 'lucide-re
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
+import { formatUTCDate } from '../lib/dateUtils';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -179,7 +180,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
               {doc.expirationDate && (
                 <div className="flex items-center text-sm text-gray-500 mb-4">
                   <Calendar className="h-4 w-4 mr-1" />
-                  <span>Expires: {new Date(doc.expirationDate).toLocaleDateString()}</span>
+                  <span>Expires: {formatUTCDate(doc.expirationDate)}</span>
                 </div>
               )}
 
