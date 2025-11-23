@@ -1,7 +1,4 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
-import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
-import mammoth from 'npm:mammoth@1.8.0'
-import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,43 +10,42 @@ interface UploadResponse {
   success: boolean
   data?: {
     document_id: string
-    files_processed: number
-    total_chunks_processed: number
+    file_path: string
+    public_url: string
+    chunks_processed: number
+    file_type: string
   }
   error?: string
 }
 
+// Text extraction utilities
 class TextExtractor {
   static async extractFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      console.log('📄 Extracting text from PDF using pdfjs-dist...')
+      // Simple PDF text extraction - in production you'd use a proper PDF parser
       const uint8Array = new Uint8Array(arrayBuffer)
-
-      const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
-      console.log(`📖 PDF has ${pdf.numPages} pages`)
-
-      let fullText = ''
-
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum)
-        const textContent = await page.getTextContent()
-        const pageText = textContent.items
-          .map((item: any) => item.str)
+      const text = new TextDecoder().decode(uint8Array)
+      
+      // Extract readable text between stream objects (basic approach)
+      const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
+      if (textMatches) {
+        return textMatches
+          .map(match => match.replace(/stream|endstream/g, ''))
           .join(' ')
-
-        fullText += pageText + '\n'
-        console.log(`✅ Extracted page ${pageNum}/${pdf.numPages}`)
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
+          .replace(/\s+/g, ' ')
+          .trim()
       }
-
-      const cleanedText = fullText
+      
+      // Fallback: extract any readable text
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-
-      console.log(`✅ PDF extraction complete: ${cleanedText.length} characters`)
-      return cleanedText
+        .slice(0, 10000) // Limit to prevent huge extractions
     } catch (error) {
-      console.error('❌ PDF extraction error:', error)
-      throw new Error(`Failed to extract text from PDF: ${error.message}`)
+      console.error('PDF extraction error:', error)
+      throw new Error('Failed to extract text from PDF')
     }
   }
 
@@ -64,72 +60,47 @@ class TextExtractor {
 
   static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      console.log('📝 Extracting text from DOCX using Mammoth...')
+      // Basic DOCX text extraction - in production you'd use a proper parser
       const uint8Array = new Uint8Array(arrayBuffer)
-
-      const result = await mammoth.extractRawText({ arrayBuffer: uint8Array.buffer })
-      const extractedText = result.value.trim()
-
-      if (!extractedText || extractedText.length === 0) {
-        throw new Error('No text content found in DOCX')
+      const text = new TextDecoder().decode(uint8Array)
+      
+      // Extract text from XML content (basic approach)
+      const xmlMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/gs)
+      if (xmlMatches) {
+        return xmlMatches
+          .map(match => match.replace(/<[^>]*>/g, ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
       }
-
-      console.log(`✅ DOCX extraction complete: ${extractedText.length} characters`)
-      return extractedText
+      
+      // Fallback
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 10000)
     } catch (error) {
-      console.error('❌ DOCX extraction error:', error)
-      throw new Error(`Failed to extract text from DOCX: ${error.message}`)
-    }
-  }
-
-  static async extractFromImage(arrayBuffer: ArrayBuffer): Promise<string> {
-    try {
-      console.log('🖼️ Starting OCR extraction from image...')
-
-      const uint8Array = new Uint8Array(arrayBuffer)
-      const blob = new Blob([uint8Array])
-
-      const worker = await Tesseract.createWorker('eng')
-
-      console.log('🔍 Running OCR recognition...')
-      const { data: { text } } = await worker.recognize(blob)
-
-      await worker.terminate()
-
-      if (!text || text.trim().length === 0) {
-        throw new Error('No text found in image')
-      }
-
-      console.log(`✅ OCR extraction complete: ${text.length} characters`)
-      return text.trim()
-    } catch (error) {
-      console.error('❌ Image OCR extraction error:', error)
-      throw new Error(`Failed to extract text from image: ${error.message}`)
+      console.error('DOCX extraction error:', error)
+      throw new Error('Failed to extract text from DOCX')
     }
   }
 
   static async extractText(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer()
-
+    
     switch (file.type) {
       case 'application/pdf':
         return await this.extractFromPDF(arrayBuffer)
-
+      
       case 'text/plain':
         return await this.extractFromText(arrayBuffer)
-
+      
       case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         return await this.extractFromDOCX(arrayBuffer)
-
-      case 'image/jpeg':
-      case 'image/jpg':
-      case 'image/png':
-      case 'image/gif':
-      case 'image/webp':
-      case 'image/bmp':
-        return await this.extractFromImage(arrayBuffer)
-
+      
       default:
+        // For unsupported types, try text extraction as fallback
         try {
           return await this.extractFromText(arrayBuffer)
         } catch {
@@ -139,6 +110,7 @@ class TextExtractor {
   }
 }
 
+// Text chunking utility
 class TextChunker {
   private static readonly CHUNK_SIZE = 1000
   private static readonly OVERLAP_SIZE = 100
@@ -150,15 +122,15 @@ class TextChunker {
 
     const chunks: string[] = []
     const sentences = this.splitIntoSentences(text)
-
+    
     let currentChunk = ''
-
+    
     for (const sentence of sentences) {
       if (currentChunk.length + sentence.length > this.CHUNK_SIZE) {
         if (currentChunk.trim()) {
           chunks.push(currentChunk.trim())
         }
-
+        
         const words = currentChunk.split(' ')
         const overlapWords = words.slice(-Math.floor(this.OVERLAP_SIZE / 6))
         currentChunk = overlapWords.join(' ') + ' ' + sentence
@@ -166,11 +138,11 @@ class TextChunker {
         currentChunk += (currentChunk ? ' ' : '') + sentence
       }
     }
-
+    
     if (currentChunk.trim()) {
       chunks.push(currentChunk.trim())
     }
-
+    
     return chunks.filter(chunk => chunk.length > 50)
   }
 
@@ -183,6 +155,7 @@ class TextChunker {
 
 Deno.serve(async (req: Request): Promise<Response> => {
   try {
+    // Handle CORS preflight requests
     if (req.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
     }
@@ -190,25 +163,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== 'POST') {
       return new Response(
         JSON.stringify({ success: false, error: 'Method not allowed' }),
-        {
-          status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 405, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
 
+    // Initialize Supabase client with service role for storage operations
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
+    // Get user from Authorization header
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(
         JSON.stringify({ success: false, error: 'Authorization header required' }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
@@ -220,33 +195,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (userError || !user) {
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid or expired token' }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
 
     console.log(`📤 Upload request from user: ${user.id}`)
 
+    // Parse multipart form data
     const formData = await req.formData()
-    const files: File[] = []
+    const file = formData.get('file') as File
     const name = formData.get('name') as string
     const category = formData.get('category') as string
     const expirationDate = formData.get('expirationDate') as string
 
-    for (const [key, value] of formData.entries()) {
-      if (key.startsWith('file') && value instanceof File) {
-        files.push(value)
-      }
-    }
-
-    if (files.length === 0) {
+    if (!file) {
       return new Response(
-        JSON.stringify({ success: false, error: 'No files provided' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        JSON.stringify({ success: false, error: 'No file provided' }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
@@ -254,13 +224,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!name || !category) {
       return new Response(
         JSON.stringify({ success: false, error: 'Name and category are required' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
 
+    // Validate file type
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -271,29 +242,42 @@ Deno.serve(async (req: Request): Promise<Response> => {
       'image/gif'
     ]
 
-    for (const file of files) {
-      if (!allowedTypes.includes(file.type)) {
-        return new Response(
-          JSON.stringify({ success: false, error: `Unsupported file type: ${file.type}` }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        )
-      }
-
-      if (file.size > 10 * 1024 * 1024) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'File size exceeds 10MB limit' }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        )
-      }
+    if (!allowedTypes.includes(file.type)) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Unsupported file type: ${file.type}` }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
-    console.log(`📄 Processing ${files.length} file(s)`)
+    // Validate file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'File size exceeds 10MB limit' }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    console.log(`📄 Processing file: ${file.name} (${file.type}, ${file.size} bytes)`)
+
+    // Generate unique file path
+    const timestamp = Date.now()
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+    const uniquePath = `${user.id}/${timestamp}-${sanitizedName}`
+
+    // Helper functions
+    const formatFileSize = (bytes: number): string => {
+      if (bytes === 0) return '0 Bytes'
+      const k = 1024
+      const sizes = ['Bytes', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+    }
 
     const getFileType = (mimeType: string): string => {
       if (mimeType.includes('pdf')) return 'PDF'
@@ -303,19 +287,44 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return 'Document'
     }
 
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0)
-    const primaryFileType = getFileType(files[0].type)
+    // Step 1: Upload file to storage
+    console.log(`☁️ Uploading to storage: ${uniquePath}`)
+    const fileBuffer = await file.arrayBuffer()
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(uniquePath, fileBuffer, {
+        contentType: file.type,
+        upsert: false
+      })
 
+    if (uploadError) {
+      console.error('❌ Storage upload error:', uploadError)
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to upload file to storage',
+          details: uploadError.message 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    console.log(`✅ File uploaded to storage: ${uploadData.path}`)
+
+    // Step 2: Create document record in database
     const { data: documentData, error: dbError } = await supabase
       .from('documents')
       .insert([{
         user_id: user.id,
         name: name.trim(),
         category: category,
-        type: primaryFileType,
-        size: totalSize,
-        file_path: `${user.id}/${Date.now()}-multi`,
-        original_name: files.length > 1 ? `${files[0].name} +${files.length - 1} more` : files[0].name,
+        type: file.type,
+        size: file.size,
+        file_path: uniquePath,
+        original_name: file.name,
         upload_date: new Date().toISOString().split('T')[0],
         expiration_date: expirationDate || null,
         status: 'active',
@@ -326,198 +335,140 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (dbError) {
       console.error('❌ Database insert error:', dbError)
+      
+      // Clean up uploaded file if database insert fails
+      await supabase.storage
+        .from('documents')
+        .remove([uniquePath])
+
       return new Response(
-        JSON.stringify({
-          success: false,
+        JSON.stringify({ 
+          success: false, 
           error: 'Failed to create document record',
-          details: dbError.message
+          details: dbError.message 
         }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
 
     console.log(`✅ Document record created: ${documentData.id}`)
 
-    let totalChunksProcessed = 0
-    const uploadedFilePaths: string[] = []
-
-    for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
-      const file = files[fileIndex]
-      const timestamp = Date.now()
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-      const uniquePath = `${user.id}/${timestamp}-${fileIndex}-${sanitizedName}`
-
-      try {
-        console.log(`☁️ [${fileIndex + 1}/${files.length}] Uploading: ${file.name}`)
-        const fileBuffer = await file.arrayBuffer()
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('documents')
-          .upload(uniquePath, fileBuffer, {
-            contentType: file.type,
-            upsert: false
-          })
-
-        if (uploadError) {
-          console.error(`❌ Storage upload error for file ${fileIndex + 1}:`, uploadError)
-          continue
-        }
-
-        uploadedFilePaths.push(uniquePath)
-        console.log(`✅ File uploaded: ${uploadData.path}`)
-
-        const { data: fileRecord, error: fileError } = await supabase
-          .from('document_files')
-          .insert([{
-            document_id: documentData.id,
-            file_path: uniquePath,
-            original_name: file.name,
-            file_order: fileIndex + 1,
-            size: file.size,
-            type: file.type,
-            processed: false
-          }])
-          .select()
-          .single()
-
-        if (fileError) {
-          console.error(`❌ File record insert error:`, fileError)
-          continue
-        }
-
-        console.log(`✅ File record created: ${fileRecord.id}`)
-
-        try {
-          console.log(`📝 Extracting text from file ${fileIndex + 1}`)
-          const extractedText = await TextExtractor.extractText(file)
-
-          if (extractedText && extractedText.trim().length > 0) {
-            console.log(`📄 Extracted ${extractedText.length} characters`)
-
-            const textChunks = TextChunker.chunkText(extractedText)
-            console.log(`✂️ Created ${textChunks.length} chunks`)
-
-            if (textChunks.length > 0) {
-              console.log(`💾 Storing ${textChunks.length} text chunks`)
-
-              const documentChunks = []
-
-              for (let i = 0; i < textChunks.length; i++) {
-                try {
-                  documentChunks.push({
-                    document_id: documentData.id,
-                    file_id: fileRecord.id,
-                    user_id: user.id,
-                    chunk_index: i,
-                    chunk_text: textChunks[i],
-                    embedding: null
-                  })
-
-                  console.log(`✅ Chunk ${i + 1}/${textChunks.length} prepared`)
-                } catch (chunkError) {
-                  console.error(`❌ Chunk preparation error for chunk ${i + 1}:`, chunkError)
-                }
-              }
-
-              if (documentChunks.length > 0) {
-                const { data: insertedChunks, error: insertError } = await supabase
-                  .from('document_chunks')
-                  .insert(documentChunks)
-                  .select('id')
-
-                if (insertError) {
-                  console.error('❌ Chunk insert error:', insertError)
-                } else {
-                  const chunksCount = insertedChunks?.length || 0
-                  totalChunksProcessed += chunksCount
-                  console.log(`✅ Inserted ${chunksCount} chunks for file ${fileIndex + 1}`)
-
-                  await supabase
-                    .from('document_files')
-                    .update({ processed: true })
-                    .eq('id', fileRecord.id)
-                }
-              }
+    // Step 3: Extract text content (non-blocking)
+    let chunksProcessed = 0
+    try {
+      console.log(`📝 Extracting text from ${file.type} file`)
+      const extractedText = await TextExtractor.extractText(file)
+      
+      if (extractedText && extractedText.trim().length > 0) {
+        console.log(`📄 Extracted ${extractedText.length} characters of text`)
+        
+        // Step 4: Split into chunks
+        const textChunks = TextChunker.chunkText(extractedText)
+        console.log(`✂️ Created ${textChunks.length} text chunks`)
+        
+        if (textChunks.length > 0) {
+          // Step 5: Generate embeddings using Supabase AI
+          console.log(`🧠 Generating embeddings for ${textChunks.length} chunks`)
+          const model = new Supabase.ai.Session('gte-small')
+          
+          const documentChunks = []
+          
+          for (let i = 0; i < textChunks.length; i++) {
+            try {
+              const embedding = await model.run(textChunks[i], { 
+                mean_pool: true, 
+                normalize: true 
+              })
+              
+              documentChunks.push({
+                document_id: documentData.id,
+                user_id: user.id,
+                chunk_index: i,
+                chunk_text: textChunks[i],
+                embedding: embedding
+              })
+              
+              console.log(`✅ Generated embedding for chunk ${i + 1}/${textChunks.length}`)
+            } catch (embeddingError) {
+              console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
+              // Continue with other chunks
             }
           }
-        } catch (textError) {
-          console.error(`❌ Text processing error for file ${fileIndex + 1}:`, textError)
+          
+          // Step 6: Insert chunks into database
+          if (documentChunks.length > 0) {
+            const { data: insertedChunks, error: insertError } = await supabase
+              .from('document_chunks')
+              .insert(documentChunks)
+              .select('id')
+
+            if (insertError) {
+              console.error('❌ Chunk insert error:', insertError)
+            } else {
+              chunksProcessed = insertedChunks?.length || 0
+              console.log(`✅ Inserted ${chunksProcessed} chunks into database`)
+              
+              // Mark document as processed
+              await supabase
+                .from('documents')
+                .update({ processed: true })
+                .eq('id', documentData.id)
+                .eq('user_id', user.id)
+            }
+          }
         }
-      } catch (fileError) {
-        console.error(`❌ Error processing file ${fileIndex + 1}:`, fileError)
+      } else {
+        console.log(`⚠️ No text extracted from file: ${file.name}`)
       }
+    } catch (textError) {
+      console.error('❌ Text processing error (non-blocking):', textError)
+      // Don't fail the upload if text processing fails
     }
 
-    if (uploadedFilePaths.length > 0) {
-      await supabase
-        .from('documents')
-        .update({ processed: true })
-        .eq('id', documentData.id)
-    }
+    // Get public URL for the uploaded file
+    const { data: urlData } = supabase.storage
+      .from('documents')
+      .getPublicUrl(uniquePath)
 
-    if (totalChunksProcessed > 0) {
-      console.log(`🧠 Triggering embedding generation for ${totalChunksProcessed} chunks...`)
-
-      try {
-        const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`
-        const embeddingResponse = await fetch(embeddingUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            document_id: documentData.id,
-            limit: 1
-          })
-        })
-
-        if (embeddingResponse.ok) {
-          const embeddingResult = await embeddingResponse.json()
-          console.log(`✅ Embedding generation triggered: ${embeddingResult.updated || 0} embeddings created`)
-        } else {
-          console.error('⚠️ Embedding generation request failed:', embeddingResponse.status)
-        }
-      } catch (embeddingError) {
-        console.error('⚠️ Failed to trigger embedding generation:', embeddingError)
-      }
-    }
-
-    console.log(`🎉 Upload workflow completed`)
+    console.log(`🎉 Upload workflow completed successfully`)
     console.log(`📊 Summary:`)
+    console.log(`   - File: ${file.name} (${getFileType(file.type)})`)
+    console.log(`   - Storage path: ${uniquePath}`)
     console.log(`   - Document ID: ${documentData.id}`)
-    console.log(`   - Files processed: ${uploadedFilePaths.length}/${files.length}`)
-    console.log(`   - Total chunks: ${totalChunksProcessed}`)
+    console.log(`   - Chunks processed: ${chunksProcessed}`)
 
     const response: UploadResponse = {
       success: true,
       data: {
         document_id: documentData.id,
-        files_processed: uploadedFilePaths.length,
-        total_chunks_processed: totalChunksProcessed
+        file_path: uniquePath,
+        public_url: urlData.publicUrl,
+        chunks_processed: chunksProcessed,
+        file_type: getFileType(file.type)
       }
     }
 
     return new Response(
       JSON.stringify(response),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
 
   } catch (error) {
     console.error('❌ Upload function error:', error)
     return new Response(
-      JSON.stringify({
-        success: false,
+      JSON.stringify({ 
+        success: false, 
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
   }

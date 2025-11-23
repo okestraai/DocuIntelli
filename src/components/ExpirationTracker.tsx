@@ -171,14 +171,7 @@ export function ExpirationTracker({ documents }: ExpirationTrackerProps) {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">{doc.name}</h3>
-                      <p className="text-sm text-gray-500 capitalize">
-                        {doc.category}
-                        {doc.fileCount && doc.fileCount > 1 && (
-                          <span className="ml-2 text-blue-600 font-medium">
-                            ({doc.fileCount} files)
-                          </span>
-                        )}
-                      </p>
+                      <p className="text-sm text-gray-500 capitalize">{doc.category}</p>
                     </div>
                   </div>
                   
