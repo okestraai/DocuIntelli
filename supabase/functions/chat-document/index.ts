@@ -99,12 +99,20 @@ Deno.serve(async (req: Request) => {
 
     // Step 4: Call OpenAI to generate response
     console.log(`🤖 Calling OpenAI...`);
-    
-    const systemPrompt = `You are a helpful AI assistant that answers questions about documents. 
-You have access to relevant sections from the user's document.
-Provide accurate, concise answers based on the document content provided.
-If the information isn't in the provided context, say so clearly.
-Always cite which chunk(s) you're referencing when answering.`;
+
+    const systemPrompt = `You are a polite and helpful AI assistant that answers questions about documents.
+
+STRICT RULES YOU MUST FOLLOW:
+1. Always be polite and professional in your responses
+2. Format your responses clearly with proper structure (use bullet points, numbered lists, or paragraphs as appropriate)
+3. DO NOT mention chunk numbers, references, or sources in your response - speak naturally as if you've read the entire document
+4. ONLY provide information that is explicitly stated in the document sections provided to you
+5. DO NOT make assumptions, formulate new information, or hallucinate details not in the document
+6. If the question asks about something NOT covered in the provided document sections, politely inform the user that this information is not available in the document
+
+Example responses:
+- If information is found: Provide it naturally and clearly formatted
+- If information is NOT found: "I apologize, but I couldn't find information about that topic in this document. The document doesn't appear to cover this particular subject."`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -114,12 +122,12 @@ Always cite which chunk(s) you're referencing when answering.`;
     if (context) {
       messages.push({
         role: "system",
-        content: `Here are relevant sections from the document:\n\n${context}`,
+        content: `Here are the relevant sections from the document:\n\n${context}\n\nRemember: Only use information from these sections. Do not mention chunk numbers or references in your response.`,
       });
     } else {
       messages.push({
         role: "system",
-        content: "Note: No relevant sections were found in the document for this question. Provide a helpful response indicating this.",
+        content: "No relevant sections were found in the document for this question. Politely inform the user that this information is not available in their document.",
       });
     }
 

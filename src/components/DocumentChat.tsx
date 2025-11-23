@@ -147,19 +147,6 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  {message.sources && message.sources.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-300">
-                      <p className="text-xs font-medium opacity-75 mb-2">Sources:</p>
-                      {message.sources.map((source, idx) => (
-                        <div key={idx} className="text-xs opacity-75 mb-1">
-                          <span className="font-medium">Chunk {source.chunk_index}</span>
-                          <span className="mx-1">•</span>
-                          <span>{Math.round(source.similarity * 100)}% match</span>
-                          <p className="mt-1 italic text-gray-600">{source.preview}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
