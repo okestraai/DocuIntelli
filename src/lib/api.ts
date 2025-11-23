@@ -126,8 +126,7 @@ export async function getDocumentDownloadUrl(documentId: string) {
  */
 export async function chatWithDocument(
   documentId: string,
-  question: string,
-  conversationHistory?: Array<{ role: string; content: string }>
+  question: string
 ) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
@@ -146,7 +145,7 @@ export async function chatWithDocument(
     body: JSON.stringify({
       document_id: documentId,
       question,
-      conversation_history: conversationHistory,
+      user_id: session.user.id,
     }),
   });
 
@@ -156,4 +155,27 @@ export async function chatWithDocument(
   }
 
   return res.json();
+}
+
+/**
+ * Load chat history for a document
+ */
+export async function loadChatHistory(documentId: string) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
+
+  const { data, error } = await supabase
+    .from('document_chats')
+    .select('id, role, content, created_at')
+    .eq('user_id', session.user.id)
+    .eq('document_id', documentId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
 }

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
-import { chatWithDocument } from '../lib/api';
+import { chatWithDocument, loadChatHistory } from '../lib/api';
 
 interface DocumentChatProps {
   document: Document;
@@ -22,19 +22,55 @@ interface Message {
 }
 
 export function DocumentChat({ document, onBack }: DocumentChatProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: `Hi! I'm ready to help you understand your ${document.name}. You can ask me questions like "What's covered?", "How do I file a claim?", or "What are the renewal terms?". What would you like to know?`,
-      timestamp: new Date(),
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const feedback = useFeedback();
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        setIsLoadingHistory(true);
+        const history = await loadChatHistory(document.id);
+
+        if (history.length === 0) {
+          setMessages([
+            {
+              id: '1',
+              type: 'assistant',
+              content: `Hi! I'm ready to help you understand your ${document.name}. You can ask me questions like "What's covered?", "How do I file a claim?", or "What are the renewal terms?". What would you like to know?`,
+              timestamp: new Date(),
+            }
+          ]);
+        } else {
+          const loadedMessages: Message[] = history.map((msg: any) => ({
+            id: msg.id,
+            type: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            timestamp: new Date(msg.created_at),
+          }));
+          setMessages(loadedMessages);
+        }
+      } catch (error) {
+        console.error('Failed to load chat history:', error);
+        setMessages([
+          {
+            id: '1',
+            type: 'assistant',
+            content: `Hi! I'm ready to help you understand your ${document.name}. You can ask me questions like "What's covered?", "How do I file a claim?", or "What are the renewal terms?". What would you like to know?`,
+            timestamp: new Date(),
+          }
+        ]);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadHistory();
+  }, [document.id, document.name]);
 
   const suggestedQuestions = [
     "What is covered under this policy?",
@@ -65,14 +101,7 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     setIsLoading(true);
 
     try {
-      const conversationHistory = messages
-        .filter(m => m.type === 'user' || m.type === 'assistant')
-        .map(m => ({
-          role: m.type === 'user' ? 'user' : 'assistant',
-          content: m.content,
-        }));
-
-      const result = await chatWithDocument(document.id, currentQuestion, conversationHistory);
+      const result = await chatWithDocument(document.id, currentQuestion);
 
       if (result.success) {
         const assistantMessage: Message = {
@@ -133,8 +162,16 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       {/* Messages */}
       <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
         <div className="flex-1 p-6 overflow-y-auto">
-          <div className="space-y-4">
-            {messages.map((message) => (
+          {isLoadingHistory ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex items-center space-x-2 text-gray-500">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
+                <span>Loading conversation...</span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -161,13 +198,14 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                 </div>
               </div>
             )}
-            
-            <div ref={messagesEndRef} />
-          </div>
+
+              <div ref={messagesEndRef} />
+            </div>
+          )}
         </div>
 
         {/* Suggested Questions */}
-        {messages.length === 1 && (
+        {!isLoadingHistory && messages.length === 1 && (
           <div className="border-t border-gray-200 p-4">
             <div className="flex items-center space-x-2 mb-3">
               <Lightbulb className="h-4 w-4 text-yellow-600" />

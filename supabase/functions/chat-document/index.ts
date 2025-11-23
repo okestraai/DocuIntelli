@@ -10,7 +10,7 @@ const corsHeaders = {
 interface RequestBody {
   document_id: string;
   question: string;
-  conversation_history?: Array<{ role: string; content: string }>;
+  user_id: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -38,11 +38,11 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { document_id, question, conversation_history = [] }: RequestBody = await req.json();
+    const { document_id, question, user_id }: RequestBody = await req.json();
 
-    if (!document_id || !question) {
+    if (!document_id || !question || !user_id) {
       return new Response(
-        JSON.stringify({ success: false, error: "document_id and question are required" }),
+        JSON.stringify({ success: false, error: "document_id, question, and user_id are required" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -51,6 +51,22 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log(`💬 Processing question for document: ${document_id}`);
+
+    // Load conversation history from database
+    const { data: chatHistory, error: historyError } = await supabase
+      .from("document_chats")
+      .select("role, content")
+      .eq("user_id", user_id)
+      .eq("document_id", document_id)
+      .order("created_at", { ascending: true })
+      .limit(20);
+
+    if (historyError) {
+      console.error("❌ Error loading chat history:", historyError);
+    }
+
+    const conversation_history = chatHistory || [];
+    console.log(`📚 Loaded ${conversation_history.length} previous messages`);
 
     // Step 1: Generate embedding for the question
     console.log(`🧮 Generating embedding for question...`);
@@ -109,6 +125,7 @@ STRICT RULES YOU MUST FOLLOW:
 4. ONLY provide information that is explicitly stated in the document sections provided to you
 5. DO NOT make assumptions, formulate new information, or hallucinate details not in the document
 6. If the question asks about something NOT covered in the provided document sections, politely inform the user that this information is not available in the document
+7. Use the conversation history to maintain context and provide more relevant responses
 
 Example responses:
 - If information is found: Provide it naturally and clearly formatted
@@ -157,15 +174,48 @@ Example responses:
 
     console.log(`✅ Answer generated: ${answer.length} characters`);
 
+    const sources = relevantChunks?.map((chunk: any) => ({
+      chunk_index: chunk.chunk_index,
+      similarity: chunk.similarity,
+      preview: chunk.chunk_text.slice(0, 150) + (chunk.chunk_text.length > 150 ? "..." : ""),
+    })) || [];
+
+    // Save user message to database
+    const { error: userMessageError } = await supabase
+      .from("document_chats")
+      .insert({
+        user_id,
+        document_id,
+        role: "user",
+        content: question,
+      });
+
+    if (userMessageError) {
+      console.error("❌ Error saving user message:", userMessageError);
+    }
+
+    // Save assistant response to database
+    const { error: assistantMessageError } = await supabase
+      .from("document_chats")
+      .insert({
+        user_id,
+        document_id,
+        role: "assistant",
+        content: answer,
+        sources: sources.length > 0 ? sources : null,
+      });
+
+    if (assistantMessageError) {
+      console.error("❌ Error saving assistant message:", assistantMessageError);
+    }
+
+    console.log("�� Conversation saved to database");
+
     return new Response(
       JSON.stringify({
         success: true,
         answer: answer,
-        sources: relevantChunks?.map((chunk: any) => ({
-          chunk_index: chunk.chunk_index,
-          similarity: chunk.similarity,
-          preview: chunk.chunk_text.slice(0, 150) + (chunk.chunk_text.length > 150 ? "..." : ""),
-        })) || [],
+        sources: sources,
       }),
       {
         status: 200,
