@@ -6,8 +6,7 @@ import type { Document } from '../App';
 export interface DocumentUploadRequest {
   name: string;
   category: string;
-  file?: File;
-  files?: File[];
+  files: File[];
   expirationDate?: string;
 }
 
@@ -25,7 +24,7 @@ export function useDocuments(isAuthenticated: boolean) {
         console.log(`📄 Uploading document ${index + 1}/${documentsData.length}: ${docData.name}`);
 
         const uploadResult = await uploadDocumentWithMetadata(
-          docData.files || (docData.file ? [docData.file] : []),
+          docData.files,
           docData.name,
           docData.category,
           docData.expirationDate

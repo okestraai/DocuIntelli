@@ -134,7 +134,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
         const uploadData: DocumentUploadRequest[] = documents.map(doc => ({
           name: doc.name.trim(),
           category: doc.category,
-          file: doc.file,
+          files: [doc.file],
           expirationDate: doc.expirationDate || undefined
         }));
         await onUpload(uploadData);
