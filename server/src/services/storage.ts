@@ -1,12 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing Supabase configuration:', {
+    SUPABASE_URL: supabaseUrl ? '✓ Set' : '✗ Missing',
+    SUPABASE_SERVICE_ROLE_KEY: supabaseServiceKey ? '✓ Set' : '✗ Missing'
+  });
   throw new Error('Missing Supabase configuration');
 }
 
+console.log('✓ Supabase client initialized for storage operations');
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export interface UploadResult {
