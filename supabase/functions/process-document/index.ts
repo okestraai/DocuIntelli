@@ -2,14 +2,12 @@ import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 interface ProcessingRequest {
   document_id: string
-  file_key: string
-  file_type: string
 }
 
 interface ProcessingResponse {
@@ -21,45 +19,38 @@ interface ProcessingResponse {
   error?: string
 }
 
-// Text extraction utilities for IBM COS files
+// Text extraction utilities for Supabase Storage files
 class TextExtractor {
-  static async extractFromCOS(fileKey: string, fileType: string): Promise<string> {
+  static async extractFromStorage(
+    supabase: any,
+    filePath: string,
+    fileType: string
+  ): Promise<string> {
     try {
-      console.log(`📄 Extracting text from COS file: ${fileKey} (${fileType})`)
-      
-      // Get file from IBM COS using AWS SDK
-      const cosEndpoint = Deno.env.get('IBM_COS_ENDPOINT')
-      const cosBucket = Deno.env.get('IBM_COS_BUCKET')
-      const cosAccessKey = Deno.env.get('IBM_COS_ACCESS_KEY_ID')
-      const cosSecretKey = Deno.env.get('IBM_COS_SECRET_ACCESS_KEY')
-      
-      if (!cosEndpoint || !cosBucket || !cosAccessKey || !cosSecretKey) {
-        throw new Error('IBM COS configuration missing')
+      console.log(`📄 Extracting text from Storage file: ${filePath} (${fileType})`)
+
+      // Download file from Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .download(filePath)
+
+      if (error) {
+        throw new Error(`Failed to download file: ${error.message}`)
       }
 
-      // Construct the file URL
-      const fileUrl = `${cosEndpoint}/${cosBucket}/${fileKey}`
-      console.log(`🔗 Fetching file from: ${fileUrl}`)
+      const arrayBuffer = await data.arrayBuffer()
 
-      // Fetch the file content
-      const response = await fetch(fileUrl)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`)
-      }
-
-      const arrayBuffer = await response.arrayBuffer()
-      
       switch (fileType) {
         case 'application/pdf':
           return await this.extractFromPDF(arrayBuffer)
-        
+
         case 'text/plain':
           return await this.extractFromText(arrayBuffer)
-        
+
         case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         case 'application/msword':
           return await this.extractFromDOCX(arrayBuffer)
-        
+
         default:
           // Try text extraction as fallback
           try {
@@ -78,24 +69,24 @@ class TextExtractor {
     try {
       const uint8Array = new Uint8Array(arrayBuffer)
       const text = new TextDecoder().decode(uint8Array)
-      
+
       // Extract readable text between stream objects (basic approach)
       const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
       if (textMatches) {
         return textMatches
           .map(match => match.replace(/stream|endstream/g, ''))
           .join(' ')
-          .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
       }
-      
+
       // Fallback: extract any readable text
       return text
         .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 10000) // Limit to prevent huge extractions
+        .slice(0, 10000)
     } catch (error) {
       console.error('PDF extraction error:', error)
       throw new Error('Failed to extract text from PDF')
@@ -115,7 +106,7 @@ class TextExtractor {
     try {
       const uint8Array = new Uint8Array(arrayBuffer)
       const text = new TextDecoder().decode(uint8Array)
-      
+
       // Extract text from XML content (basic approach)
       const xmlMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/gs)
       if (xmlMatches) {
@@ -125,7 +116,7 @@ class TextExtractor {
           .replace(/\s+/g, ' ')
           .trim()
       }
-      
+
       // Fallback
       return text
         .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
@@ -151,15 +142,15 @@ class TextChunker {
 
     const chunks: string[] = []
     const sentences = this.splitIntoSentences(text)
-    
+
     let currentChunk = ''
-    
+
     for (const sentence of sentences) {
       if (currentChunk.length + sentence.length > this.CHUNK_SIZE) {
         if (currentChunk.trim()) {
           chunks.push(currentChunk.trim())
         }
-        
+
         const words = currentChunk.split(' ')
         const overlapWords = words.slice(-Math.floor(this.OVERLAP_SIZE / 6))
         currentChunk = overlapWords.join(' ') + ' ' + sentence
@@ -167,11 +158,11 @@ class TextChunker {
         currentChunk += (currentChunk ? ' ' : '') + sentence
       }
     }
-    
+
     if (currentChunk.trim()) {
       chunks.push(currentChunk.trim())
     }
-    
+
     return chunks.filter(chunk => chunk.length > 50)
   }
 
@@ -192,9 +183,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== 'POST') {
       return new Response(
         JSON.stringify({ success: false, error: 'Method not allowed' }),
-        { 
-          status: 405, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 405,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -210,9 +201,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!authHeader) {
       return new Response(
         JSON.stringify({ success: false, error: 'Authorization header required' }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -224,22 +215,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (userError || !user) {
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid or expired token' }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
 
     // Parse request body
-    const { document_id, file_key, file_type }: ProcessingRequest = await req.json()
+    const { document_id }: ProcessingRequest = await req.json()
 
-    if (!document_id || !file_key || !file_type) {
+    if (!document_id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'document_id, file_key, and file_type are required' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        JSON.stringify({ success: false, error: 'document_id is required' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -247,7 +238,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Verify document exists and belongs to user
     const { data: document, error: docError } = await supabase
       .from('documents')
-      .select('id, user_id, name, processed')
+      .select('id, user_id, name, processed, file_path, type')
       .eq('id', document_id)
       .eq('user_id', user.id)
       .single()
@@ -255,9 +246,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (docError || !document) {
       return new Response(
         JSON.stringify({ success: false, error: 'Document not found or access denied' }),
-        { 
-          status: 404, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -266,38 +257,42 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (document.processed) {
       console.log(`⚠️ Document already processed: ${document_id}`)
       return new Response(
-        JSON.stringify({ 
-          success: true, 
-          data: { 
-            chunks_processed: 0, 
+        JSON.stringify({
+          success: true,
+          data: {
+            chunks_processed: 0,
             document_id: document_id,
             message: 'Document already processed'
-          } 
+          }
         }),
-        { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
 
     console.log(`📄 Processing document: ${document.name} for user: ${user.id}`)
 
-    // Extract text from IBM COS file
+    // Extract text from Supabase Storage file
     let extractedText: string
     try {
-      extractedText = await TextExtractor.extractFromCOS(file_key, file_type)
+      extractedText = await TextExtractor.extractFromStorage(
+        supabase,
+        document.file_path,
+        document.type
+      )
       console.log(`📝 Extracted ${extractedText.length} characters of text`)
     } catch (extractError) {
       console.error('❌ Text extraction failed:', extractError)
       return new Response(
-        JSON.stringify({ 
-          success: false, 
+        JSON.stringify({
+          success: false,
           error: 'Failed to extract text from document',
           details: extractError instanceof Error ? extractError.message : 'Unknown error'
         }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -305,9 +300,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!extractedText || extractedText.trim().length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: 'No text content found in document' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -319,9 +314,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (textChunks.length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: 'No valid text chunks could be created' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -333,19 +328,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     for (let i = 0; i < textChunks.length; i++) {
       try {
         console.log(`🧠 Generating embedding for chunk ${i + 1}/${textChunks.length}`)
-        
-        const embedding = await model.run(textChunks[i], { 
-          mean_pool: true, 
-          normalize: true 
+
+        const embedding = await model.run(textChunks[i], {
+          mean_pool: true,
+          normalize: true
         })
-        
+
         documentChunks.push({
           document_id: document.id,
           user_id: user.id,
           chunk_text: textChunks[i],
           embedding: embedding
         })
-        
+
         console.log(`✅ Generated embedding for chunk ${i + 1}`)
       } catch (embeddingError) {
         console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
@@ -365,14 +360,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (insertError) {
         console.error('❌ Database insert error:', insertError)
         return new Response(
-          JSON.stringify({ 
-            success: false, 
+          JSON.stringify({
+            success: false,
             error: 'Failed to save document chunks',
-            details: insertError.message 
+            details: insertError.message
           }),
-          { 
-            status: 500, 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           }
         )
       }
@@ -395,7 +390,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.log(`🎉 Document processing completed successfully`)
     console.log(`📊 Summary:`)
     console.log(`   - Document: ${document.name}`)
-    console.log(`   - File key: ${file_key}`)
+    console.log(`   - File path: ${document.file_path}`)
     console.log(`   - Text extracted: ${extractedText.length} characters`)
     console.log(`   - Chunks created: ${textChunks.length}`)
     console.log(`   - Chunks saved: ${documentChunks.length}`)
@@ -410,22 +405,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     return new Response(
       JSON.stringify(response),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     )
 
   } catch (error) {
     console.error('❌ Process document function error:', error)
     return new Response(
-      JSON.stringify({ 
-        success: false, 
+      JSON.stringify({
+        success: false,
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     )
   }
