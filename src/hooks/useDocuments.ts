@@ -182,6 +182,7 @@ function transformSupabaseDocument(supabaseDoc: SupabaseDocument): Document {
     uploadDate: supabaseDoc.upload_date,
     size: formatSize(supabaseDoc.size),
     status: status,
-    expirationDate: supabaseDoc.expiration_date
+    expirationDate: supabaseDoc.expiration_date,
+    fileCount: supabaseDoc.file_count || 0
   };
 }

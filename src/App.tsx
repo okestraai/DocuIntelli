@@ -29,6 +29,7 @@ export interface Document {
   expirationDate?: string;
   size: string;
   status: 'active' | 'expiring' | 'expired';
+  fileCount?: number;
 }
 
 function App() {

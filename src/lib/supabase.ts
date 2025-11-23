@@ -26,6 +26,7 @@ export interface SupabaseDocument {
   processed: boolean
   created_at: string
   updated_at: string
+  file_count?: number
 }
 
 export interface UserProfile {
@@ -45,7 +46,8 @@ export const getDocuments = async (): Promise<SupabaseDocument[]> => {
   if (!user) throw new Error('User not authenticated')
 
   console.log('📊 Fetching documents for user:', user.id);
-  const { data, error } = await supabase
+
+  const { data: documents, error } = await supabase
     .from('documents')
     .select('*')
     .eq('user_id', user.id)
@@ -55,9 +57,35 @@ export const getDocuments = async (): Promise<SupabaseDocument[]> => {
     console.error('❌ Error fetching documents:', error);
     throw error;
   }
-  
-  console.log(`✅ Fetched ${data?.length || 0} documents from database`);
-  return data || []
+
+  if (!documents || documents.length === 0) {
+    console.log('✅ No documents found');
+    return []
+  }
+
+  const { data: fileCounts, error: fileCountError } = await supabase
+    .from('document_files')
+    .select('document_id')
+    .in('document_id', documents.map(d => d.id))
+
+  if (fileCountError) {
+    console.error('❌ Error fetching file counts:', fileCountError);
+  }
+
+  const fileCountMap = new Map<string, number>()
+  if (fileCounts) {
+    fileCounts.forEach(fc => {
+      fileCountMap.set(fc.document_id, (fileCountMap.get(fc.document_id) || 0) + 1)
+    })
+  }
+
+  const documentsWithCounts = documents.map(doc => ({
+    ...doc,
+    file_count: fileCountMap.get(doc.id) || 0
+  }))
+
+  console.log(`✅ Fetched ${documentsWithCounts.length} documents from database`);
+  return documentsWithCounts
 }
 
 export const deleteDocument = async (id: string) => {
