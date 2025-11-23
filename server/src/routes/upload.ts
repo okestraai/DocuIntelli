@@ -1,11 +1,8 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import os from 'os';
-import path from 'path';
-import fs from 'fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
-import { runPythonExtractor } from '../services/pythonRunner';
+import { TextExtractor } from '../services/textExtractor';
 
 const router = Router();
 
@@ -127,18 +124,13 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     console.log(`✅ Document uploaded successfully: ${documentData.id}`);
 
-    // Trigger document processing using Python extractor (non-blocking)
-    console.log(`🔄 Triggering Python document processing for: ${documentData.id}`);
+    // Trigger document processing using Node.js text extractor (non-blocking)
+    console.log(`🔄 Triggering document text extraction for: ${documentData.id}`);
 
     (async () => {
-      let tempDir: string | null = null;
       try {
-        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'legalease-'));
-        const tempFilePath = path.join(tempDir, file.originalname);
-        await fs.writeFile(tempFilePath, file.buffer);
-
-        const extractionResult = await runPythonExtractor(tempFilePath, file.mimetype);
-        console.log(`✂️ Python created ${extractionResult.chunks.length} text chunks`);
+        const extractionResult = await TextExtractor.extractAndChunk(file.buffer, file.mimetype);
+        console.log(`✂️ Created ${extractionResult.chunks.length} text chunks`);
 
         if (extractionResult.chunks.length > 0) {
           const { error: chunkError } = await supabase
@@ -149,31 +141,23 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
                 user_id: user.id,
                 chunk_index: index,
                 chunk_text: content,
+                embedding: null,
               }))
             );
 
           if (chunkError) {
-            throw new Error(`Failed to insert document chunks: ${chunkError.message}`);
+            console.error('⚠️ Failed to store chunks:', chunkError.message);
+          } else {
+            console.log(`✅ Stored ${extractionResult.chunks.length} chunks in DB`);
+            await supabase
+              .from('documents')
+              .update({ processed: true })
+              .eq('id', documentData.id);
+            console.log(`✅ Document marked as processed: ${documentData.id}`);
           }
         }
-
-        const { error: updateError } = await supabase
-          .from('documents')
-          .update({ processed: true })
-          .eq('id', documentData.id)
-          .eq('user_id', user.id);
-
-        if (updateError) {
-          console.error('⚠️ Failed to update document processed flag:', updateError.message);
-        } else {
-          console.log(`✅ Document processed: ${documentData.id}`);
-        }
-      } catch (processingError: any) {
-        console.error('❌ Python document processing error:', processingError.message || processingError);
-      } finally {
-        if (tempDir) {
-          await fs.rm(tempDir, { recursive: true, force: true });
-        }
+      } catch (err: any) {
+        console.error(`⚠️ Text extraction failed for ${documentData.id}:`, err.message || err);
       }
     })();
 
