@@ -1,0 +1,208 @@
+import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
+import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
+
+const router = Router();
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
+      'text/plain',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    }
+  },
+});
+
+router.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    console.log('📥 Upload request received');
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      res.status(401).json({ success: false, error: 'Authorization header required' });
+      return;
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      res.status(401).json({ success: false, error: 'Invalid or expired token' });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ success: false, error: 'No file uploaded' });
+      return;
+    }
+
+    const { name, category, expirationDate } = req.body;
+    if (!name || !category) {
+      res.status(400).json({ success: false, error: 'Name and category are required' });
+      return;
+    }
+
+    console.log(`📄 Processing upload:`, {
+      filename: file.originalname,
+      size: file.size,
+      type: file.mimetype,
+      user: user.id,
+    });
+
+    const uploadResult = await uploadToStorage(
+      file.buffer,
+      user.id,
+      file.originalname,
+      file.mimetype
+    );
+
+    if (!uploadResult.success) {
+      res.status(500).json({ success: false, error: uploadResult.error });
+      return;
+    }
+
+    const { data: documentData, error: dbError } = await supabase
+      .from('documents')
+      .insert([{
+        user_id: user.id,
+        name: name.trim(),
+        category,
+        type: file.mimetype,
+        size: file.size,
+        file_path: uploadResult.filePath,
+        original_name: file.originalname,
+        upload_date: new Date().toISOString().split('T')[0],
+        expiration_date: expirationDate || null,
+        status: 'active',
+        processed: false,
+      }])
+      .select()
+      .single();
+
+    if (dbError) {
+      await deleteFromStorage(uploadResult.filePath!);
+      res.status(500).json({ success: false, error: 'Failed to save document metadata', details: dbError.message });
+      return;
+    }
+
+    console.log(`✅ Document uploaded successfully: ${documentData.id}`);
+
+    res.json({
+      success: true,
+      data: {
+        document_id: documentData.id,
+        file_path: uploadResult.filePath,
+        public_url: uploadResult.publicUrl,
+      },
+    });
+  } catch (err: any) {
+    console.error('❌ Upload error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error', details: err.message });
+  }
+});
+
+router.get('/documents/:id/download', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      res.status(401).json({ success: false, error: 'Authorization required' });
+      return;
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      res.status(401).json({ success: false, error: 'Invalid or expired token' });
+      return;
+    }
+
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('file_path, name')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (docError || !document) {
+      res.status(404).json({ success: false, error: 'Document not found' });
+      return;
+    }
+
+    const downloadUrl = await getSignedUrl(document.file_path, 3600);
+    res.json({ success: true, download_url: downloadUrl, filename: document.name });
+  } catch (err: any) {
+    console.error('❌ Download error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error', details: err.message });
+  }
+});
+
+router.delete('/documents/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      res.status(401).json({ success: false, error: 'Authorization required' });
+      return;
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (userError || !user) {
+      res.status(401).json({ success: false, error: 'Invalid or expired token' });
+      return;
+    }
+
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('file_path')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (docError || !document) {
+      res.status(404).json({ success: false, error: 'Document not found' });
+      return;
+    }
+
+    await deleteFromStorage(document.file_path);
+
+    await supabase.from('document_chunks').delete().eq('document_id', id);
+    await supabase.from('documents').delete().eq('id', id).eq('user_id', user.id);
+
+    console.log(`✅ Document deleted: ${id}`);
+    res.json({ success: true, message: 'Document deleted successfully' });
+  } catch (err: any) {
+    console.error('❌ Delete error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error', details: err.message });
+  }
+});
+
+export default router;
