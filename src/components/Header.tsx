@@ -22,12 +22,12 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
     <header className="bg-white shadow-sm border-b border-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
-          <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-3">
-              <Shield className="h-10 w-10 text-blue-600" />
-              <span className="text-3xl font-bold text-gray-900">LegalEase</span>
-            </div>
+          <div className="flex items-center space-x-3">
+            <Shield className="h-10 w-10 text-blue-600" />
+            <span className="text-3xl font-bold text-gray-900">LegalEase</span>
+          </div>
 
+          <div className="flex items-center space-x-2">
             <nav className="hidden md:flex space-x-2">
               {navItems.map(({ id, label, icon: Icon }) => (
                 <button
@@ -46,9 +46,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                 </button>
               ))}
             </nav>
-          </div>
 
-          <div className="flex items-center space-x-2">
             <div className="h-8 w-px bg-gray-300 mx-2"></div>
 
             <button
