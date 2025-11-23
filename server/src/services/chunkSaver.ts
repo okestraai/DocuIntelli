@@ -1,18 +1,24 @@
-import { supabase } from "./supabaseClient";
+import { supabase } from "../supabaseClient";
 
 export async function saveChunks(
-  fileId: string,
+  documentId: string,
+  userId: string,
   chunks: { index: number; content: string }[]
 ) {
+  const formatted = chunks.map(chunk => ({
+    document_id: documentId,
+    user_id: userId,
+    chunk_text: chunk.content,
+    chunk_index: chunk.index,
+    embedding: null // fill later with OpenAI or LLaMA embeddings
+  }));
+
   const { error } = await supabase
     .from("document_chunks")
-    .insert(
-      chunks.map(chunk => ({
-        file_id: fileId,
-        chunk_index: chunk.index,
-        text: chunk.content
-      }))
-    );
+    .insert(formatted);
 
-  if (error) throw error;
+  if (error) {
+    console.error("Supabase insert error:", error);
+    throw error;
+  }
 }
