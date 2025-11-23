@@ -187,33 +187,20 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                   {message.type === 'user' ? (
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <>
-                      <div className="text-sm prose prose-sm max-w-none
-                        prose-p:my-1 prose-p:leading-relaxed
-                        prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
-                        prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
-                        prose-li:my-0.5
-                        prose-strong:font-semibold prose-strong:text-gray-900
-                        prose-em:italic
-                        prose-headings:font-semibold prose-headings:text-gray-900
-                        prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
-                        prose-code:bg-gray-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-                        prose-pre:bg-gray-200 prose-pre:p-2 prose-pre:rounded prose-pre:text-xs
-                      ">
-                        <ReactMarkdown>{message.content}</ReactMarkdown>
-                      </div>
-                      {message.sources && message.sources.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-gray-200">
-                          <p className="text-xs text-gray-600 mb-1">Sources:</p>
-                          {message.sources.map((source, idx) => (
-                            <div key={idx} className="text-xs text-gray-500 mb-1">
-                              <span className="font-medium">Chunk {source.chunk_index}</span>
-                              <span className="text-gray-400"> • {Math.round(source.similarity * 100)}% match</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
+                    <div className="text-sm prose prose-sm max-w-none
+                      prose-p:my-1 prose-p:leading-relaxed
+                      prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+                      prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+                      prose-li:my-0.5
+                      prose-strong:font-semibold prose-strong:text-gray-900
+                      prose-em:italic
+                      prose-headings:font-semibold prose-headings:text-gray-900
+                      prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
+                      prose-code:bg-gray-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+                      prose-pre:bg-gray-200 prose-pre:p-2 prose-pre:rounded prose-pre:text-xs
+                    ">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
                   )}
                 </div>
               </div>
