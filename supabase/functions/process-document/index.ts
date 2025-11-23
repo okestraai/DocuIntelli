@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
 import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts'
+import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,6 +53,15 @@ class TextExtractor {
         case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         case 'application/msword':
           return await this.extractFromDOCX(arrayBuffer)
+
+        case 'image/jpeg':
+        case 'image/jpg':
+        case 'image/png':
+        case 'image/gif':
+        case 'image/webp':
+        case 'image/bmp':
+        case 'image/tiff':
+          return await this.extractFromImage(arrayBuffer)
 
         default:
           // Try text extraction as fallback
@@ -141,6 +151,32 @@ class TextExtractor {
     } catch (error) {
       console.error('❌ DOCX extraction error:', error)
       throw new Error(`Failed to extract text from DOCX: ${error.message}`)
+    }
+  }
+
+  static async extractFromImage(arrayBuffer: ArrayBuffer): Promise<string> {
+    try {
+      console.log('🖼️ Starting OCR extraction from image...')
+
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const blob = new Blob([uint8Array])
+
+      const worker = await Tesseract.createWorker('eng')
+
+      console.log('🔍 Running OCR recognition...')
+      const { data: { text } } = await worker.recognize(blob)
+
+      await worker.terminate()
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('No text found in image')
+      }
+
+      console.log(`✅ OCR extraction complete: ${text.length} characters`)
+      return text.trim()
+    } catch (error) {
+      console.error('❌ Image OCR extraction error:', error)
+      throw new Error(`Failed to extract text from image: ${error.message}`)
     }
   }
 }

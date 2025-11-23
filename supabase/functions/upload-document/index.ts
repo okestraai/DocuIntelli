@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
 import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts'
+import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -97,9 +98,29 @@ class TextExtractor {
   }
 
   static async extractFromImage(arrayBuffer: ArrayBuffer): Promise<string> {
-    console.log('🖼️ Image OCR is not yet implemented in edge function')
-    console.log('⚠️ Returning placeholder text for image file')
-    return '[Image file - OCR not implemented yet. Please use PDF or text documents for full functionality.]'
+    try {
+      console.log('🖼️ Starting OCR extraction from image...')
+
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const blob = new Blob([uint8Array])
+
+      const worker = await Tesseract.createWorker('eng')
+
+      console.log('🔍 Running OCR recognition...')
+      const { data: { text } } = await worker.recognize(blob)
+
+      await worker.terminate()
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('No text found in image')
+      }
+
+      console.log(`✅ OCR extraction complete: ${text.length} characters`)
+      return text.trim()
+    } catch (error) {
+      console.error('❌ Image OCR extraction error:', error)
+      throw new Error(`Failed to extract text from image: ${error.message}`)
+    }
   }
 
   static async extractText(file: File): Promise<string> {
