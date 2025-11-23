@@ -1,10 +1,22 @@
-import "./env";
+import dotenv from "dotenv";
+import path from "path";
+
+// Load environment variables
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
 import express, { Request, Response } from "express";
 import cors from "cors";
 import uploadRoutes from "./routes/upload";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+console.log("🔧 Environment Check:", {
+  SUPABASE_URL: process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing",
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? "✓ Set" : "✗ Missing",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set" : "✗ Missing",
+});
 
 // Middleware
 app.use(cors({
