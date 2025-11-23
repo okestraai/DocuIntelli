@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, Lock, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, User, Mail, Lock, Shield, Calendar, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 
@@ -50,7 +50,13 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     { id: 'preferences' as TabType, label: 'Preferences', icon: Settings }
   ];
 
-  const loadUserProfile = useCallback(async () => {
+  useEffect(() => {
+    if (isOpen) {
+      loadUserProfile();
+    }
+  }, [isOpen]);
+
+  const loadUserProfile = async () => {
     try {
       setIsLoading(true);
       const user = await getCurrentUser();
@@ -83,19 +89,12 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           setSecurityAlerts(true);
         }
       }
-    } catch (_error) {
-      console.error('Profile load error:', _error);
+    } catch (error) {
       feedback.showError('Failed to load profile', 'Unable to fetch your profile information');
     } finally {
       setIsLoading(false);
     }
-  }, [feedback]);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadUserProfile();
-    }
-  }, [isOpen, loadUserProfile]);
+  };
 
   const handleUpdateProfile = async () => {
     if (!userProfile) return;

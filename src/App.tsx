@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useEffect } from 'react';
 import { Header } from './components/Header';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './components/LandingPage';
@@ -33,13 +34,14 @@ export interface Document {
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const { documents, uploadDocuments, deleteDocument } = useDocuments(isAuthenticated);
+  const { documents, loading, error, uploadDocuments, deleteDocument } = useDocuments();
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -51,15 +53,18 @@ function App() {
       async (event, session) => {
         setIsLoading(false);
         if (event === 'SIGNED_IN' && session?.user) {
+          setUser(session.user);
           setIsAuthenticated(true);
           setShowAuthModal(false);
           setCurrentPage('dashboard');
         } else if (event === 'SIGNED_OUT') {
+          setUser(null);
           setIsAuthenticated(false);
           setCurrentPage('landing');
           setSelectedDocument(null);
         } else if (event === 'INITIAL_SESSION') {
           if (session?.user) {
+            setUser(session.user);
             setIsAuthenticated(true);
             setCurrentPage('dashboard');
           }
@@ -82,7 +87,8 @@ function App() {
     );
   }
 
-  const handleAuth = () => {
+  const handleAuth = (authUser: any) => {
+    setUser(authUser);
     setIsAuthenticated(true);
     setShowAuthModal(false);
     setCurrentPage('dashboard');
@@ -106,6 +112,18 @@ function App() {
 
   const handleBackFromViewer = () => {
     setViewingDocument(null);
+  };
+
+  const handleDocumentUpload = (documentData: Partial<Document>) => {
+    // In a real app, this would upload to a server and update the documents list
+    console.log('Document uploaded:', documentData);
+    setShowUploadModal(false);
+  };
+
+  const handleDocumentsUpload = (documentsData: Partial<Document>[]) => {
+    // In a real app, this would upload to a server and update the documents list
+    console.log('Documents uploaded:', documentsData);
+    setShowUploadModal(false);
   };
 
   const handleDocumentsUploadNew = async (documentsData: DocumentUploadRequest[]) => {

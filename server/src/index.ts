@@ -3,10 +3,7 @@
 // The dotenv import and configuration MUST be the first thing to run.
 import dotenv from "dotenv";
 import path from "path";
-
-// Load environment variables from both server/.env and root .env
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 // Import necessary modules
 import express, { Request, Response } from "express";

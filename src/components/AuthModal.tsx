@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import type { User } from '@supabase/supabase-js';
 import { X, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { signUp, signIn } from '../lib/supabase';
 
 interface AuthModalProps {
   onClose: () => void;
-  onAuth: (user: User) => void;
+  onAuth: (user: any) => void;
 }
 
 export function AuthModal({ onClose, onAuth }: AuthModalProps) {
@@ -37,10 +36,9 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
         // Sign up successful but needs email confirmation
         setError('Account created successfully! Please check your email to confirm your account before signing in.');
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Authentication failed';
+    } catch (err: any) {
       console.error('Auth error:', err);
-      setError(message);
+      setError(err.message || 'Authentication failed');
     } finally {
       setIsLoading(false);
     }

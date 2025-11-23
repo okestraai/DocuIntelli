@@ -26,7 +26,7 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/api/documents', documentProcessingRoutes);
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
+app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
@@ -35,23 +35,14 @@ app.get('/health', (_req, res) => {
 });
 
 // Error handling middleware
-app.use(
-  (
-    error: unknown,
-    _req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction
-  ) => {
-    void _next;
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Unhandled error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message
-    });
-  }
-);
+app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+    message: error.message
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {

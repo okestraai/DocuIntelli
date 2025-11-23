@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2 } from 'lucide-react';
 import type { Document, Page } from '../App';
+import { useFeedback } from '../hooks/useFeedback';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface DashboardProps {
@@ -8,9 +9,10 @@ interface DashboardProps {
   onNavigate: (page: Page) => void;
   onAddDocument: () => void;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  feedback?: ReturnType<typeof useFeedback>;
 }
 
-export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
+export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete, feedback }: DashboardProps) {
   // Ensure documents is always an array to prevent crashes
   const safeDocuments = documents ?? [];
   
@@ -23,6 +25,8 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
   const recentDocuments = safeDocuments.slice(0, 3);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const localFeedback = useFeedback();
+  const activeFeedback = feedback || localFeedback;
 
   const handleDeleteDocument = async (documentId: string) => {
     if (!onDocumentDelete) return;
@@ -32,7 +36,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
       await onDocumentDelete(documentId);
       setShowDeleteConfirm(null);
     } catch (error) {
-      console.error('Dashboard delete error:', error);
+      // Error handling is done in parent component
     } finally {
       setDeletingDocId(null);
     }

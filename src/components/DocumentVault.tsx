@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2 } from 'lucide-react';
+import { FileText, Upload, Search, Filter, Calendar, Eye, Plus, X, Trash2, MoreVertical } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
+import { useFeedback } from '../hooks/useFeedback';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -10,15 +12,18 @@ interface DocumentVaultProps {
   onDocumentView: (doc: Document) => void;
   onDocumentUpload?: (documentsData: DocumentUploadRequest[]) => Promise<void>;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  feedback?: ReturnType<typeof useFeedback>;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete }: DocumentVaultProps) {
+export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete, feedback }: DocumentVaultProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const localFeedback = useFeedback();
+  const activeFeedback = feedback || localFeedback;
 
   const categories = [
     { value: 'all', label: 'All Documents' },
@@ -36,6 +41,12 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
     return matchesSearch && matchesCategory;
   });
 
+  const handleDocumentUpload = (documentsData: Partial<Document>[]) => {
+    // In a real app, this would upload to a server and update the documents list
+    console.log('Documents uploaded:', documentsData);
+    // For demo purposes, we'll just log it
+  };
+
   const handleDocumentUploadNew = async (documentsData: DocumentUploadRequest[]) => {
     try {
       if (onDocumentUpload) {
@@ -43,7 +54,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
         setShowUploadModal(false);
       }
     } catch (error) {
-      console.error('Upload handler error:', error);
+      // Error handling is done in parent component
     }
   };
 
@@ -55,7 +66,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
       await onDocumentDelete(documentId);
       setShowDeleteConfirm(null);
     } catch (error) {
-      console.error('Delete handler error:', error);
+      // Error handling is done in parent component
     } finally {
       setDeletingDocId(null);
     }
