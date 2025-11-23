@@ -202,7 +202,7 @@ export async function getDocumentFiles(documentId: string) {
 }
 
 /**
- * Get file URL via proxy edge function (allows iframe embedding)
+ * Get file as blob URL (allows iframe embedding without CORS issues)
  */
 export async function getFileUrl(filePath: string): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -210,11 +210,29 @@ export async function getFileUrl(filePath: string): Promise<string> {
     throw new Error('User not authenticated');
   }
 
+  console.log('🔽 Fetching file as blob:', filePath);
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const proxyUrl = `${supabaseUrl}/functions/v1/download-file`;
+  const url = `${proxyUrl}?path=${encodeURIComponent(filePath)}&token=${session.access_token}`;
 
-  // Return URL with file path as query parameter
-  return `${proxyUrl}?path=${encodeURIComponent(filePath)}&token=${session.access_token}`;
+  // Fetch the file and convert to blob URL
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('❌ Failed to fetch file:', response.status, errorText);
+    throw new Error(`Failed to fetch file: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  console.log('✅ File fetched as blob:', blob.size, 'bytes, type:', blob.type);
+
+  // Create a blob URL that can be used in iframes
+  const blobUrl = URL.createObjectURL(blob);
+  console.log('🔗 Created blob URL:', blobUrl);
+
+  return blobUrl;
 }
 
 /**
