@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header } from './components/Header';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './components/LandingPage';
@@ -10,6 +10,7 @@ import { ExpirationTracker } from './components/ExpirationTracker';
 import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
 import { ProfileModal } from './components/ProfileModal';
+import { NotificationsModal } from './components/NotificationsModal';
 import { useDocuments } from './hooks/useDocuments';
 import { DocumentUploadRequest } from './lib/api';
 import { supabase, signOut } from './lib/supabase';
@@ -38,11 +39,26 @@ function App() {
   const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { documents, uploadDocuments, deleteDocument } = useDocuments(isAuthenticated);
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const expiringDocuments = useMemo(() => {
+    const today = new Date();
+    const thirtyDaysFromNow = new Date(today.getTime() + (30 * 24 * 60 * 60 * 1000));
+
+    return documents.filter(doc => {
+      if (!doc.expirationDate) return false;
+      const expDate = new Date(doc.expirationDate);
+      return expDate <= thirtyDaysFromNow;
+    }).sort((a, b) => {
+      if (!a.expirationDate || !b.expirationDate) return 0;
+      return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
+    });
+  }, [documents]);
 
   // Check for existing session on app load
   useEffect(() => {
@@ -227,6 +243,41 @@ function App() {
     }
   };
 
+  const handleSendNotifications = async () => {
+    try {
+      const documentIds = expiringDocuments.map(doc => doc.id);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-expiration-notifications`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ documentIds }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to send notifications');
+      }
+
+      const result = await response.json();
+      feedback.showSuccess('Email sent!', `Notification sent for ${result.documentsNotified} document(s)`);
+    } catch (error) {
+      console.error('Failed to send notifications:', error);
+      feedback.showError('Failed to send email', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Only show header if authenticated */}
@@ -236,6 +287,8 @@ function App() {
           onNavigate={setCurrentPage}
           onSignOut={() => setShowLogoutConfirm(true)}
           onOpenProfile={() => setShowProfileModal(true)}
+          onOpenNotifications={() => setShowNotificationsModal(true)}
+          notificationCount={expiringDocuments.length}
         />
       )}
       
@@ -263,6 +316,16 @@ function App() {
         <ProfileModal
           isOpen={showProfileModal}
           onClose={() => setShowProfileModal(false)}
+        />
+      )}
+
+      {/* Notifications Modal */}
+      {showNotificationsModal && isAuthenticated && (
+        <NotificationsModal
+          isOpen={showNotificationsModal}
+          onClose={() => setShowNotificationsModal(false)}
+          expiringDocuments={expiringDocuments}
+          onSendNotifications={handleSendNotifications}
         />
       )}
 

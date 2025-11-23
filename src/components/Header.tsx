@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, FileText, Calendar, LayoutDashboard, LogOut, User } from 'lucide-react';
+import { Shield, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -7,9 +7,11 @@ interface HeaderProps {
   onNavigate: (page: Page) => void;
   onSignOut: () => void;
   onOpenProfile: () => void;
+  onOpenNotifications: () => void;
+  notificationCount?: number;
 }
 
-export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile }: HeaderProps) {
+export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOpenNotifications, notificationCount }: HeaderProps) {
   const navItems = [
     { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vault' as Page, label: 'Document Vault', icon: FileText },
@@ -46,13 +48,26 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile }: He
 
           <div className="flex items-center space-x-2">
             <button
+              onClick={onOpenNotifications}
+              className="relative flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <Bell className="h-4 w-4" />
+              {notificationCount && notificationCount > 0 && (
+                <span className="absolute top-1 right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                  {notificationCount > 9 ? '9+' : notificationCount}
+                </span>
+              )}
+              <span className="hidden sm:inline">Notifications</span>
+            </button>
+
+            <button
               onClick={onOpenProfile}
               className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <User className="h-4 w-4" />
               <span className="hidden sm:inline">Profile</span>
             </button>
-            
+
             <button
               onClick={onSignOut}
               className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
