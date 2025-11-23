@@ -94,11 +94,12 @@ export const deleteDocument = async (id: string) => {
 
   console.log(`🗑️ Deleting document: ${id}`);
 
-  // Use backend API for deletion (handles both IBM COS and database)
-  const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const response = await fetch(`${supabaseUrl}/functions/v1/delete-document/${id}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'Content-Type': 'application/json',
     },
   });
 
@@ -107,7 +108,9 @@ export const deleteDocument = async (id: string) => {
     throw new Error(errorData.error || 'Failed to delete document');
   }
 
+  const result = await response.json();
   console.log(`✅ Document deleted successfully: ${id}`);
+  console.log(`📊 Files deleted: ${result.files_deleted || 0}`);
 }
 
 export const updateDocumentStatus = async (id: string, status: 'active' | 'expiring' | 'expired') => {
