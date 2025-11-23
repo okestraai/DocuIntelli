@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
-import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts'
+import mammoth from 'npm:mammoth@1.8.0'
 import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
@@ -121,30 +121,15 @@ class TextExtractor {
 
   static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      console.log('📝 Extracting text from DOCX...')
+      console.log('📝 Extracting text from DOCX using Mammoth...')
       const uint8Array = new Uint8Array(arrayBuffer)
 
-      const JSZip = (await import('npm:jszip@3.10.1')).default
-      const zip = await JSZip.loadAsync(uint8Array)
+      const result = await mammoth.extractRawText({ arrayBuffer: uint8Array.buffer })
+      const extractedText = result.value.trim()
 
-      const documentXml = await zip.file('word/document.xml')?.async('string')
-      if (!documentXml) {
-        throw new Error('Could not find document.xml in DOCX file')
+      if (!extractedText || extractedText.length === 0) {
+        throw new Error('No text content found in DOCX')
       }
-
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(documentXml, 'text/xml')
-
-      if (!doc) {
-        throw new Error('Failed to parse document.xml')
-      }
-
-      const textNodes = doc.querySelectorAll('w\\:t')
-      const extractedText = Array.from(textNodes)
-        .map((node: any) => node.textContent || '')
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
 
       console.log(`✅ DOCX extraction complete: ${extractedText.length} characters`)
       return extractedText
