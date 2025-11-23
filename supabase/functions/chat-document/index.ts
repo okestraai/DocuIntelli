@@ -1,0 +1,177 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+interface RequestBody {
+  document_id: string;
+  question: string;
+  conversation_history?: Array<{ role: string; content: string }>;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+
+    if (!openaiApiKey) {
+      return new Response(
+        JSON.stringify({ success: false, error: "OpenAI API key not configured" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { document_id, question, conversation_history = [] }: RequestBody = await req.json();
+
+    if (!document_id || !question) {
+      return new Response(
+        JSON.stringify({ success: false, error: "document_id and question are required" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log(`💬 Processing question for document: ${document_id}`);
+
+    // Step 1: Generate embedding for the question
+    console.log(`🧮 Generating embedding for question...`);
+    const embeddingModel = new Supabase.ai.Session("gte-small");
+    const questionEmbedding = await embeddingModel.run(question, {
+      mean_pool: true,
+      normalize: true,
+    });
+
+    if (!questionEmbedding || !Array.isArray(questionEmbedding)) {
+      throw new Error("Failed to generate question embedding");
+    }
+
+    console.log(`✅ Question embedding generated: ${questionEmbedding.length} dimensions`);
+
+    // Step 2: Search for relevant chunks using vector similarity
+    console.log(`🔍 Searching for relevant chunks...`);
+    const { data: relevantChunks, error: searchError } = await supabase.rpc(
+      "match_document_chunks",
+      {
+        query_embedding: questionEmbedding,
+        match_document_id: document_id,
+        match_count: 5,
+        similarity_threshold: 0.3,
+      }
+    );
+
+    if (searchError) {
+      console.error("❌ Search error:", searchError);
+      throw new Error(`Failed to search chunks: ${searchError.message}`);
+    }
+
+    console.log(`📊 Found ${relevantChunks?.length || 0} relevant chunks`);
+
+    // Step 3: Build context from relevant chunks
+    let context = "";
+    if (relevantChunks && relevantChunks.length > 0) {
+      context = relevantChunks
+        .map((chunk: any, index: number) => 
+          `[Chunk ${index + 1}, Relevance: ${Math.round(chunk.similarity * 100)}%]:\n${chunk.chunk_text}`
+        )
+        .join("\n\n");
+    }
+
+    console.log(`📝 Context built: ${context.length} characters`);
+
+    // Step 4: Call OpenAI to generate response
+    console.log(`🤖 Calling OpenAI...`);
+    
+    const systemPrompt = `You are a helpful AI assistant that answers questions about documents. 
+You have access to relevant sections from the user's document.
+Provide accurate, concise answers based on the document content provided.
+If the information isn't in the provided context, say so clearly.
+Always cite which chunk(s) you're referencing when answering.`;
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...conversation_history,
+    ];
+
+    if (context) {
+      messages.push({
+        role: "system",
+        content: `Here are relevant sections from the document:\n\n${context}`,
+      });
+    } else {
+      messages.push({
+        role: "system",
+        content: "Note: No relevant sections were found in the document for this question. Provide a helpful response indicating this.",
+      });
+    }
+
+    messages.push({ role: "user", content: question });
+
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!openaiResponse.ok) {
+      const errorData = await openaiResponse.json();
+      throw new Error(`OpenAI API error: ${JSON.stringify(errorData)}`);
+    }
+
+    const openaiData = await openaiResponse.json();
+    const answer = openaiData.choices[0].message.content;
+
+    console.log(`✅ Answer generated: ${answer.length} characters`);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        answer: answer,
+        sources: relevantChunks?.map((chunk: any) => ({
+          chunk_index: chunk.chunk_index,
+          similarity: chunk.similarity,
+          preview: chunk.chunk_text.slice(0, 150) + (chunk.chunk_text.length > 150 ? "..." : ""),
+        })) || [],
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  } catch (err: any) {
+    console.error("❌ Error:", err);
+    return new Response(
+      JSON.stringify({ success: false, error: "Internal server error", details: err.message }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  }
+});

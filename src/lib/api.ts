@@ -120,3 +120,40 @@ export async function getDocumentDownloadUrl(documentId: string) {
 
   return res.json();
 }
+
+/**
+ * Chat with a document using AI
+ */
+export async function chatWithDocument(
+  documentId: string,
+  question: string,
+  conversationHistory?: Array<{ role: string; content: string }>
+) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const apiUrl = `${supabaseUrl}/functions/v1/chat-document`;
+
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      document_id: documentId,
+      question,
+      conversation_history: conversationHistory,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: 'Chat request failed' }));
+    throw new Error(errorData.error || `Chat failed with status ${res.status}`);
+  }
+
+  return res.json();
+}

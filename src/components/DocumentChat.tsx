@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
-import { searchDocuments } from '../lib/api';
+import { chatWithDocument } from '../lib/api';
 
 interface DocumentChatProps {
   document: Document;
@@ -14,7 +14,11 @@ interface Message {
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  reference?: string;
+  sources?: Array<{
+    chunk_index: number;
+    similarity: number;
+    preview: string;
+  }>;
 }
 
 export function DocumentChat({ document, onBack }: DocumentChatProps) {
@@ -56,98 +60,48 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentQuestion = inputValue;
     setInputValue('');
     setIsLoading(true);
 
     try {
-      // Search for relevant document chunks using Edge Function
-      const searchResult = await searchDocuments(inputValue, 3);
-      
-      let assistantResponse = '';
-      let reference = '';
-      
-      if (searchResult.success && searchResult.data?.results?.length > 0) {
-        // Filter results for the current document or use any relevant results
-        const relevantResults = searchResult.data.results.filter(result => 
-          result.document_id === document.id
-        );
-        
-        const resultsToUse = relevantResults.length > 0 ? relevantResults : searchResult.data.results;
-        const topResult = resultsToUse[0];
-        
-        assistantResponse = generateContextualResponse(inputValue, topResult.chunk_text, document);
-        reference = `Found in ${topResult.document_name} (${Math.round(topResult.similarity * 100)}% match)`;
-      } else {
-        // Fallback to simulated response if no chunks found
-        assistantResponse = getSimulatedResponse(inputValue, document);
-        reference = 'Based on document metadata (text processing may still be in progress)';
-      }
+      const conversationHistory = messages
+        .filter(m => m.type === 'user' || m.type === 'assistant')
+        .map(m => ({
+          role: m.type === 'user' ? 'user' : 'assistant',
+          content: m.content,
+        }));
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: assistantResponse,
-        timestamp: new Date(),
-        reference: reference
-      };
-      
-      setMessages(prev => [...prev, assistantMessage]);
+      const result = await chatWithDocument(document.id, currentQuestion, conversationHistory);
+
+      if (result.success) {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          content: result.answer,
+          timestamp: new Date(),
+          sources: result.sources,
+        };
+
+        setMessages(prev => [...prev, assistantMessage]);
+      } else {
+        throw new Error(result.error || 'Failed to get response');
+      }
     } catch (error) {
       console.error('❌ Chat error:', error);
       feedback.showError('Failed to get response', 'The AI assistant is temporarily unavailable. Please try again.');
-      
+
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: "I'm sorry, I'm having trouble processing your request right now. Please try again in a moment.",
         timestamp: new Date(),
       };
-      
+
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const generateContextualResponse = (question: string, context: string, doc: Document): string => {
-    // Generate a response based on the actual document content
-    const lowerQuestion = question.toLowerCase();
-    
-    if (lowerQuestion.includes('covered') || lowerQuestion.includes('coverage')) {
-      return `Based on your ${doc.category} document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;
-    }
-    
-    if (lowerQuestion.includes('claim') || lowerQuestion.includes('file')) {
-      return `Here's what I found about claims in your document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;
-    }
-    
-    // Default contextual response
-    return `Based on your document content: ${context.slice(0, 400)}${context.length > 400 ? '...' : ''}`;
-  };
-  const getSimulatedResponse = (question: string, doc: Document): string => {
-    const lowerQuestion = question.toLowerCase();
-    
-    if (lowerQuestion.includes('covered') || lowerQuestion.includes('coverage')) {
-      if (doc.category === 'insurance') {
-        return "Based on your insurance policy, you're covered for collision damage (with $500 deductible), comprehensive coverage (with $250 deductible), liability protection up to $100,000, and uninsured motorist protection. Glass damage and roadside assistance are also included.";
-      } else if (doc.category === 'warranty') {
-        return "Your warranty covers manufacturing defects, component failures, and normal wear issues for all internal components. Coverage includes free repairs, replacement parts, and labor. Water damage and physical damage from drops are not covered.";
-      }
-    }
-    
-    if (lowerQuestion.includes('claim') || lowerQuestion.includes('file')) {
-      return "To file a claim: 1) Contact the claims hotline at 1-800-555-0123 within 24 hours, 2) Provide your policy number and incident details, 3) Schedule an inspection if required, 4) Keep all receipts and documentation. Claims are typically processed within 5-7 business days.";
-    }
-    
-    if (lowerQuestion.includes('cancel') || lowerQuestion.includes('termination')) {
-      return "You can cancel this agreement with 30 days written notice. If cancelled within the first year, there's a $150 early termination fee. After one year, you can cancel without penalty. Refunds are prorated based on unused coverage period.";
-    }
-    
-    if (lowerQuestion.includes('expire') || lowerQuestion.includes('renewal')) {
-      return `This document expires on ${doc.expirationDate ? new Date(doc.expirationDate).toLocaleDateString() : 'the specified date'}. You'll receive renewal notices 60 days before expiration. The renewal process is automatic unless you opt out, and rates may be adjusted based on current market conditions.`;
-    }
-    
-    return "I understand your question. Based on the document, I can help you find the specific information you need. Could you be more specific about which section or aspect you'd like me to focus on?";
   };
 
   const handleSuggestedQuestion = (question: string) => {
@@ -192,11 +146,19 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                       : 'bg-gray-100 text-gray-900'
                   }`}
                 >
-                  <p className="text-sm">{message.content}</p>
-                  {message.reference && (
-                    <p className="text-xs mt-2 opacity-75 italic">
-                      Reference: {message.reference}
-                    </p>
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-300">
+                      <p className="text-xs font-medium opacity-75 mb-2">Sources:</p>
+                      {message.sources.map((source, idx) => (
+                        <div key={idx} className="text-xs opacity-75 mb-1">
+                          <span className="font-medium">Chunk {source.chunk_index}</span>
+                          <span className="mx-1">•</span>
+                          <span>{Math.round(source.similarity * 100)}% match</span>
+                          <p className="mt-1 italic text-gray-600">{source.preview}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
