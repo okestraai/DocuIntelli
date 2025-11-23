@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -18,6 +18,7 @@ interface SearchResponse {
       chunk_text: string
       document_name: string
       similarity: number
+      document_id: string
     }>
     query: string
   }
@@ -113,7 +114,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    // Search for similar document chunks
+    // Search for similar document chunks using the RPC function
     const { data: searchResults, error: searchError } = await supabase.rpc(
       'match_document_chunks',
       {

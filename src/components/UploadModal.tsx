@@ -1,8 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, Trash2 } from 'lucide-react';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
-import { uploadDocument } from '../lib/api';
-import { useFeedback } from '../hooks/useFeedback';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -21,7 +19,6 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   const [documents, setDocuments] = useState<DocumentData[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const feedback = useFeedback();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categories = [
@@ -97,36 +94,12 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
 
     setIsUploading(true);
     try {
-      // Upload each document individually to Supabase Storage
-      const uploadPromises = documents.map(async (doc) => {
-        const result = await uploadDocument(doc.file);
-        console.log('Upload result:', result);
-        return {
-          name: doc.name.trim(),
-          category: doc.category,
-          file: doc.file,
-          expirationDate: doc.expirationDate || undefined,
-          uploadResult: result
-        };
-      });
-
-      const uploadResults = await Promise.all(uploadPromises);
-      
-      // Log all results
-      uploadResults.forEach((result, index) => {
-        console.log(`Document ${index + 1} uploaded:`, {
-          name: result.name,
-          url: result.uploadResult.url,
-          path: result.uploadResult.path
-        });
-      });
-
       // Convert to the format expected by onUpload
-      const uploadData: DocumentUploadRequest[] = uploadResults.map(result => ({
-        name: result.name,
-        category: result.category,
-        file: result.file,
-        expirationDate: result.expirationDate
+      const uploadData: DocumentUploadRequest[] = documents.map(doc => ({
+        name: doc.name.trim(),
+        category: doc.category,
+        file: doc.file,
+        expirationDate: doc.expirationDate || undefined
       }));
 
       await onUpload(uploadData);

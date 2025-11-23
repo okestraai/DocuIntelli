@@ -16,12 +16,13 @@ export interface SupabaseDocument {
   name: string
   category: string
   type: string
-  size: string
+  size: number
   file_path: string
   original_name: string
   upload_date: string
   expiration_date?: string
   status: 'active' | 'expiring' | 'expired'
+  processed: boolean
   created_at: string
   updated_at: string
 }
@@ -38,57 +39,11 @@ export interface UserProfile {
 }
 
 // Document operations
-export const uploadDocumentToStorage = async (file: File, userId: string, documentId: string) => {
-  const fileExt = file.name.split('.').pop()
-  const fileName = `${documentId}.${fileExt}`
-  const filePath = `${userId}/${fileName}`
-
-  console.log('Uploading to storage:', { filePath, fileSize: file.size, fileType: file.type });
-  const { data, error } = await supabase.storage
-    .from('documents')
-    .upload(filePath, file)
-
-  if (error) {
-    console.error('Storage upload error:', error);
-    throw error;
-  }
-  
-  console.log('Upload successful:', data);
-  return data
-}
-
-export const createDocument = async (documentData: {
-  name: string
-  category: string
-  type: string
-  size: string
-  file_path: string
-  original_name: string
-  expiration_date?: string
-}) => {
+export const getDocuments = async (): Promise<SupabaseDocument[]> => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
 
-  const { data, error } = await supabase
-    .from('documents')
-    .insert([{
-      ...documentData,
-      user_id: user.id,
-      upload_date: new Date().toISOString().split('T')[0],
-      status: 'active'
-    }])
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-export const getDocuments = async () => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('User not authenticated')
-
-  console.log('Fetching documents for user:', user.id);
+  console.log('📊 Fetching documents for user:', user.id);
   const { data, error } = await supabase
     .from('documents')
     .select('*')
@@ -96,11 +51,11 @@ export const getDocuments = async () => {
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching documents:', error);
+    console.error('❌ Error fetching documents:', error);
     throw error;
   }
   
-  console.log('Raw documents from database:', data);
+  console.log(`✅ Fetched ${data?.length || 0} documents from database`);
   return data || []
 }
 
@@ -108,29 +63,22 @@ export const deleteDocument = async (id: string) => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
 
-  // First get the document to get the file path
-  const { data: document } = await supabase
-    .from('documents')
-    .select('file_path')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  console.log(`🗑️ Deleting document: ${id}`);
 
-  if (document?.file_path) {
-    // Delete from storage
-    await supabase.storage
-      .from('documents')
-      .remove([document.file_path])
+  // Use backend API for deletion (handles both IBM COS and database)
+  const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to delete document');
   }
 
-  // Delete from database
-  const { error } = await supabase
-    .from('documents')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user.id)
-
-  if (error) throw error
+  console.log(`✅ Document deleted successfully: ${id}`);
 }
 
 export const updateDocumentStatus = async (id: string, status: 'active' | 'expiring' | 'expired') => {
@@ -145,6 +93,7 @@ export const updateDocumentStatus = async (id: string, status: 'active' | 'expir
 
   if (error) throw error
 }
+
 // Auth helper functions
 export const signUp = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({
@@ -243,29 +192,4 @@ export const changePassword = async (newPassword: string) => {
     password: newPassword
   })
   if (error) throw error
-}
-
-// Social auth functions
-export const signInWithGoogle = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`
-    }
-  })
-  
-  if (error) throw error
-  return data
-}
-
-export const signInWithFacebook = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'facebook',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`
-    }
-  })
-  
-  if (error) throw error
-  return data
 }

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2 } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
+import { getDocumentDownloadUrl } from '../lib/api';
 
 interface DocumentViewerProps {
   document: Document;
@@ -14,18 +15,14 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const feedback = useFeedback();
 
-  useEffect(() => {
-    loadDocument();
-  }, [document.id]);
-
-  const loadDocument = async () => {
+  const loadDocument = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       console.log('Loading document:', document);
 
-      // Create URL for local file access via API
-      const fileUrl = `/api/documents/${document.id}/view`;
+      // Get download URL from backend API
+      const fileUrl = await getDocumentDownloadUrl(document.id);
       console.log('Generated file URL:', fileUrl);
       setDocumentUrl(fileUrl);
     } catch (err) {
@@ -34,7 +31,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [document]);
+
+  useEffect(() => {
+    loadDocument();
+  }, [loadDocument]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment
@@ -51,8 +52,9 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     try {
       const loadingToastId = feedback.showLoading('Downloading document...', 'Please wait while we prepare your download');
       
-      // Fetch the file from local API
-      const response = await fetch(`/api/documents/${document.id}/download`);
+      // Get download URL and fetch the file
+      const downloadUrl = await getDocumentDownloadUrl(document.id);
+      const response = await fetch(downloadUrl);
       if (!response.ok) {
         throw new Error('Failed to fetch document for download');
       }

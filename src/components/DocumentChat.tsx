@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Send, MessageSquare, FileText, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { searchDocuments } from '../lib/api';
@@ -67,14 +67,20 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       let reference = '';
       
       if (searchResult.success && searchResult.data?.results?.length > 0) {
-        // Use the most relevant chunk to generate a response
-        const topResult = searchResult.data.results[0];
+        // Filter results for the current document or use any relevant results
+        const relevantResults = searchResult.data.results.filter(result => 
+          result.document_id === document.id
+        );
+        
+        const resultsToUse = relevantResults.length > 0 ? relevantResults : searchResult.data.results;
+        const topResult = resultsToUse[0];
+        
         assistantResponse = generateContextualResponse(inputValue, topResult.chunk_text, document);
         reference = `Found in ${topResult.document_name} (${Math.round(topResult.similarity * 100)}% match)`;
       } else {
         // Fallback to simulated response if no chunks found
         assistantResponse = getSimulatedResponse(inputValue, document);
-        reference = 'Based on document analysis';
+        reference = 'Based on document metadata (text processing may still be in progress)';
       }
 
       const assistantMessage: Message = {
@@ -87,6 +93,7 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
+      console.error('❌ Chat error:', error);
       feedback.showError('Failed to get response', 'The AI assistant is temporarily unavailable. Please try again.');
       
       const errorMessage: Message = {
@@ -105,7 +112,6 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
   const generateContextualResponse = (question: string, context: string, doc: Document): string => {
     // Generate a response based on the actual document content
     const lowerQuestion = question.toLowerCase();
-    const lowerContext = context.toLowerCase();
     
     if (lowerQuestion.includes('covered') || lowerQuestion.includes('coverage')) {
       return `Based on your ${doc.category} document: ${context.slice(0, 300)}${context.length > 300 ? '...' : ''}`;

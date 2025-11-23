@@ -9,11 +9,148 @@ const corsHeaders = {
 interface UploadResponse {
   success: boolean
   data?: {
-    path: string
-    url: string
     document_id: string
+    file_path: string
+    public_url: string
+    chunks_processed: number
+    file_type: string
   }
   error?: string
+}
+
+// Text extraction utilities
+class TextExtractor {
+  static async extractFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+    try {
+      // Simple PDF text extraction - in production you'd use a proper PDF parser
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const text = new TextDecoder().decode(uint8Array)
+      
+      // Extract readable text between stream objects (basic approach)
+      const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
+      if (textMatches) {
+        return textMatches
+          .map(match => match.replace(/stream|endstream/g, ''))
+          .join(' ')
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      
+      // Fallback: extract any readable text
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 10000) // Limit to prevent huge extractions
+    } catch (error) {
+      console.error('PDF extraction error:', error)
+      throw new Error('Failed to extract text from PDF')
+    }
+  }
+
+  static async extractFromText(arrayBuffer: ArrayBuffer): Promise<string> {
+    try {
+      return new TextDecoder('utf-8').decode(arrayBuffer)
+    } catch (error) {
+      console.error('Text extraction error:', error)
+      throw new Error('Failed to extract text from file')
+    }
+  }
+
+  static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
+    try {
+      // Basic DOCX text extraction - in production you'd use a proper parser
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const text = new TextDecoder().decode(uint8Array)
+      
+      // Extract text from XML content (basic approach)
+      const xmlMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/gs)
+      if (xmlMatches) {
+        return xmlMatches
+          .map(match => match.replace(/<[^>]*>/g, ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      
+      // Fallback
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 10000)
+    } catch (error) {
+      console.error('DOCX extraction error:', error)
+      throw new Error('Failed to extract text from DOCX')
+    }
+  }
+
+  static async extractText(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer()
+    
+    switch (file.type) {
+      case 'application/pdf':
+        return await this.extractFromPDF(arrayBuffer)
+      
+      case 'text/plain':
+        return await this.extractFromText(arrayBuffer)
+      
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        return await this.extractFromDOCX(arrayBuffer)
+      
+      default:
+        // For unsupported types, try text extraction as fallback
+        try {
+          return await this.extractFromText(arrayBuffer)
+        } catch {
+          throw new Error(`Unsupported file type: ${file.type}`)
+        }
+    }
+  }
+}
+
+// Text chunking utility
+class TextChunker {
+  private static readonly CHUNK_SIZE = 800
+  private static readonly OVERLAP_SIZE = 100
+
+  static chunkText(text: string): string[] {
+    if (!text || text.trim().length === 0) {
+      return []
+    }
+
+    const chunks: string[] = []
+    const sentences = this.splitIntoSentences(text)
+    
+    let currentChunk = ''
+    
+    for (const sentence of sentences) {
+      if (currentChunk.length + sentence.length > this.CHUNK_SIZE) {
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim())
+        }
+        
+        const words = currentChunk.split(' ')
+        const overlapWords = words.slice(-Math.floor(this.OVERLAP_SIZE / 6))
+        currentChunk = overlapWords.join(' ') + ' ' + sentence
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence
+      }
+    }
+    
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim())
+    }
+    
+    return chunks.filter(chunk => chunk.length > 50)
+  }
+
+  private static splitIntoSentences(text: string): string[] {
+    const cleanText = text.replace(/\s+/g, ' ').trim()
+    const sentences = cleanText.split(/(?<=[.!?])\s+(?=[A-Z])/)
+    return sentences.filter(sentence => sentence.trim().length > 0)
+  }
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -33,7 +170,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    // Initialize Supabase client
+    // Initialize Supabase client with service role for storage operations
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -65,6 +202,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
+    console.log(`📤 Upload request from user: ${user.id}`)
+
     // Parse multipart form data
     const formData = await req.formData()
     const file = formData.get('file') as File
@@ -92,15 +231,64 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
+      'text/plain',
+      'image/jpeg',
+      'image/png',
+      'image/gif'
+    ]
+
+    if (!allowedTypes.includes(file.type)) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Unsupported file type: ${file.type}` }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    // Validate file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'File size exceeds 10MB limit' }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    console.log(`📄 Processing file: ${file.name} (${file.type}, ${file.size} bytes)`)
+
     // Generate unique file path
     const timestamp = Date.now()
-    const fileExt = file.name.split('.').pop()
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
     const uniquePath = `${user.id}/${timestamp}-${sanitizedName}`
 
-    console.log(`📤 Uploading file: ${file.name} (${file.size} bytes) to ${uniquePath}`)
+    // Helper functions
+    const formatFileSize = (bytes: number): string => {
+      if (bytes === 0) return '0 Bytes'
+      const k = 1024
+      const sizes = ['Bytes', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+    }
 
-    // Upload file to storage
+    const getFileType = (mimeType: string): string => {
+      if (mimeType.includes('pdf')) return 'PDF'
+      if (mimeType.includes('word')) return 'Word'
+      if (mimeType.includes('text')) return 'Text'
+      if (mimeType.includes('image')) return 'Image'
+      return 'Document'
+    }
+
+    // Step 1: Upload file to storage
+    console.log(`☁️ Uploading to storage: ${uniquePath}`)
     const fileBuffer = await file.arrayBuffer()
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
@@ -124,43 +312,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('documents')
-      .getPublicUrl(uniquePath)
+    console.log(`✅ File uploaded to storage: ${uploadData.path}`)
 
-    // Helper function to format file size
-    const formatFileSize = (bytes: number): string => {
-      if (bytes === 0) return '0 Bytes'
-      const k = 1024
-      const sizes = ['Bytes', 'KB', 'MB', 'GB']
-      const i = Math.floor(Math.log(bytes) / Math.log(k))
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-    }
-
-    // Helper function to get file type
-    const getFileType = (mimeType: string): string => {
-      if (mimeType.includes('pdf')) return 'PDF'
-      if (mimeType.includes('word')) return 'Word'
-      if (mimeType.includes('text')) return 'Text'
-      if (mimeType.includes('image')) return 'Image'
-      return 'Document'
-    }
-
-    // Create document record in database
+    // Step 2: Create document record in database
     const { data: documentData, error: dbError } = await supabase
       .from('documents')
       .insert([{
         user_id: user.id,
         name: name.trim(),
         category: category,
-        type: getFileType(file.type),
-        size: formatFileSize(file.size),
+        type: file.type,
+        size: file.size,
         file_path: uniquePath,
         original_name: file.name,
         upload_date: new Date().toISOString().split('T')[0],
         expiration_date: expirationDate || null,
-        status: 'active'
+        status: 'active',
+        processed: false
       }])
       .select()
       .single()
@@ -186,14 +354,99 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    console.log(`✅ Document uploaded successfully: ${urlData.publicUrl}`)
+    console.log(`✅ Document record created: ${documentData.id}`)
+
+    // Step 3: Extract text content (non-blocking)
+    let chunksProcessed = 0
+    try {
+      console.log(`📝 Extracting text from ${file.type} file`)
+      const extractedText = await TextExtractor.extractText(file)
+      
+      if (extractedText && extractedText.trim().length > 0) {
+        console.log(`📄 Extracted ${extractedText.length} characters of text`)
+        
+        // Step 4: Split into chunks
+        const textChunks = TextChunker.chunkText(extractedText)
+        console.log(`✂️ Created ${textChunks.length} text chunks`)
+        
+        if (textChunks.length > 0) {
+          // Step 5: Generate embeddings using Supabase AI
+          console.log(`🧠 Generating embeddings for ${textChunks.length} chunks`)
+          const model = new Supabase.ai.Session('gte-small')
+          
+          const documentChunks = []
+          
+          for (let i = 0; i < textChunks.length; i++) {
+            try {
+              const embedding = await model.run(textChunks[i], { 
+                mean_pool: true, 
+                normalize: true 
+              })
+              
+              documentChunks.push({
+                document_id: documentData.id,
+                user_id: user.id,
+                chunk_text: textChunks[i],
+                embedding: embedding
+              })
+              
+              console.log(`✅ Generated embedding for chunk ${i + 1}/${textChunks.length}`)
+            } catch (embeddingError) {
+              console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
+              // Continue with other chunks
+            }
+          }
+          
+          // Step 6: Insert chunks into database
+          if (documentChunks.length > 0) {
+            const { data: insertedChunks, error: insertError } = await supabase
+              .from('document_chunks')
+              .insert(documentChunks)
+              .select('id')
+
+            if (insertError) {
+              console.error('❌ Chunk insert error:', insertError)
+            } else {
+              chunksProcessed = insertedChunks?.length || 0
+              console.log(`✅ Inserted ${chunksProcessed} chunks into database`)
+              
+              // Mark document as processed
+              await supabase
+                .from('documents')
+                .update({ processed: true })
+                .eq('id', documentData.id)
+                .eq('user_id', user.id)
+            }
+          }
+        }
+      } else {
+        console.log(`⚠️ No text extracted from file: ${file.name}`)
+      }
+    } catch (textError) {
+      console.error('❌ Text processing error (non-blocking):', textError)
+      // Don't fail the upload if text processing fails
+    }
+
+    // Get public URL for the uploaded file
+    const { data: urlData } = supabase.storage
+      .from('documents')
+      .getPublicUrl(uniquePath)
+
+    console.log(`🎉 Upload workflow completed successfully`)
+    console.log(`📊 Summary:`)
+    console.log(`   - File: ${file.name} (${getFileType(file.type)})`)
+    console.log(`   - Storage path: ${uniquePath}`)
+    console.log(`   - Document ID: ${documentData.id}`)
+    console.log(`   - Chunks processed: ${chunksProcessed}`)
 
     const response: UploadResponse = {
       success: true,
       data: {
-        path: uniquePath,
-        url: urlData.publicUrl,
-        document_id: documentData.id
+        document_id: documentData.id,
+        file_path: uniquePath,
+        public_url: urlData.publicUrl,
+        chunks_processed: chunksProcessed,
+        file_type: getFileType(file.type)
       }
     }
 
