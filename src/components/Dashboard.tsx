@@ -192,7 +192,10 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                 </div>
               </button>
 
-              <button className="w-full flex items-center space-x-3 p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-left">
+              <button
+                onClick={() => onNavigate('vault')}
+                className="w-full flex items-center space-x-3 p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-left"
+              >
                 <MessageSquare className="h-5 w-5 text-green-600" />
                 <div>
                   <h3 className="font-medium text-gray-900">Ask AI Assistant</h3>
