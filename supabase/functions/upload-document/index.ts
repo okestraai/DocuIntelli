@@ -112,7 +112,7 @@ class TextExtractor {
 
 // Text chunking utility
 class TextChunker {
-  private static readonly CHUNK_SIZE = 800
+  private static readonly CHUNK_SIZE = 1000
   private static readonly OVERLAP_SIZE = 100
 
   static chunkText(text: string): string[] {
@@ -386,6 +386,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
               documentChunks.push({
                 document_id: documentData.id,
                 user_id: user.id,
+                chunk_index: i,
                 chunk_text: textChunks[i],
                 embedding: embedding
               })
