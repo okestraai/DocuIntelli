@@ -126,9 +126,11 @@ STRICT RULES YOU MUST FOLLOW:
 5. DO NOT make assumptions, formulate new information, or hallucinate details not in the document
 6. If the question asks about something NOT covered in the provided document sections, politely inform the user that this information is not available in the document
 7. Use the conversation history to maintain context and provide more relevant responses
+8. Keep your responses concise and conversational - avoid overly lengthy explanations
+9. DO NOT use markdown formatting (no **, *, #, etc.) - use plain text only. Write naturally without any special formatting symbols.
 
 Example responses:
-- If information is found: Provide it naturally and clearly formatted
+- If information is found: Provide it naturally in plain text without markdown formatting
 - If information is NOT found: "I apologize, but I couldn't find information about that topic in this document. The document doesn't appear to cover this particular subject."`;
 
     const messages = [
@@ -209,7 +211,7 @@ Example responses:
       console.error("❌ Error saving assistant message:", assistantMessageError);
     }
 
-    console.log("�� Conversation saved to database");
+    console.log("💾 Conversation saved to database");
 
     return new Response(
       JSON.stringify({
