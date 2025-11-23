@@ -250,6 +250,8 @@ router.delete('/documents/:id', async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    console.log(`🗑️ Delete request for document: ${id}`);
+
     const { data: { user }, error: userError } = await supabase.auth.getUser(
       authHeader.replace('Bearer ', '')
     );
@@ -259,28 +261,62 @@ router.delete('/documents/:id', async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('file_path')
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .single();
+    console.log(`👤 Authenticated user: ${user.id}`);
 
-    if (docError || !document) {
-      res.status(404).json({ success: false, error: 'Document not found' });
+    const { data: result, error: deleteError } = await supabase
+      .rpc('delete_document_cascade', {
+        p_document_id: id,
+        p_user_id: user.id
+      });
+
+    if (deleteError) {
+      console.error('❌ Database deletion error:', deleteError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete document from database',
+        details: deleteError.message
+      });
       return;
     }
 
-    await deleteFromStorage(document.file_path);
+    if (!result || result.length === 0) {
+      console.error('❌ No result from delete function');
+      res.status(500).json({ success: false, error: 'Delete operation returned no result' });
+      return;
+    }
 
-    await supabase.from('document_chunks').delete().eq('document_id', id);
-    await supabase.from('documents').delete().eq('id', id).eq('user_id', user.id);
+    const deleteResult = result[0];
 
-    console.log(`✅ Document deleted: ${id}`);
-    res.json({ success: true, message: 'Document deleted successfully' });
+    if (!deleteResult.success) {
+      console.error('❌ Delete failed:', deleteResult.message);
+      res.status(404).json({ success: false, error: deleteResult.message });
+      return;
+    }
+
+    console.log(`🗄️ Database records deleted successfully`);
+    console.log(`📁 File path to delete: ${deleteResult.file_path}`);
+
+    if (deleteResult.file_path) {
+      try {
+        await deleteFromStorage(deleteResult.file_path);
+        console.log(`✅ Storage file deleted: ${deleteResult.file_path}`);
+      } catch (storageErr: any) {
+        console.error('⚠️ Storage deletion failed (non-fatal):', storageErr.message);
+      }
+    }
+
+    console.log(`✅ Document completely deleted: ${id}`);
+    res.json({
+      success: true,
+      message: 'Document and all related data deleted successfully'
+    });
   } catch (err: any) {
     console.error('❌ Delete error:', err);
-    res.status(500).json({ success: false, error: 'Internal server error', details: err.message });
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: err.message
+    });
   }
 });
 

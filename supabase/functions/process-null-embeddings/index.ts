@@ -1,0 +1,127 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    console.log("🔄 Starting automatic NULL embedding processing...");
+
+    const { count: nullCount } = await supabase
+      .from("document_chunks")
+      .select("id", { count: "exact", head: true })
+      .is("embedding", null)
+      .not("chunk_text", "eq", "")
+      .not("chunk_text", "is", null);
+
+    if (!nullCount || nullCount === 0) {
+      console.log("✅ No chunks with NULL embeddings found");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "No chunks need processing",
+          processed: 0,
+          remaining: 0,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log(`📊 Found ${nullCount} chunks with NULL embeddings`);
+
+    const batchSize = 5;
+    const maxBatches = 10;
+    let totalProcessed = 0;
+    let batchesProcessed = 0;
+
+    for (let i = 0; i < maxBatches && totalProcessed < nullCount; i++) {
+      console.log(`🔄 Processing batch ${i + 1}/${maxBatches}...`);
+
+      const embeddingUrl = `${supabaseUrl}/functions/v1/generate-embeddings`;
+      const response = await fetch(embeddingUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${supabaseServiceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          limit: batchSize,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error(`❌ Batch ${i + 1} failed:`, errorData);
+        break;
+      }
+
+      const result = await response.json();
+      totalProcessed += result.updated || 0;
+      batchesProcessed++;
+
+      console.log(`✅ Batch ${i + 1} completed: ${result.updated} chunks processed`);
+
+      if (result.remaining === 0) {
+        console.log("🎉 All chunks processed!");
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    const { count: remainingCount } = await supabase
+      .from("document_chunks")
+      .select("id", { count: "exact", head: true })
+      .is("embedding", null)
+      .not("chunk_text", "eq", "")
+      .not("chunk_text", "is", null);
+
+    console.log(`🎉 Processing complete: ${totalProcessed} chunks processed, ${remainingCount || 0} remaining`);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: "Automatic embedding processing completed",
+        processed: totalProcessed,
+        batches: batchesProcessed,
+        remaining: remainingCount || 0,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  } catch (err: any) {
+    console.error("❌ Fatal error:", err);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Internal server error",
+        details: err.message,
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  }
+});
