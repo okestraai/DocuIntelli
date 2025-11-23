@@ -154,6 +154,30 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
               .update({ processed: true })
               .eq('id', documentData.id);
             console.log(`✅ Document marked as processed: ${documentData.id}`);
+
+            // Trigger embedding generation
+            console.log(`🔄 Triggering embedding generation for: ${documentData.id}`);
+            try {
+              const embeddingUrl = `${supabaseUrl}/functions/v1/generate-embeddings`;
+              const embeddingResponse = await fetch(embeddingUrl, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${supabaseServiceKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ document_id: documentData.id }),
+              });
+
+              if (!embeddingResponse.ok) {
+                const errorData = await embeddingResponse.json();
+                console.error('⚠️ Embedding generation failed:', errorData);
+              } else {
+                const result = await embeddingResponse.json() as { updated: number };
+                console.log(`✅ Embeddings generated: ${result.updated} chunks updated`);
+              }
+            } catch (embErr: any) {
+              console.error('⚠️ Failed to trigger embedding generation:', embErr.message);
+            }
           }
         }
       } catch (err: any) {
