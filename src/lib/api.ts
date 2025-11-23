@@ -211,3 +211,58 @@ export async function getFileUrl(filePath: string): Promise<string> {
 
   return data.publicUrl;
 }
+
+/**
+ * Add files to an existing document
+ */
+export async function addFilesToDocument(
+  documentId: string,
+  files: File[],
+  updateExpiration: boolean,
+  newExpirationDate?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    const formData = new FormData();
+    files.forEach((file, index) => {
+      formData.append(`file${index}`, file);
+    });
+    formData.append('documentId', documentId);
+    formData.append('updateExpiration', updateExpiration.toString());
+    if (newExpirationDate) {
+      formData.append('expirationDate', newExpirationDate);
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const apiUrl = `${supabaseUrl}/functions/v1/add-files-to-document`;
+
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Failed to add files' }));
+      return {
+        success: false,
+        error: errorData.error || `Failed with status ${res.status}`,
+      };
+    }
+
+    const result = await res.json();
+    return result;
+  } catch (error) {
+    console.error('Add files error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to add files',
+    };
+  }
+}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2, ChevronRight, Plus } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
-import { getDocumentFiles, getFileUrl } from '../lib/api';
+import { getDocumentFiles, getFileUrl, addFilesToDocument } from '../lib/api';
+import { AddFilesModal } from './AddFilesModal';
 
 interface DocumentViewerProps {
   document: Document;
@@ -27,6 +28,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAddFilesModal, setShowAddFilesModal] = useState(false);
   const feedback = useFeedback();
 
   const loadDocumentFiles = useCallback(async () => {
@@ -184,6 +186,32 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
+  const handleAddFiles = async (newFiles: File[], updateExpiration: boolean, newExpirationDate?: string) => {
+    try {
+      const loadingToastId = feedback.showLoading('Adding files...', 'Processing and uploading your files');
+
+      const result = await addFilesToDocument(
+        document.id,
+        newFiles,
+        updateExpiration,
+        newExpirationDate
+      );
+
+      feedback.removeToast(loadingToastId);
+
+      if (result.success) {
+        feedback.showSuccess('Files added successfully', `${newFiles.length} file${newFiles.length !== 1 ? 's' : ''} added to the document`);
+        await loadDocumentFiles();
+      } else {
+        throw new Error(result.error || 'Failed to add files');
+      }
+    } catch (error) {
+      console.error('Error adding files:', error);
+      feedback.showError('Failed to add files', error instanceof Error ? error.message : 'Unable to add files to the document');
+      throw error;
+    }
+  };
+
   const currentFile = files[currentFileIndex];
 
   return (
@@ -210,6 +238,13 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddFilesModal(true)}
+            className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Files</span>
+          </button>
           {files.length > 1 && (
             <button
               onClick={handleDownloadAll}
@@ -345,6 +380,13 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           )}
         </div>
       </div>
+
+      <AddFilesModal
+        isOpen={showAddFilesModal}
+        onClose={() => setShowAddFilesModal(false)}
+        document={document}
+        onAddFiles={handleAddFiles}
+      />
     </div>
   );
 }
