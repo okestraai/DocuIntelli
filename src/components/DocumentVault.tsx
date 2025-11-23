@@ -166,14 +166,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
               </div>
 
               <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">{doc.name}</h3>
-              <p className="text-sm text-gray-500 mb-3">
-                {doc.type} • {doc.size}
-                {doc.fileCount && doc.fileCount > 1 && (
-                  <span className="ml-2 text-blue-600 font-medium">
-                    ({doc.fileCount} files)
-                  </span>
-                )}
-              </p>
+              <p className="text-sm text-gray-500 mb-3">{doc.type} • {doc.size}</p>
 
               <div className="flex items-center justify-between mb-3">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(doc.category)}`}>

@@ -131,14 +131,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                 </div>
                 <div className="flex-1">
                   <h3 className="font-medium text-gray-900">{doc.name}</h3>
-                  <p className="text-sm text-gray-500 capitalize">
-                    {doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}
-                    {doc.fileCount && doc.fileCount > 1 && (
-                      <span className="ml-2 text-blue-600 font-medium">
-                        ({doc.fileCount} files)
-                      </span>
-                    )}
-                  </p>
+                  <p className="text-sm text-gray-500 capitalize">{doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}</p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className={`px-2 py-1 rounded-full text-xs font-medium ${
