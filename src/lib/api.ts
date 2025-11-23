@@ -202,14 +202,19 @@ export async function getDocumentFiles(documentId: string) {
 }
 
 /**
- * Get public URL for a specific file
+ * Get file URL via proxy edge function (allows iframe embedding)
  */
 export async function getFileUrl(filePath: string): Promise<string> {
-  const { data } = supabase.storage
-    .from('documents')
-    .getPublicUrl(filePath);
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
 
-  return data.publicUrl;
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const proxyUrl = `${supabaseUrl}/functions/v1/download-file`;
+
+  // Return URL with file path as query parameter
+  return `${proxyUrl}?path=${encodeURIComponent(filePath)}&token=${session.access_token}`;
 }
 
 /**

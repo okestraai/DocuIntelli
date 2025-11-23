@@ -35,10 +35,16 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     try {
       setIsLoading(true);
       setError(null);
-      console.log('Loading document files for:', document.id);
+      console.log('📂 Loading document files for:', document.id);
 
       const documentFiles = await getDocumentFiles(document.id);
-      console.log('Found files:', documentFiles);
+      console.log('📄 Found files:', documentFiles.length);
+      console.log('📋 File details:', documentFiles.map(f => ({
+        name: f.original_name,
+        type: f.type,
+        size: f.size,
+        path: f.file_path
+      })));
 
       if (documentFiles.length === 0) {
         setError('No files found for this document');
@@ -47,11 +53,15 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
       setFiles(documentFiles);
 
+      console.log('🔗 Generating URL for:', documentFiles[0].file_path);
+      console.log('📝 File type:', documentFiles[0].type);
+
       const fileUrl = await getFileUrl(documentFiles[0].file_path);
-      console.log('Generated file URL:', fileUrl);
+      console.log('✅ File URL generated:', fileUrl.substring(0, 80) + '...');
+
       setDocumentUrl(fileUrl);
     } catch (err) {
-      console.error('Error loading document files:', err);
+      console.error('❌ Error loading document files:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
     } finally {
       setIsLoading(false);
@@ -170,12 +180,14 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     return <FileText className="h-5 w-5 text-gray-600" />;
   };
 
-  const isImageFile = (fileType: string) => {
-    return fileType.includes('image');
+  const isImageFile = (fileType: string | null | undefined) => {
+    if (!fileType) return false;
+    return fileType.toLowerCase().includes('image');
   };
 
-  const isPDFFile = (fileType: string) => {
-    return fileType.includes('pdf');
+  const isPDFFile = (fileType: string | null | undefined) => {
+    if (!fileType) return false;
+    return fileType.toLowerCase().includes('pdf');
   };
 
   const formatFileSize = (bytes: number): string => {
