@@ -60,39 +60,47 @@ export function useDocuments(isAuthenticated: boolean) {
     try {
       setError(null);
       console.log(`🗑️ Deleting document: ${id}`);
-      
-      // Delete via backend API (which handles both COS and database)
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('User not authenticated');
       }
 
-      const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-      });
+      const { data: documentFiles, error: filesError } = await supabase
+        .from('document_files')
+        .select('file_path')
+        .eq('document_id', id);
 
-        if (!response.ok) {
-          let errorMessage = `Failed to delete document with status ${response.status}`;
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorData.message || errorMessage;
-          } catch (_jsonError) {
-            console.error('❌ Failed to parse delete response JSON:', _jsonError);
-            try {
-              const errorText = await response.text();
-              console.error(`❌ Delete Error (${response.status}):`, errorText);
-              errorMessage = errorText || errorMessage;
-            } catch (textError) {
-              console.error(`❌ Failed to parse delete error response:`, textError);
-            }
-          }
-          throw new Error(errorMessage);
+      if (filesError) {
+        console.error('Error fetching document files:', filesError);
+      }
+
+      if (documentFiles && documentFiles.length > 0) {
+        console.log(`🗑️ Deleting ${documentFiles.length} files from storage`);
+        const filePaths = documentFiles.map(f => f.file_path);
+
+        const { error: storageError } = await supabase.storage
+          .from('documents')
+          .remove(filePaths);
+
+        if (storageError) {
+          console.error('Storage deletion error:', storageError);
+        } else {
+          console.log(`✅ Deleted ${filePaths.length} files from storage`);
         }
+      }
 
-      // Update local state
+      const { error: deleteError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', session.user.id);
+
+      if (deleteError) {
+        console.error('❌ Database delete error:', deleteError);
+        throw new Error(deleteError.message);
+      }
+
       setDocuments(prev => prev.filter(doc => doc.id !== id));
       console.log(`✅ Document deleted successfully`);
     } catch (err) {
