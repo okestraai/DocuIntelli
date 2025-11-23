@@ -84,8 +84,8 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           setSecurityAlerts(true);
         }
       }
-    } catch (_error) {
-      console.error('Profile load error:', _error);
+    } catch (error) {
+      console.error('Profile load error:', error);
       feedback.showError('Failed to load profile', 'Unable to fetch your profile information');
     } finally {
       setIsLoading(false);

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Toast } from '../components/Toast';
 
 export function useFeedback() {
@@ -7,7 +7,7 @@ export function useFeedback() {
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = Math.random().toString(36).substr(2, 9);
     const newToast: Toast = { ...toast, id };
-    
+
     setToasts(prev => [...prev, newToast]);
     return id;
   }, []);
@@ -17,7 +17,7 @@ export function useFeedback() {
   }, []);
 
   const updateToast = useCallback((id: string, updates: Partial<Toast>) => {
-    setToasts(prev => prev.map(toast => 
+    setToasts(prev => prev.map(toast =>
       toast.id === id ? { ...toast, ...updates } : toast
     ));
   }, []);
@@ -38,7 +38,7 @@ export function useFeedback() {
     setToasts([]);
   }, []);
 
-  return {
+  return useMemo(() => ({
     toasts,
     addToast,
     removeToast,
@@ -47,5 +47,5 @@ export function useFeedback() {
     showError,
     showLoading,
     clearAll
-  };
+  }), [toasts, addToast, removeToast, updateToast, showSuccess, showError, showLoading, clearAll]);
 }
