@@ -112,8 +112,10 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       success: true,
       data: {
         document_id: documentData.id,
+        file_key: uploadResult.filePath,
         file_path: uploadResult.filePath,
         public_url: uploadResult.publicUrl,
+        file_type: file.mimetype,
       },
     });
   } catch (err: any) {

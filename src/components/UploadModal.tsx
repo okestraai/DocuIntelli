@@ -103,9 +103,10 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
       }));
 
       await onUpload(uploadData);
-      
-      // Reset form and close modal
+
+      // Reset form and close modal on success
       setDocuments([]);
+      onClose();
     } catch (error) {
       // Error handling is done in parent component
       console.error('Upload failed:', error);
