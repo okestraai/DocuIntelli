@@ -117,7 +117,15 @@ function App() {
       setShowUploadModal(false);
     } catch (error) {
       feedback.removeToast(loadingToastId);
-      feedback.showError('Upload failed', error instanceof Error ? error.message : 'Failed to upload documents');
+
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload documents';
+
+      if (errorMessage.includes('backend server')) {
+        feedback.showError('Backend Server Not Running', 'Please start the backend: cd server && npm run dev', 10000);
+      } else {
+        feedback.showError('Upload failed', errorMessage, 8000);
+      }
+
       console.error('Upload failed:', error);
     }
   };

@@ -50,7 +50,7 @@ export async function uploadDocumentWithMetadata(
       formData.append('expirationDate', expirationDate);
     }
 
-    console.log('📡 Sending request to backend...');
+    console.log('📡 Sending request to backend at http://localhost:5000/api/upload');
 
     // Upload to backend API
     const res = await fetch('http://localhost:5000/api/upload', {
@@ -59,6 +59,9 @@ export async function uploadDocumentWithMetadata(
         Authorization: `Bearer ${session.access_token}`,
       },
       body: formData,
+    }).catch((fetchError) => {
+      console.error('❌ Network error - backend not reachable:', fetchError.message);
+      throw new Error('Cannot connect to backend server. Make sure it is running on port 5000.');
     });
 
     console.log('📥 Response received:', res.status, res.statusText);
