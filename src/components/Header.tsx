@@ -33,7 +33,6 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                 <button
                   key={id}
                   onClick={() => onNavigate(id)}
-                  title={label}
                   className={`group relative flex items-center justify-center p-3 rounded-lg transition-all ${
                     currentPage === id
                       ? 'bg-blue-100 text-blue-600'
@@ -41,7 +40,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                   }`}
                 >
                   <Icon className="h-6 w-6" />
-                  <span className="absolute bottom-full mb-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                  <span className="absolute top-full mt-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
                     {label}
                   </span>
                 </button>
@@ -50,9 +49,10 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
           </div>
 
           <div className="flex items-center space-x-2">
+            <div className="h-8 w-px bg-gray-300 mx-2"></div>
+
             <button
               onClick={onOpenNotifications}
-              title="Notifications"
               className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
             >
               <Bell className="h-6 w-6" />
@@ -61,29 +61,27 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                   {notificationCount > 9 ? '9+' : notificationCount}
                 </span>
               )}
-              <span className="absolute bottom-full mb-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
                 Notifications
               </span>
             </button>
 
             <button
               onClick={onOpenProfile}
-              title="Profile"
               className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
             >
               <User className="h-6 w-6" />
-              <span className="absolute bottom-full mb-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
                 Profile
               </span>
             </button>
 
             <button
               onClick={onSignOut}
-              title="Sign Out"
               className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
             >
               <LogOut className="h-6 w-6" />
-              <span className="absolute bottom-full mb-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
                 Sign Out
               </span>
             </button>
