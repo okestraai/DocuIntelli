@@ -418,6 +418,34 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .eq('id', documentData.id)
     }
 
+    if (totalChunksProcessed > 0) {
+      console.log(`🧠 Triggering embedding generation for ${totalChunksProcessed} chunks...`)
+
+      try {
+        const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`
+        const embeddingResponse = await fetch(embeddingUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            document_id: documentData.id,
+            limit: 10
+          })
+        })
+
+        if (embeddingResponse.ok) {
+          const embeddingResult = await embeddingResponse.json()
+          console.log(`✅ Embedding generation triggered: ${embeddingResult.updated || 0} embeddings created`)
+        } else {
+          console.error('⚠️ Embedding generation request failed:', embeddingResponse.status)
+        }
+      } catch (embeddingError) {
+        console.error('⚠️ Failed to trigger embedding generation:', embeddingError)
+      }
+    }
+
     console.log(`🎉 Upload workflow completed`)
     console.log(`📊 Summary:`)
     console.log(`   - Document ID: ${documentData.id}`)
