@@ -54,23 +54,23 @@ export function ToastComponent({ toast, onClose }: ToastProps) {
   };
 
   return (
-    <div className={`max-w-sm w-full border rounded-lg shadow-lg p-4 ${getToastStyles()} transform transition-all duration-300 ease-in-out`}>
-      <div className="flex items-start">
+    <div className={`min-w-[320px] max-w-md w-auto border rounded-lg shadow-lg p-4 ${getToastStyles()} transform transition-all duration-300 ease-in-out`}>
+      <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
           {getIcon()}
         </div>
-        <div className="ml-3 w-0 flex-1">
-          <p className="text-sm font-medium">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium break-words">
             {toast.title}
           </p>
           {toast.message && (
-            <p className="mt-1 text-sm opacity-90">
+            <p className="mt-1 text-sm opacity-90 break-words">
               {toast.message}
             </p>
           )}
         </div>
         {toast.type !== 'loading' && (
-          <div className="ml-4 flex-shrink-0 flex">
+          <div className="flex-shrink-0">
             <button
               className="inline-flex text-gray-400 hover:text-gray-600 focus:outline-none focus:text-gray-600 transition ease-in-out duration-150"
               onClick={() => onClose(toast.id)}
