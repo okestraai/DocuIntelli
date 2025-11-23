@@ -6,7 +6,8 @@ import type { Document } from '../App';
 export interface DocumentUploadRequest {
   name: string;
   category: string;
-  file: File;
+  file?: File;
+  files?: File[];
   expirationDate?: string;
 }
 
@@ -19,26 +20,23 @@ export function useDocuments(isAuthenticated: boolean) {
     try {
       setError(null);
       console.log(`📤 Starting upload of ${documentsData.length} documents`);
-      
+
       const uploadPromises = documentsData.map(async (docData, index) => {
         console.log(`📄 Uploading document ${index + 1}/${documentsData.length}: ${docData.name}`);
-        
-        // Upload file using backend API (which uses IBM COS)
+
         const uploadResult = await uploadDocumentWithMetadata(
-          docData.file,
+          docData.files || (docData.file ? [docData.file] : []),
           docData.name,
           docData.category,
           docData.expirationDate
         );
-        
+
         if (!uploadResult.success || !uploadResult.data) {
           throw new Error(uploadResult.error || 'Upload failed');
         }
 
         console.log(`✅ Document ${index + 1} uploaded successfully:`, {
-          document_id: uploadResult.data.document_id,
-          file_key: uploadResult.data.file_key,
-          file_type: uploadResult.data.file_type
+          document_id: uploadResult.data.document_id
         });
 
         return uploadResult.data.document_id;
@@ -46,11 +44,9 @@ export function useDocuments(isAuthenticated: boolean) {
 
       const uploadedDocIds = await Promise.all(uploadPromises);
       console.log(`🎉 All ${uploadedDocIds.length} documents uploaded successfully`);
-      
-      // Refresh documents list to get the new uploads
+
       await refetchDocuments();
-      
-      // Return the newly uploaded documents
+
       const newDocuments = documents.filter(doc => uploadedDocIds.includes(doc.id));
       return newDocuments;
     } catch (err) {
