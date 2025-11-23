@@ -26,6 +26,7 @@ export interface SupabaseDocument {
   processed: boolean
   created_at: string
   updated_at: string
+  file_count?: number
 }
 
 export interface UserProfile {
@@ -45,7 +46,8 @@ export const getDocuments = async (): Promise<SupabaseDocument[]> => {
   if (!user) throw new Error('User not authenticated')
 
   console.log('📊 Fetching documents for user:', user.id);
-  const { data, error } = await supabase
+
+  const { data: documents, error } = await supabase
     .from('documents')
     .select('*')
     .eq('user_id', user.id)
@@ -55,9 +57,35 @@ export const getDocuments = async (): Promise<SupabaseDocument[]> => {
     console.error('❌ Error fetching documents:', error);
     throw error;
   }
-  
-  console.log(`✅ Fetched ${data?.length || 0} documents from database`);
-  return data || []
+
+  if (!documents || documents.length === 0) {
+    console.log('✅ No documents found');
+    return []
+  }
+
+  const { data: fileCounts, error: fileCountError } = await supabase
+    .from('document_files')
+    .select('document_id')
+    .in('document_id', documents.map(d => d.id))
+
+  if (fileCountError) {
+    console.error('❌ Error fetching file counts:', fileCountError);
+  }
+
+  const fileCountMap = new Map<string, number>()
+  if (fileCounts) {
+    fileCounts.forEach(fc => {
+      fileCountMap.set(fc.document_id, (fileCountMap.get(fc.document_id) || 0) + 1)
+    })
+  }
+
+  const documentsWithCounts = documents.map(doc => ({
+    ...doc,
+    file_count: fileCountMap.get(doc.id) || 0
+  }))
+
+  console.log(`✅ Fetched ${documentsWithCounts.length} documents from database`);
+  return documentsWithCounts
 }
 
 export const deleteDocument = async (id: string) => {
@@ -66,11 +94,12 @@ export const deleteDocument = async (id: string) => {
 
   console.log(`🗑️ Deleting document: ${id}`);
 
-  // Use backend API for deletion (handles both IBM COS and database)
-  const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const response = await fetch(`${supabaseUrl}/functions/v1/delete-document/${id}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'Content-Type': 'application/json',
     },
   });
 
@@ -79,7 +108,9 @@ export const deleteDocument = async (id: string) => {
     throw new Error(errorData.error || 'Failed to delete document');
   }
 
+  const result = await response.json();
   console.log(`✅ Document deleted successfully: ${id}`);
+  console.log(`📊 Files deleted: ${result.files_deleted || 0}`);
 }
 
 export const updateDocumentStatus = async (id: string, status: 'active' | 'expiring' | 'expired') => {

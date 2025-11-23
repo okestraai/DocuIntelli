@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, FileText, Trash2 } from 'lucide-react';
+import { X, Upload, FileText, Trash2, Layers } from 'lucide-react';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
 
 interface UploadModalProps {
@@ -15,8 +15,22 @@ interface DocumentData {
   expirationDate: string;
 }
 
+interface MultiFileDocumentData {
+  files: File[];
+  name: string;
+  category: string;
+  expirationDate: string;
+}
+
 export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
+  const [uploadMode, setUploadMode] = useState<'separate' | 'combined'>('separate');
   const [documents, setDocuments] = useState<DocumentData[]>([]);
+  const [multiFileDoc, setMultiFileDoc] = useState<MultiFileDocumentData>({
+    files: [],
+    name: '',
+    category: '',
+    expirationDate: ''
+  });
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,23 +72,41 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   };
 
   const addFiles = (files: File[]) => {
-    const newDocuments = files.map(file => ({
-      file,
-      name: '',
-      category: '',
-      expirationDate: ''
-    }));
-    setDocuments(prev => [...prev, ...newDocuments]);
+    if (uploadMode === 'separate') {
+      const newDocuments = files.map(file => ({
+        file,
+        name: '',
+        category: '',
+        expirationDate: ''
+      }));
+      setDocuments(prev => [...prev, ...newDocuments]);
+    } else {
+      setMultiFileDoc(prev => ({
+        ...prev,
+        files: [...prev.files, ...files]
+      }));
+    }
   };
 
   const updateDocument = (index: number, field: 'name' | 'category' | 'expirationDate', value: string) => {
-    setDocuments(prev => prev.map((doc, i) => 
+    setDocuments(prev => prev.map((doc, i) =>
       i === index ? { ...doc, [field]: value } : doc
     ));
   };
 
+  const updateMultiFileDoc = (field: 'name' | 'category' | 'expirationDate', value: string) => {
+    setMultiFileDoc(prev => ({ ...prev, [field]: value }));
+  };
+
   const removeDocument = (index: number) => {
     setDocuments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeFileFromMultiDoc = (index: number) => {
+    setMultiFileDoc(prev => ({
+      ...prev,
+      files: prev.files.filter((_, i) => i !== index)
+    }));
   };
 
   const formatFileSize = (bytes: number) => {
@@ -86,7 +118,11 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   };
 
   const isFormValid = () => {
-    return documents.length > 0 && documents.every(doc => doc.name.trim() && doc.category);
+    if (uploadMode === 'separate') {
+      return documents.length > 0 && documents.every(doc => doc.name.trim() && doc.category);
+    } else {
+      return multiFileDoc.files.length > 0 && multiFileDoc.name.trim() && multiFileDoc.category;
+    }
   };
 
   const handleSubmit = async () => {
@@ -94,21 +130,28 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
 
     setIsUploading(true);
     try {
-      // Convert to the format expected by onUpload
-      const uploadData: DocumentUploadRequest[] = documents.map(doc => ({
-        name: doc.name.trim(),
-        category: doc.category,
-        file: doc.file,
-        expirationDate: doc.expirationDate || undefined
-      }));
+      if (uploadMode === 'separate') {
+        const uploadData: DocumentUploadRequest[] = documents.map(doc => ({
+          name: doc.name.trim(),
+          category: doc.category,
+          files: [doc.file],
+          expirationDate: doc.expirationDate || undefined
+        }));
+        await onUpload(uploadData);
+      } else {
+        const uploadData: DocumentUploadRequest[] = [{
+          name: multiFileDoc.name.trim(),
+          category: multiFileDoc.category,
+          files: multiFileDoc.files,
+          expirationDate: multiFileDoc.expirationDate || undefined
+        }];
+        await onUpload(uploadData);
+      }
 
-      await onUpload(uploadData);
-
-      // Reset form and close modal on success
       setDocuments([]);
+      setMultiFileDoc({ files: [], name: '', category: '', expirationDate: '' });
       onClose();
     } catch (error) {
-      // Error handling is done in parent component
       console.error('Upload failed:', error);
     } finally {
       setIsUploading(false);
@@ -118,14 +161,39 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   const handleClose = () => {
     if (!isUploading) {
       setDocuments([]);
+      setMultiFileDoc({ files: [], name: '', category: '', expirationDate: '' });
       onClose();
     }
   };
 
+  const handleModeChange = (mode: 'separate' | 'combined') => {
+    if (mode === 'separate' && multiFileDoc.files.length > 0) {
+      const newDocuments = multiFileDoc.files.map(file => ({
+        file,
+        name: multiFileDoc.name || '',
+        category: multiFileDoc.category || '',
+        expirationDate: multiFileDoc.expirationDate || ''
+      }));
+      setDocuments(newDocuments);
+      setMultiFileDoc({ files: [], name: '', category: '', expirationDate: '' });
+    } else if (mode === 'combined' && documents.length > 0) {
+      const firstDoc = documents[0];
+      setMultiFileDoc({
+        files: documents.map(d => d.file),
+        name: firstDoc.name || '',
+        category: firstDoc.category || '',
+        expirationDate: firstDoc.expirationDate || ''
+      });
+      setDocuments([]);
+    }
+    setUploadMode(mode);
+  };
+
+  const hasFiles = uploadMode === 'separate' ? documents.length > 0 : multiFileDoc.files.length > 0;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900">Add Documents</h2>
           <button
@@ -137,10 +205,45 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {/* File Upload Area */}
-          {documents.length === 0 && (
+          {!hasFiles && (
+            <>
+              <div className="mb-4 flex gap-2 bg-gray-100 p-1 rounded-lg">
+                <button
+                  onClick={() => handleModeChange('separate')}
+                  className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+                    uploadMode === 'separate'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <FileText className="h-4 w-4" />
+                  Separate Documents
+                </button>
+                <button
+                  onClick={() => handleModeChange('combined')}
+                  className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+                    uploadMode === 'combined'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Layers className="h-4 w-4" />
+                  Multi-File Document
+                </button>
+              </div>
+
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  {uploadMode === 'separate'
+                    ? 'Each file will be uploaded as a separate document with its own details.'
+                    : 'Multiple files will be uploaded as parts of a single document (e.g., multi-page contracts).'}
+                </p>
+              </div>
+            </>
+          )}
+
+          {!hasFiles && (
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -178,8 +281,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
             </div>
           )}
 
-          {/* Document List */}
-          {documents.length > 0 && (
+          {uploadMode === 'separate' && documents.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">
@@ -268,9 +370,96 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
               </div>
             </div>
           )}
+
+          {uploadMode === 'combined' && multiFileDoc.files.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Files ({multiFileDoc.files.length})
+                </h3>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                >
+                  Add More Files
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff"
+                />
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4 max-h-40 overflow-y-auto space-y-2">
+                {multiFileDoc.files.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between bg-white p-2 rounded">
+                    <div className="flex items-center space-x-2">
+                      <FileText className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{file.name}</p>
+                        <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeFileFromMultiDoc(index)}
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3 bg-gray-50 rounded-lg p-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Document Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={multiFileDoc.name}
+                    onChange={(e) => updateMultiFileDoc('name', e.target.value)}
+                    placeholder="Enter document name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Category *
+                    </label>
+                    <select
+                      value={multiFileDoc.category}
+                      onChange={(e) => updateMultiFileDoc('category', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {categories.map(cat => (
+                        <option key={cat.value} value={cat.value}>{cat.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Expiration Date
+                    </label>
+                    <input
+                      type="date"
+                      value={multiFileDoc.expirationDate}
+                      onChange={(e) => updateMultiFileDoc('expirationDate', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between p-6 border-t border-gray-200">
           <button
             onClick={handleClose}
@@ -279,7 +468,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
           >
             Cancel
           </button>
-          
+
           <button
             onClick={handleSubmit}
             disabled={!isFormValid() || isUploading}
@@ -291,7 +480,11 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                 <span>Uploading...</span>
               </>
             ) : (
-              <span>Upload {documents.length} Document{documents.length !== 1 ? 's' : ''}</span>
+              <span>
+                Upload {uploadMode === 'separate'
+                  ? `${documents.length} Document${documents.length !== 1 ? 's' : ''}`
+                  : `${multiFileDoc.files.length} File${multiFileDoc.files.length !== 1 ? 's' : ''}`}
+              </span>
             )}
           </button>
         </div>

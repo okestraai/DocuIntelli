@@ -21,18 +21,17 @@ export interface DocumentUploadRequest {
 }
 
 /**
- * Upload a document with metadata to IBM COS via backend API
+ * Upload document(s) with metadata via Supabase Edge Function
  */
 export async function uploadDocumentWithMetadata(
-  file: File,
+  files: File[],
   name: string,
   category: string,
   expirationDate?: string
 ): Promise<UploadResponse> {
   try {
-    console.log('📤 Starting upload for:', { name, category, fileSize: file.size, fileType: file.type });
+    console.log('📤 Starting upload for:', { name, category, fileCount: files.length });
 
-    // Get auth token
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.error('❌ No session found');
@@ -41,27 +40,27 @@ export async function uploadDocumentWithMetadata(
 
     console.log('✅ Session valid, preparing FormData');
 
-    // Create FormData for multipart upload
     const formData = new FormData();
-    formData.append('file', file);
+    files.forEach((file, index) => {
+      formData.append(`file${index}`, file);
+    });
     formData.append('name', name);
     formData.append('category', category);
     if (expirationDate) {
       formData.append('expirationDate', expirationDate);
     }
 
-    console.log('📡 Sending request to backend at http://localhost:5000/api/upload');
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const apiUrl = `${supabaseUrl}/functions/v1/upload-document`;
 
-    // Upload to backend API
-    const res = await fetch('http://localhost:5000/api/upload', {
+    console.log('📡 Sending request to Supabase Edge Function');
+
+    const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,
       },
       body: formData,
-    }).catch((fetchError) => {
-      console.error('❌ Network error - backend not reachable:', fetchError.message);
-      throw new Error('Cannot connect to backend server. Make sure it is running on port 5000.');
     });
 
     console.log('📥 Response received:', res.status, res.statusText);
@@ -178,4 +177,92 @@ export async function loadChatHistory(documentId: string) {
   }
 
   return data || [];
+}
+
+/**
+ * Get all files for a document
+ */
+export async function getDocumentFiles(documentId: string) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
+
+  const { data, error } = await supabase
+    .from('document_files')
+    .select('*')
+    .eq('document_id', documentId)
+    .order('file_order', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get public URL for a file in storage
+ */
+export async function getFileUrl(filePath: string): Promise<string> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const publicUrl = `${supabaseUrl}/storage/v1/object/public/documents/${filePath}`;
+
+  console.log('🔗 Generated public URL:', publicUrl);
+  return publicUrl;
+}
+
+/**
+ * Add files to an existing document
+ */
+export async function addFilesToDocument(
+  documentId: string,
+  files: File[],
+  updateExpiration: boolean,
+  newExpirationDate?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    const formData = new FormData();
+    files.forEach((file, index) => {
+      formData.append(`file${index}`, file);
+    });
+    formData.append('documentId', documentId);
+    formData.append('updateExpiration', updateExpiration.toString());
+    if (newExpirationDate) {
+      formData.append('expirationDate', newExpirationDate);
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const apiUrl = `${supabaseUrl}/functions/v1/add-files-to-document`;
+
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Failed to add files' }));
+      return {
+        success: false,
+        error: errorData.error || `Failed with status ${res.status}`,
+      };
+    }
+
+    const result = await res.json();
+    return result;
+  } catch (error) {
+    console.error('Add files error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to add files',
+    };
+  }
 }

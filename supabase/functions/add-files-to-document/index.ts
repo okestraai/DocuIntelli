@@ -1,7 +1,4 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
-import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
-import mammoth from 'npm:mammoth@1.8.0'
-import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,11 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-interface UploadResponse {
+interface AddFilesResponse {
   success: boolean
   data?: {
-    document_id: string
-    files_processed: number
+    files_added: number
     total_chunks_processed: number
   }
   error?: string
@@ -22,34 +18,27 @@ interface UploadResponse {
 class TextExtractor {
   static async extractFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      console.log('📄 Extracting text from PDF using pdfjs-dist...')
       const uint8Array = new Uint8Array(arrayBuffer)
+      const text = new TextDecoder().decode(uint8Array)
 
-      const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
-      console.log(`📖 PDF has ${pdf.numPages} pages`)
-
-      let fullText = ''
-
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum)
-        const textContent = await page.getTextContent()
-        const pageText = textContent.items
-          .map((item: any) => item.str)
+      const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
+      if (textMatches) {
+        return textMatches
+          .map(match => match.replace(/stream|endstream/g, ''))
           .join(' ')
-
-        fullText += pageText + '\n'
-        console.log(`✅ Extracted page ${pageNum}/${pdf.numPages}`)
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
       }
 
-      const cleanedText = fullText
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-
-      console.log(`✅ PDF extraction complete: ${cleanedText.length} characters`)
-      return cleanedText
+        .slice(0, 10000)
     } catch (error) {
-      console.error('❌ PDF extraction error:', error)
-      throw new Error(`Failed to extract text from PDF: ${error.message}`)
+      console.error('PDF extraction error:', error)
+      throw new Error('Failed to extract text from PDF')
     }
   }
 
@@ -64,47 +53,26 @@ class TextExtractor {
 
   static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      console.log('📝 Extracting text from DOCX using Mammoth...')
       const uint8Array = new Uint8Array(arrayBuffer)
+      const text = new TextDecoder().decode(uint8Array)
 
-      const result = await mammoth.extractRawText({ arrayBuffer: uint8Array.buffer })
-      const extractedText = result.value.trim()
-
-      if (!extractedText || extractedText.length === 0) {
-        throw new Error('No text content found in DOCX')
+      const xmlMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/gs)
+      if (xmlMatches) {
+        return xmlMatches
+          .map(match => match.replace(/<[^>]*>/g, ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
       }
 
-      console.log(`✅ DOCX extraction complete: ${extractedText.length} characters`)
-      return extractedText
+      return text
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 10000)
     } catch (error) {
-      console.error('❌ DOCX extraction error:', error)
-      throw new Error(`Failed to extract text from DOCX: ${error.message}`)
-    }
-  }
-
-  static async extractFromImage(arrayBuffer: ArrayBuffer): Promise<string> {
-    try {
-      console.log('🖼️ Starting OCR extraction from image...')
-
-      const uint8Array = new Uint8Array(arrayBuffer)
-      const blob = new Blob([uint8Array])
-
-      const worker = await Tesseract.createWorker('eng')
-
-      console.log('🔍 Running OCR recognition...')
-      const { data: { text } } = await worker.recognize(blob)
-
-      await worker.terminate()
-
-      if (!text || text.trim().length === 0) {
-        throw new Error('No text found in image')
-      }
-
-      console.log(`✅ OCR extraction complete: ${text.length} characters`)
-      return text.trim()
-    } catch (error) {
-      console.error('❌ Image OCR extraction error:', error)
-      throw new Error(`Failed to extract text from image: ${error.message}`)
+      console.error('DOCX extraction error:', error)
+      throw new Error('Failed to extract text from DOCX')
     }
   }
 
@@ -120,14 +88,6 @@ class TextExtractor {
 
       case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         return await this.extractFromDOCX(arrayBuffer)
-
-      case 'image/jpeg':
-      case 'image/jpg':
-      case 'image/png':
-      case 'image/gif':
-      case 'image/webp':
-      case 'image/bmp':
-        return await this.extractFromImage(arrayBuffer)
 
       default:
         try {
@@ -227,13 +187,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    console.log(`📤 Upload request from user: ${user.id}`)
+    console.log(`📤 Add files request from user: ${user.id}`)
 
     const formData = await req.formData()
     const files: File[] = []
-    const name = formData.get('name') as string
-    const category = formData.get('category') as string
-    const expirationDate = formData.get('expirationDate') as string
+    const documentId = formData.get('documentId') as string
+    const updateExpiration = formData.get('updateExpiration') as string
+    const newExpirationDate = formData.get('expirationDate') as string
 
     for (const [key, value] of formData.entries()) {
       if (key.startsWith('file') && value instanceof File) {
@@ -251,15 +211,55 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
     }
 
-    if (!name || !category) {
+    if (!documentId) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Name and category are required' }),
+        JSON.stringify({ success: false, error: 'Document ID is required' }),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
+
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (docError || !document) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Document not found or access denied' }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
+    console.log(`📄 Adding ${files.length} file(s) to document: ${documentId}`)
+
+    if (updateExpiration === 'true' && newExpirationDate) {
+      await supabase
+        .from('documents')
+        .update({ expiration_date: newExpirationDate })
+        .eq('id', documentId)
+        .eq('user_id', user.id)
+
+      console.log(`📅 Updated document expiration date to: ${newExpirationDate}`)
+    }
+
+    const { data: existingFiles } = await supabase
+      .from('document_files')
+      .select('file_order')
+      .eq('document_id', documentId)
+      .order('file_order', { ascending: false })
+      .limit(1)
+
+    const startingOrder = existingFiles && existingFiles.length > 0
+      ? existingFiles[0].file_order + 1
+      : 1
 
     const allowedTypes = [
       'application/pdf',
@@ -293,56 +293,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    console.log(`📄 Processing ${files.length} file(s)`)
-
-    const getFileType = (mimeType: string): string => {
-      if (mimeType.includes('pdf')) return 'PDF'
-      if (mimeType.includes('word')) return 'Word'
-      if (mimeType.includes('text')) return 'Text'
-      if (mimeType.includes('image')) return 'Image'
-      return 'Document'
-    }
-
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0)
-    const primaryFileType = getFileType(files[0].type)
-
-    const { data: documentData, error: dbError } = await supabase
-      .from('documents')
-      .insert([{
-        user_id: user.id,
-        name: name.trim(),
-        category: category,
-        type: primaryFileType,
-        size: totalSize,
-        file_path: `${user.id}/${Date.now()}-multi`,
-        original_name: files.length > 1 ? `${files[0].name} +${files.length - 1} more` : files[0].name,
-        upload_date: new Date().toISOString().split('T')[0],
-        expiration_date: expirationDate || null,
-        status: 'active',
-        processed: false
-      }])
-      .select()
-      .single()
-
-    if (dbError) {
-      console.error('❌ Database insert error:', dbError)
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Failed to create document record',
-          details: dbError.message
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      )
-    }
-
-    console.log(`✅ Document record created: ${documentData.id}`)
-
     let totalChunksProcessed = 0
     const uploadedFilePaths: string[] = []
+    const model = new Supabase.ai.Session('gte-small')
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
       const file = files[fileIndex]
@@ -371,10 +324,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const { data: fileRecord, error: fileError } = await supabase
           .from('document_files')
           .insert([{
-            document_id: documentData.id,
+            document_id: documentId,
             file_path: uniquePath,
             original_name: file.name,
-            file_order: fileIndex + 1,
+            file_order: startingOrder + fileIndex,
             size: file.size,
             type: file.type,
             processed: false
@@ -400,24 +353,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
             console.log(`✂️ Created ${textChunks.length} chunks`)
 
             if (textChunks.length > 0) {
-              console.log(`💾 Storing ${textChunks.length} text chunks`)
+              console.log(`🧠 Generating embeddings for ${textChunks.length} chunks`)
 
               const documentChunks = []
 
               for (let i = 0; i < textChunks.length; i++) {
                 try {
+                  const embedding = await model.run(textChunks[i], {
+                    mean_pool: true,
+                    normalize: true
+                  })
+
                   documentChunks.push({
-                    document_id: documentData.id,
+                    document_id: documentId,
                     file_id: fileRecord.id,
                     user_id: user.id,
                     chunk_index: i,
                     chunk_text: textChunks[i],
-                    embedding: null
+                    embedding: embedding
                   })
 
-                  console.log(`✅ Chunk ${i + 1}/${textChunks.length} prepared`)
-                } catch (chunkError) {
-                  console.error(`❌ Chunk preparation error for chunk ${i + 1}:`, chunkError)
+                  console.log(`✅ Embedding ${i + 1}/${textChunks.length}`)
+                } catch (embeddingError) {
+                  console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
                 }
               }
 
@@ -450,52 +408,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    if (uploadedFilePaths.length > 0) {
-      await supabase
-        .from('documents')
-        .update({ processed: true })
-        .eq('id', documentData.id)
-    }
-
-    if (totalChunksProcessed > 0) {
-      console.log(`🧠 Triggering embedding generation for ${totalChunksProcessed} chunks...`)
-
-      try {
-        const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`
-        const embeddingResponse = await fetch(embeddingUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            document_id: documentData.id,
-            limit: 1
-          })
-        })
-
-        if (embeddingResponse.ok) {
-          const embeddingResult = await embeddingResponse.json()
-          console.log(`✅ Embedding generation triggered: ${embeddingResult.updated || 0} embeddings created`)
-        } else {
-          console.error('⚠️ Embedding generation request failed:', embeddingResponse.status)
-        }
-      } catch (embeddingError) {
-        console.error('⚠️ Failed to trigger embedding generation:', embeddingError)
-      }
-    }
-
-    console.log(`🎉 Upload workflow completed`)
+    console.log(`🎉 Add files workflow completed`)
     console.log(`📊 Summary:`)
-    console.log(`   - Document ID: ${documentData.id}`)
-    console.log(`   - Files processed: ${uploadedFilePaths.length}/${files.length}`)
+    console.log(`   - Document ID: ${documentId}`)
+    console.log(`   - Files added: ${uploadedFilePaths.length}/${files.length}`)
     console.log(`   - Total chunks: ${totalChunksProcessed}`)
 
-    const response: UploadResponse = {
+    const response: AddFilesResponse = {
       success: true,
       data: {
-        document_id: documentData.id,
-        files_processed: uploadedFilePaths.length,
+        files_added: uploadedFilePaths.length,
         total_chunks_processed: totalChunksProcessed
       }
     }
@@ -508,7 +430,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     )
 
   } catch (error) {
-    console.error('❌ Upload function error:', error)
+    console.error('❌ Add files function error:', error)
     return new Response(
       JSON.stringify({
         success: false,

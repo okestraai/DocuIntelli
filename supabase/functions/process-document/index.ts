@@ -1,4 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
+import * as pdfjsLib from 'npm:pdfjs-dist@3.11.174'
+import mammoth from 'npm:mammoth@1.8.0'
+import Tesseract from 'npm:tesseract.js@5.0.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,6 +54,15 @@ class TextExtractor {
         case 'application/msword':
           return await this.extractFromDOCX(arrayBuffer)
 
+        case 'image/jpeg':
+        case 'image/jpg':
+        case 'image/png':
+        case 'image/gif':
+        case 'image/webp':
+        case 'image/bmp':
+        case 'image/tiff':
+          return await this.extractFromImage(arrayBuffer)
+
         default:
           // Try text extraction as fallback
           try {
@@ -67,29 +79,34 @@ class TextExtractor {
 
   static async extractFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
+      console.log('📄 Extracting text from PDF using pdfjs-dist...')
       const uint8Array = new Uint8Array(arrayBuffer)
-      const text = new TextDecoder().decode(uint8Array)
 
-      // Extract readable text between stream objects (basic approach)
-      const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
-      if (textMatches) {
-        return textMatches
-          .map(match => match.replace(/stream|endstream/g, ''))
+      const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
+      console.log(`📖 PDF has ${pdf.numPages} pages`)
+
+      let fullText = ''
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum)
+        const textContent = await page.getTextContent()
+        const pageText = textContent.items
+          .map((item: any) => item.str)
           .join(' ')
-          .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
+
+        fullText += pageText + '\n'
+        console.log(`✅ Extracted page ${pageNum}/${pdf.numPages}`)
       }
 
-      // Fallback: extract any readable text
-      return text
-        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+      const cleanedText = fullText
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 10000)
+
+      console.log(`✅ PDF extraction complete: ${cleanedText.length} characters`)
+      return cleanedText
     } catch (error) {
-      console.error('PDF extraction error:', error)
-      throw new Error('Failed to extract text from PDF')
+      console.error('❌ PDF extraction error:', error)
+      throw new Error(`Failed to extract text from PDF: ${error.message}`)
     }
   }
 
@@ -104,28 +121,47 @@ class TextExtractor {
 
   static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
+      console.log('📝 Extracting text from DOCX using Mammoth...')
       const uint8Array = new Uint8Array(arrayBuffer)
-      const text = new TextDecoder().decode(uint8Array)
 
-      // Extract text from XML content (basic approach)
-      const xmlMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/gs)
-      if (xmlMatches) {
-        return xmlMatches
-          .map(match => match.replace(/<[^>]*>/g, ''))
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim()
+      const result = await mammoth.extractRawText({ arrayBuffer: uint8Array.buffer })
+      const extractedText = result.value.trim()
+
+      if (!extractedText || extractedText.length === 0) {
+        throw new Error('No text content found in DOCX')
       }
 
-      // Fallback
-      return text
-        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 10000)
+      console.log(`✅ DOCX extraction complete: ${extractedText.length} characters`)
+      return extractedText
     } catch (error) {
-      console.error('DOCX extraction error:', error)
-      throw new Error('Failed to extract text from DOCX')
+      console.error('❌ DOCX extraction error:', error)
+      throw new Error(`Failed to extract text from DOCX: ${error.message}`)
+    }
+  }
+
+  static async extractFromImage(arrayBuffer: ArrayBuffer): Promise<string> {
+    try {
+      console.log('🖼️ Starting OCR extraction from image...')
+
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const blob = new Blob([uint8Array])
+
+      const worker = await Tesseract.createWorker('eng')
+
+      console.log('🔍 Running OCR recognition...')
+      const { data: { text } } = await worker.recognize(blob)
+
+      await worker.terminate()
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('No text found in image')
+      }
+
+      console.log(`✅ OCR extraction complete: ${text.length} characters`)
+      return text.trim()
+    } catch (error) {
+      console.error('❌ Image OCR extraction error:', error)
+      throw new Error(`Failed to extract text from image: ${error.message}`)
     }
   }
 }
