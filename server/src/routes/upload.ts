@@ -123,6 +123,28 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     console.log(`✅ Document uploaded successfully: ${documentData.id}`);
 
+    // Trigger document processing in background (non-blocking)
+    console.log(`🔄 Triggering document processing for: ${documentData.id}`);
+    fetch(`${supabaseUrl}/functions/v1/process-document`, {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ document_id: documentData.id }),
+    })
+      .then(async (response) => {
+        if (response.ok) {
+          const result = await response.json() as { data?: { chunks_processed?: number } };
+          console.log(`✅ Document processing completed: ${result.data?.chunks_processed || 0} chunks`);
+        } else {
+          console.error(`⚠️ Document processing failed: ${response.status}`);
+        }
+      })
+      .catch((error) => {
+        console.error(`⚠️ Document processing error (non-blocking):`, error.message);
+      });
+
     res.json({
       success: true,
       data: {
