@@ -21,22 +21,46 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       setError(null);
       console.log('Loading document:', document);
 
-      // Get file_path from database
-      const { data, error: dbError } = await supabase
-        .from('documents')
+      // Check if this is a multi-file document
+      const { data: files, error: filesError } = await supabase
+        .from('document_files')
         .select('file_path')
-        .eq('id', document.id)
-        .single();
+        .eq('document_id', document.id)
+        .order('file_order', { ascending: true })
+        .limit(1);
 
-      if (dbError || !data?.file_path) {
-        throw new Error('Failed to get document file path');
+      if (filesError) {
+        console.error('Error checking document files:', filesError);
+        throw new Error('Failed to load document files');
       }
 
-      // Construct static URL with file_path
-      const baseUrl = 'https://caygpjhiakabaxtklnlw.supabase.co/storage/v1/object/public/documents';
-      const fileUrl = `${baseUrl}/${data.file_path}`;
-      console.log('Generated file URL:', fileUrl);
-      setDocumentUrl(fileUrl);
+      let filePath: string;
+
+      if (files && files.length > 0) {
+        // Multi-file document - use first file from document_files table
+        filePath = files[0].file_path;
+        console.log('Multi-file document, using file_path:', filePath);
+      } else {
+        // Single file document - use file_path from documents table
+        const { data: docData, error: docError } = await supabase
+          .from('documents')
+          .select('file_path')
+          .eq('id', document.id)
+          .single();
+
+        if (docError || !docData) {
+          console.error('Error getting document file_path:', docError);
+          throw new Error('Failed to get document file path');
+        }
+
+        filePath = docData.file_path;
+        console.log('Single file document, using file_path:', filePath);
+      }
+
+      // Create static storage URL
+      const storageUrl = `https://caygpjhiakabaxtklnlw.supabase.co/storage/v1/object/public/documents/${filePath}`;
+      console.log('Generated storage URL:', storageUrl);
+      setDocumentUrl(storageUrl);
     } catch (err) {
       console.error('Error loading document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -98,26 +122,56 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   };
 
   const getFileIcon = () => {
-    if (document.type === 'PDF') return <FileText className="h-6 w-6 text-red-600" />;
-    if (document.type === 'Image') return <Image className="h-6 w-6 text-blue-600" />;
+    if (isPDFFile()) return <FileText className="h-6 w-6 text-red-600" />;
+    if (isImageFile()) return <Image className="h-6 w-6 text-blue-600" />;
     return <FileText className="h-6 w-6 text-gray-600" />;
   };
 
   const isImageFile = () => {
-    return document.type === 'Image' ||
-           document.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/);
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType.startsWith('image/') ||
+           fileName.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff)$/);
   };
 
   const isPDFFile = () => {
-    return document.type === 'PDF' || document.name.toLowerCase().endsWith('.pdf');
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType === 'application/pdf' || fileName.endsWith('.pdf');
   };
 
-  const isDocxFile = () => {
-    return document.name.toLowerCase().match(/\.(doc|docx)$/);
+  const isWordFile = () => {
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+           mimeType === 'application/msword' ||
+           fileName.match(/\.(doc|docx)$/);
   };
 
-  const isTxtFile = () => {
-    return document.name.toLowerCase().endsWith('.txt');
+  const isExcelFile = () => {
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+           mimeType === 'application/vnd.ms-excel' ||
+           fileName.match(/\.(xls|xlsx)$/);
+  };
+
+  const isPowerPointFile = () => {
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+           mimeType === 'application/vnd.ms-powerpoint' ||
+           fileName.match(/\.(ppt|pptx)$/);
+  };
+
+  const isOfficeFile = () => {
+    return isWordFile() || isExcelFile() || isPowerPointFile();
+  };
+
+  const isTextFile = () => {
+    const mimeType = document.type?.toLowerCase() || '';
+    const fileName = document.name.toLowerCase();
+    return mimeType === 'text/plain' || fileName.endsWith('.txt');
   };
 
   return (
@@ -211,39 +265,42 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
               </div>
             )}
 
-            {isDocxFile() && (
+            {isOfficeFile() && (
               <iframe
-                src={`https://docs.google.com/gview?url=${encodeURIComponent(documentUrl)}&embedded=true`}
+                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(documentUrl)}`}
                 className="w-full h-full border-0"
                 title={document.name}
-                onLoad={() => console.log('DOCX loaded successfully')}
+                onLoad={() => console.log('Office document loaded successfully')}
                 onError={(e) => {
-                  console.error('DOCX load error:', e);
-                  setError('Failed to load Word document');
+                  console.error('Office document load error:', e);
+                  setError('Failed to load Office document. You can download it to view.');
                 }}
               />
             )}
 
-            {isTxtFile() && (
+            {isTextFile() && (
               <iframe
                 src={documentUrl}
                 className="w-full h-full border-0 bg-white p-4"
                 title={document.name}
-                onLoad={() => console.log('TXT loaded successfully')}
+                onLoad={() => console.log('Text file loaded successfully')}
                 onError={(e) => {
-                  console.error('TXT load error:', e);
-                  setError('Failed to load text document');
+                  console.error('Text file load error:', e);
+                  setError('Failed to load text file');
                 }}
               />
             )}
 
-            {!isPDFFile() && !isImageFile() && !isDocxFile() && !isTxtFile() && (
+            {!isPDFFile() && !isImageFile() && !isOfficeFile() && !isTextFile() && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Preview not available</h3>
                   <p className="text-gray-600 mb-4">
-                    This file type cannot be previewed in the browser.
+                    This file type ({document.type || 'Unknown'}) cannot be previewed in the browser.
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Supported preview formats: PDF, Images (JPG, PNG, GIF, WebP, BMP, SVG), Office Documents (Word, Excel, PowerPoint), Text files
                   </p>
                   <button
                     onClick={handleDownload}
