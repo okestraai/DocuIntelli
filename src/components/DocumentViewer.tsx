@@ -64,25 +64,39 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       console.log('Document Type (MIME):', document.type);
       console.log('File Path:', filePath);
 
-      // Create a signed URL (valid for 60 seconds)
+      let fetchUrl: string;
+
+      // Try to create a signed URL first
       const { data: signedUrlData, error: signedUrlError } = await supabase
         .storage
         .from('documents')
         .createSignedUrl(filePath, 3600); // 1 hour expiry
 
       if (signedUrlError || !signedUrlData) {
-        console.error('Error creating signed URL:', signedUrlError);
-        throw new Error('Failed to create signed URL for document');
+        console.warn('Signed URL creation failed:', signedUrlError);
+        console.log('Falling back to public URL...');
+
+        // Fallback to public URL
+        const { data: publicUrlData } = supabase
+          .storage
+          .from('documents')
+          .getPublicUrl(filePath);
+
+        fetchUrl = publicUrlData.publicUrl;
+        console.log('Using public URL:', fetchUrl);
+      } else {
+        fetchUrl = signedUrlData.signedUrl;
+        console.log('Using signed URL:', fetchUrl);
       }
 
-      console.log('Signed URL created:', signedUrlData.signedUrl);
-      setDocumentUrl(signedUrlData.signedUrl);
+      setDocumentUrl(fetchUrl);
 
       // Fetch the file as a blob and create an object URL
       console.log('Fetching document as blob...');
-      const response = await fetch(signedUrlData.signedUrl);
+      const response = await fetch(fetchUrl);
 
       if (!response.ok) {
+        console.error('Fetch failed:', response.status, response.statusText);
         throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
       }
 
