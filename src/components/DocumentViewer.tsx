@@ -59,7 +59,13 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
       // Create static storage URL
       const storageUrl = `https://caygpjhiakabaxtklnlw.supabase.co/storage/v1/object/public/documents/${filePath}`;
-      console.log('Generated storage URL:', storageUrl);
+      console.log('=== DOCUMENT VIEWER DEBUG ===');
+      console.log('Document ID:', document.id);
+      console.log('Document Name:', document.name);
+      console.log('Document Type (MIME):', document.type);
+      console.log('File Path:', filePath);
+      console.log('Complete Storage URL:', storageUrl);
+      console.log('=== END DEBUG ===');
       setDocumentUrl(storageUrl);
     } catch (err) {
       console.error('Error loading document:', err);
@@ -238,44 +244,68 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         {documentUrl && !isLoading && !error && (
           <div className="h-full">
             {isPDFFile() && (
-              <iframe
-                src={documentUrl}
-                className="w-full h-full border-0"
-                title={document.name}
-                onLoad={() => console.log('PDF loaded successfully')}
-                onError={(e) => {
-                  console.error('PDF load error:', e);
-                  setError('Failed to load PDF document');
-                }}
-              />
+              <div className="h-full flex flex-col">
+                <div className="flex-1 overflow-auto">
+                  <embed
+                    src={`${documentUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+                    type="application/pdf"
+                    className="w-full h-full"
+                    title={document.name}
+                  />
+                </div>
+                <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
+                  If PDF doesn't display, <button onClick={handleDownload} className="text-blue-600 hover:underline">download it here</button>
+                </div>
+              </div>
             )}
 
             {isImageFile() && (
-              <div className="h-full flex items-center justify-center p-8">
-                <img
-                  src={documentUrl}
-                  alt={document.name}
-                  className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-                  onLoad={() => console.log('Image loaded successfully')}
-                  onError={(e) => {
-                    console.error('Image load error:', e);
-                    setError('Failed to load image');
-                  }}
-                />
+              <div className="h-full flex flex-col">
+                <div className="flex-1 flex items-center justify-center p-8 overflow-auto bg-gray-50">
+                  <img
+                    src={documentUrl}
+                    alt={document.name}
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
+                    onLoad={() => console.log('Image loaded successfully')}
+                    onError={(e) => {
+                      console.error('Image load error:', e);
+                      setError(`Failed to load image. URL: ${documentUrl}`);
+                    }}
+                  />
+                </div>
               </div>
             )}
 
             {isOfficeFile() && (
-              <iframe
-                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(documentUrl)}`}
-                className="w-full h-full border-0"
-                title={document.name}
-                onLoad={() => console.log('Office document loaded successfully')}
-                onError={(e) => {
-                  console.error('Office document load error:', e);
-                  setError('Failed to load Office document. You can download it to view.');
-                }}
-              />
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center max-w-md">
+                  <FileText className="h-20 w-20 text-blue-500 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{document.name}</h3>
+                  <p className="text-gray-600 mb-4">
+                    {isWordFile() && 'Microsoft Word Document'}
+                    {isExcelFile() && 'Microsoft Excel Spreadsheet'}
+                    {isPowerPointFile() && 'Microsoft PowerPoint Presentation'}
+                  </p>
+                  <p className="text-sm text-gray-500 mb-6">
+                    Office documents cannot be previewed directly in the browser. Download the file to view it in Microsoft Office, Google Docs, or a compatible application.
+                  </p>
+                  <button
+                    onClick={handleDownload}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors inline-flex items-center space-x-2"
+                  >
+                    <Download className="h-5 w-5" />
+                    <span>Download Document</span>
+                  </button>
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p className="text-xs text-blue-800">
+                      <strong>Direct URL:</strong>
+                    </p>
+                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline break-all">
+                      {documentUrl}
+                    </a>
+                  </div>
+                </div>
+              </div>
             )}
 
             {isTextFile() && (
