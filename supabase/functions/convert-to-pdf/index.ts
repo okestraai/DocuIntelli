@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,61 +28,23 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log("Converting document to PDF:", filePath);
+    console.log("Converting document to HTML:", filePath);
 
-    // Use CloudConvert API for conversion
-    const cloudConvertApiKey = Deno.env.get("CLOUDCONVERT_API_KEY");
-
-    if (!cloudConvertApiKey) {
-      console.error("CloudConvert API key not configured");
-      return new Response(
-        JSON.stringify({ error: "Conversion service not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    // Get Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
-    // Get the file from storage
-    const fileUrl = `${supabaseUrl}/storage/v1/object/public/documents/${filePath}`;
-    console.log("Fetching file from:", fileUrl);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Create CloudConvert job
-    const jobResponse = await fetch("https://api.cloudconvert.com/v2/jobs", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${cloudConvertApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        tasks: {
-          "import-file": {
-            operation: "import/url",
-            url: fileUrl,
-          },
-          "convert-file": {
-            operation: "convert",
-            input: "import-file",
-            output_format: "pdf",
-          },
-          "export-file": {
-            operation: "export/url",
-            input: "convert-file",
-          },
-        },
-      }),
-    });
+    // Download the file from storage
+    const { data: fileData, error: downloadError } = await supabase
+      .storage
+      .from('documents')
+      .download(filePath);
 
-    if (!jobResponse.ok) {
-      const errorText = await jobResponse.text();
-      console.error("CloudConvert job creation failed:", errorText);
+    if (downloadError || !fileData) {
+      console.error('Error downloading file:', downloadError);
       return new Response(
-        JSON.stringify({ error: "Failed to create conversion job" }),
+        JSON.stringify({ error: "Failed to download file from storage" }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -89,73 +52,92 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const jobData = await jobResponse.json();
-    const jobId = jobData.data.id;
-    console.log("CloudConvert job created:", jobId);
+    console.log('File downloaded, size:', fileData.size);
 
-    // Poll for job completion (max 30 seconds)
-    let attempts = 0;
-    const maxAttempts = 30;
-    let jobStatus = jobData.data.status;
-    let exportTask = null;
-
-    while (attempts < maxAttempts && jobStatus !== "finished" && jobStatus !== "error") {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const statusResponse = await fetch(`https://api.cloudconvert.com/v2/jobs/${jobId}`, {
-        headers: {
-          "Authorization": `Bearer ${cloudConvertApiKey}`,
-        },
-      });
-
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        jobStatus = statusData.data.status;
-        
-        if (jobStatus === "finished") {
-          exportTask = statusData.data.tasks.find((t: any) => t.operation === "export/url");
-          break;
-        }
-      }
-      
-      attempts++;
+    // Convert DOCX to HTML using mammoth via npm
+    const mammoth = await import('npm:mammoth@1.8.0');
+    
+    // Convert blob to array buffer then to Uint8Array
+    const arrayBuffer = await fileData.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    console.log('Buffer created, length:', buffer.length);
+    
+    // Convert to HTML with buffer
+    const result = await mammoth.convertToHtml({ buffer });
+    const html = result.value;
+    const messages = result.messages;
+    
+    if (messages.length > 0) {
+      console.log('Conversion messages:', messages);
     }
 
-    if (jobStatus !== "finished" || !exportTask || !exportTask.result?.files?.[0]?.url) {
-      console.error("Conversion failed or timed out. Status:", jobStatus);
-      return new Response(
-        JSON.stringify({ error: "Conversion failed or timed out" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    console.log('Converted to HTML, length:', html.length);
+
+    // Return HTML that can be rendered or converted client-side
+    const styledHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: 'Calibri', 'Arial', sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      color: #333;
     }
-
-    const pdfUrl = exportTask.result.files[0].url;
-    console.log("PDF converted successfully:", pdfUrl);
-
-    // Fetch the converted PDF
-    const pdfResponse = await fetch(pdfUrl);
-    if (!pdfResponse.ok) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch converted PDF" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    p {
+      margin: 12px 0;
     }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 24px;
+      margin-bottom: 16px;
+      font-weight: bold;
+    }
+    h1 { font-size: 2em; }
+    h2 { font-size: 1.5em; }
+    h3 { font-size: 1.17em; }
+    ul, ol {
+      margin: 12px 0;
+      padding-left: 40px;
+    }
+    li {
+      margin: 6px 0;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 12px 0;
+    }
+    td, th {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>
+`;
 
-    const pdfBlob = await pdfResponse.arrayBuffer();
-
-    // Return the PDF directly
-    return new Response(pdfBlob, {
+    return new Response(styledHtml, {
       status: 200,
       headers: {
         ...corsHeaders,
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="converted.pdf"`,
+        "Content-Type": "text/html",
       },
     });
 
