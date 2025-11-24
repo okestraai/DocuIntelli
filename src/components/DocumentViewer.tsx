@@ -14,6 +14,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -91,23 +92,70 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
       setDocumentUrl(fetchUrl);
 
-      // Fetch the file as a blob and create an object URL
-      console.log('Fetching document as blob...');
-      const response = await fetch(fetchUrl);
+      // Check if this is a Word document that needs conversion
+      const isWordDoc = document.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                        document.type === 'application/msword' ||
+                        document.name.toLowerCase().endsWith('.docx') ||
+                        document.name.toLowerCase().endsWith('.doc');
 
-      if (!response.ok) {
-        console.error('Fetch failed:', response.status, response.statusText);
-        throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
+      if (isWordDoc) {
+        console.log('Word document detected, converting to PDF...');
+        setIsConverting(true);
+
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            throw new Error('Not authenticated');
+          }
+
+          const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-pdf`;
+
+          const conversionResponse = await fetch(conversionUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ filePath }),
+          });
+
+          if (!conversionResponse.ok) {
+            const errorData = await conversionResponse.json().catch(() => ({}));
+            console.error('Conversion failed:', errorData);
+            throw new Error(errorData.error || 'Failed to convert document to PDF');
+          }
+
+          const pdfBlob = await conversionResponse.blob();
+          console.log('PDF conversion complete, size:', pdfBlob.size);
+
+          const objectURL = URL.createObjectURL(pdfBlob);
+          console.log('Object URL created from converted PDF:', objectURL);
+          setBlobUrl(objectURL);
+        } catch (conversionError) {
+          console.error('Conversion error:', conversionError);
+          throw new Error(conversionError instanceof Error ? conversionError.message : 'Failed to convert document');
+        } finally {
+          setIsConverting(false);
+        }
+      } else {
+        // Fetch the file as a blob and create an object URL for non-Word docs
+        console.log('Fetching document as blob...');
+        const response = await fetch(fetchUrl);
+
+        if (!response.ok) {
+          console.error('Fetch failed:', response.status, response.statusText);
+          throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        console.log('Blob created, size:', blob.size, 'type:', blob.type);
+
+        const objectURL = URL.createObjectURL(blob);
+        console.log('Object URL created:', objectURL);
+        setBlobUrl(objectURL);
       }
 
-      const blob = await response.blob();
-      console.log('Blob created, size:', blob.size, 'type:', blob.type);
-
-      const objectURL = URL.createObjectURL(blob);
-      console.log('Object URL created:', objectURL);
       console.log('=== END DEBUG ===');
-
-      setBlobUrl(objectURL);
     } catch (err) {
       console.error('Error loading document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -276,11 +324,16 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
       {/* Document Viewer */}
       <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {isLoading && (
+        {(isLoading || isConverting) && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto mb-4" />
-              <p className="text-gray-600">Loading document...</p>
+              <p className="text-gray-600">
+                {isConverting ? 'Converting document to PDF...' : 'Loading document...'}
+              </p>
+              {isConverting && (
+                <p className="text-sm text-gray-500 mt-2">This may take a few moments</p>
+              )}
             </div>
           </div>
         )}
