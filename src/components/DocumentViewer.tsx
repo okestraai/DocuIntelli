@@ -15,6 +15,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const [isConvertedDoc, setIsConvertedDoc] = useState(false);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -99,7 +100,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                         document.name.toLowerCase().endsWith('.doc');
 
       if (isWordDoc) {
-        console.log('Word document detected, converting to PDF...');
+        console.log('Word document detected, converting to HTML...');
         setIsConverting(true);
 
         try {
@@ -122,15 +123,18 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           if (!conversionResponse.ok) {
             const errorData = await conversionResponse.json().catch(() => ({}));
             console.error('Conversion failed:', errorData);
-            throw new Error(errorData.error || 'Failed to convert document to PDF');
+            throw new Error(errorData.error || 'Failed to convert document');
           }
 
-          const pdfBlob = await conversionResponse.blob();
-          console.log('PDF conversion complete, size:', pdfBlob.size);
+          const htmlContent = await conversionResponse.text();
+          console.log('HTML conversion complete, length:', htmlContent.length);
 
-          const objectURL = URL.createObjectURL(pdfBlob);
-          console.log('Object URL created from converted PDF:', objectURL);
+          // Create a blob URL from the HTML content
+          const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+          const objectURL = URL.createObjectURL(htmlBlob);
+          console.log('Object URL created from converted HTML:', objectURL);
           setBlobUrl(objectURL);
+          setIsConvertedDoc(true);
         } catch (conversionError) {
           console.error('Conversion error:', conversionError);
           throw new Error(conversionError instanceof Error ? conversionError.message : 'Failed to convert document');
@@ -329,7 +333,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
             <div className="text-center">
               <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto mb-4" />
               <p className="text-gray-600">
-                {isConverting ? 'Converting document to PDF...' : 'Loading document...'}
+                {isConverting ? 'Converting Word document...' : 'Loading document...'}
               </p>
               {isConverting && (
                 <p className="text-sm text-gray-500 mt-2">This may take a few moments</p>
@@ -389,7 +393,28 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
               </div>
             )}
 
-            {isOfficeFile() && (
+            {isConvertedDoc && (
+              <div className="h-full flex flex-col">
+                <div className="flex-1 overflow-auto">
+                  <iframe
+                    src={blobUrl}
+                    className="w-full h-full border-0"
+                    title={document.name}
+                    sandbox="allow-same-origin"
+                    onLoad={() => console.log('Converted document loaded successfully')}
+                    onError={(e) => {
+                      console.error('Converted document load error:', e);
+                      setError('Failed to load converted document');
+                    }}
+                  />
+                </div>
+                <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
+                  Document converted and displayed • <button onClick={handleDownload} className="text-blue-600 hover:underline">Download original</button>
+                </div>
+              </div>
+            )}
+
+            {isOfficeFile() && !isConvertedDoc && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center max-w-md">
                   <FileText className="h-20 w-20 text-blue-500 mx-auto mb-4" />
