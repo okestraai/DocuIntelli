@@ -117,16 +117,19 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   }, [document]);
 
   useEffect(() => {
+    console.log('DocumentViewer mounted or document changed');
     loadDocument();
+  }, [loadDocument]);
 
-    // Cleanup: revoke object URL when component unmounts or document changes
+  // Separate effect for cleanup
+  useEffect(() => {
     return () => {
       if (blobUrl) {
         console.log('Revoking object URL:', blobUrl);
         URL.revokeObjectURL(blobUrl);
       }
     };
-  }, [loadDocument, blobUrl]);
+  }, [blobUrl]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment
