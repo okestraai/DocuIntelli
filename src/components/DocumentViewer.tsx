@@ -11,6 +11,7 @@ interface DocumentViewerProps {
 
 export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const feedback = useFeedback();
@@ -48,7 +49,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           .eq('id', document.id)
           .single();
 
-        if (docError || !docData) {
+        if (docError || !docData?.file_path) {
           console.error('Error getting document file_path:', docError);
           throw new Error('Failed to get document file path');
         }
@@ -57,16 +58,42 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         console.log('Single file document, using file_path:', filePath);
       }
 
-      // Create static storage URL
-      const storageUrl = `https://caygpjhiakabaxtklnlw.supabase.co/storage/v1/object/public/documents/${filePath}`;
       console.log('=== DOCUMENT VIEWER DEBUG ===');
       console.log('Document ID:', document.id);
       console.log('Document Name:', document.name);
       console.log('Document Type (MIME):', document.type);
       console.log('File Path:', filePath);
-      console.log('Complete Storage URL:', storageUrl);
+
+      // Create a signed URL (valid for 60 seconds)
+      const { data: signedUrlData, error: signedUrlError } = await supabase
+        .storage
+        .from('documents')
+        .createSignedUrl(filePath, 3600); // 1 hour expiry
+
+      if (signedUrlError || !signedUrlData) {
+        console.error('Error creating signed URL:', signedUrlError);
+        throw new Error('Failed to create signed URL for document');
+      }
+
+      console.log('Signed URL created:', signedUrlData.signedUrl);
+      setDocumentUrl(signedUrlData.signedUrl);
+
+      // Fetch the file as a blob and create an object URL
+      console.log('Fetching document as blob...');
+      const response = await fetch(signedUrlData.signedUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      console.log('Blob created, size:', blob.size, 'type:', blob.type);
+
+      const objectURL = URL.createObjectURL(blob);
+      console.log('Object URL created:', objectURL);
       console.log('=== END DEBUG ===');
-      setDocumentUrl(storageUrl);
+
+      setBlobUrl(objectURL);
     } catch (err) {
       console.error('Error loading document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -77,7 +104,15 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
   useEffect(() => {
     loadDocument();
-  }, [loadDocument]);
+
+    // Cleanup: revoke object URL when component unmounts or document changes
+    return () => {
+      if (blobUrl) {
+        console.log('Revoking object URL:', blobUrl);
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [loadDocument, blobUrl]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment
@@ -86,37 +121,45 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       return;
     }
 
-    if (!documentUrl) {
-      feedback.showError('Download failed', 'Document URL not available');
+    if (!blobUrl && !documentUrl) {
+      feedback.showError('Download failed', 'Document not available');
       return;
     }
 
     try {
       const loadingToastId = feedback.showLoading('Downloading document...', 'Please wait while we prepare your download');
 
-      // Fetch the file from the static URL
-      const response = await fetch(documentUrl);
-      if (!response.ok) {
-        throw new Error('Failed to fetch document for download');
+      // Use the blob URL if available, otherwise fetch from signed URL
+      let downloadUrl = blobUrl;
+
+      if (!downloadUrl && documentUrl) {
+        // Fetch the file from the signed URL
+        const response = await fetch(documentUrl);
+        if (!response.ok) {
+          throw new Error('Failed to fetch document for download');
+        }
+        const blob = await response.blob();
+        downloadUrl = URL.createObjectURL(blob);
       }
 
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
+      if (!downloadUrl) {
+        throw new Error('No download URL available');
+      }
 
-      try {
-        // Create download link using blob URL
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = document.name;
-        link.style.display = 'none';
+      // Create download link
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = document.name;
+      link.style.display = 'none';
 
-        // Add to DOM, click, and remove
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } finally {
-        // Always revoke the object URL to free memory
-        URL.revokeObjectURL(objectUrl);
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Only revoke if we created a new URL (not the existing blobUrl)
+      if (downloadUrl !== blobUrl) {
+        URL.revokeObjectURL(downloadUrl);
       }
 
       feedback.removeToast(loadingToastId);
@@ -206,7 +249,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
         <button
           onClick={handleDownload}
-          disabled={!documentUrl}
+          disabled={!blobUrl && !documentUrl}
           className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
         >
           <Download className="h-4 w-4" />
@@ -241,20 +284,20 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           </div>
         )}
 
-        {documentUrl && !isLoading && !error && (
+        {blobUrl && !isLoading && !error && (
           <div className="h-full">
             {isPDFFile() && (
               <div className="h-full flex flex-col">
                 <div className="flex-1 overflow-auto">
                   <embed
-                    src={`${documentUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+                    src={blobUrl}
                     type="application/pdf"
                     className="w-full h-full"
                     title={document.name}
                   />
                 </div>
                 <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
-                  If PDF doesn't display, <button onClick={handleDownload} className="text-blue-600 hover:underline">download it here</button>
+                  PDF loaded successfully • <button onClick={handleDownload} className="text-blue-600 hover:underline">Download</button>
                 </div>
               </div>
             )}
@@ -263,13 +306,13 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
               <div className="h-full flex flex-col">
                 <div className="flex-1 flex items-center justify-center p-8 overflow-auto bg-gray-50">
                   <img
-                    src={documentUrl}
+                    src={blobUrl}
                     alt={document.name}
                     className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-                    onLoad={() => console.log('Image loaded successfully')}
+                    onLoad={() => console.log('Image loaded successfully from blob URL')}
                     onError={(e) => {
                       console.error('Image load error:', e);
-                      setError(`Failed to load image. URL: ${documentUrl}`);
+                      setError('Failed to load image from blob');
                     }}
                   />
                 </div>
@@ -310,10 +353,10 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
             {isTextFile() && (
               <iframe
-                src={documentUrl}
+                src={blobUrl}
                 className="w-full h-full border-0 bg-white p-4"
                 title={document.name}
-                onLoad={() => console.log('Text file loaded successfully')}
+                onLoad={() => console.log('Text file loaded successfully from blob URL')}
                 onError={(e) => {
                   console.error('Text file load error:', e);
                   setError('Failed to load text file');
