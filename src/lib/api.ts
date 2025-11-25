@@ -90,40 +90,6 @@ export async function uploadDocumentWithMetadata(
 }
 
 /**
- * Search user documents (delegates to backend Supabase query)
- */
-export async function searchDocuments(query: string) {
-  const res = await fetch(`http://localhost:5000/api/documents/search?q=${encodeURIComponent(query)}`, {
-    headers: {
-      Authorization: `Bearer ${import.meta.env.VITE_APP_UPLOAD_KEY}`,
-    },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to search documents: ${res.status}`);
-  }
-
-  return res.json();
-}
-
-/**
- * Get presigned download URL for a document
- */
-export async function getDocumentDownloadUrl(documentId: string) {
-  const res = await fetch(`http://localhost:5000/api/documents/${documentId}/download`, {
-    headers: {
-      Authorization: `Bearer ${import.meta.env.VITE_APP_UPLOAD_KEY}`,
-    },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to get download URL: ${res.status}`);
-  }
-
-  return res.json();
-}
-
-/**
  * Chat with a document using AI
  */
 export async function chatWithDocument(
