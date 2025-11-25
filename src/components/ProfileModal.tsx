@@ -457,7 +457,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                         <button
                           onClick={handleChangePassword}
                           disabled={isUpdating}
-                          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+                          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none flex items-center space-x-2"
                         >
                           {isUpdating ? (
                             <>
