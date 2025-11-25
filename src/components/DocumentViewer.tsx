@@ -30,6 +30,10 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [highlightedChunkId, setHighlightedChunkId] = useState<string | null>(null);
   const [documentChunks, setDocumentChunks] = useState<Array<{id: string, chunk_text: string, chunk_index: number}>>([]);
   const [showTextView, setShowTextView] = useState(false);
+  const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
+  const [showHtmlView, setShowHtmlView] = useState(false);
+  const [htmlBlobUrl, setHtmlBlobUrl] = useState<string | null>(null);
+  const [isLoadingHtml, setIsLoadingHtml] = useState(false);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -107,71 +111,21 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
       setDocumentUrl(fetchUrl);
 
-      // Check if this is a Word document that needs conversion
-      const isWordDoc = document.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-                        document.type === 'application/msword' ||
-                        document.name.toLowerCase().endsWith('.docx') ||
-                        document.name.toLowerCase().endsWith('.doc');
+      // Fetch the file as a blob and create an object URL
+      console.log('Fetching document as blob...');
+      const response = await fetch(fetchUrl);
 
-      if (isWordDoc) {
-        console.log('Word document detected, converting to HTML...');
-        setIsConverting(true);
-
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) {
-            throw new Error('Not authenticated');
-          }
-
-          const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-pdf`;
-
-          const conversionResponse = await fetch(conversionUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ filePath }),
-          });
-
-          if (!conversionResponse.ok) {
-            const errorData = await conversionResponse.json().catch(() => ({}));
-            console.error('Conversion failed:', errorData);
-            throw new Error(errorData.error || 'Failed to convert document');
-          }
-
-          const htmlContent = await conversionResponse.text();
-          console.log('HTML conversion complete, length:', htmlContent.length);
-
-          // Create a blob URL from the HTML content
-          const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
-          const objectURL = URL.createObjectURL(htmlBlob);
-          console.log('Object URL created from converted HTML:', objectURL);
-          setBlobUrl(objectURL);
-          setIsConvertedDoc(true);
-        } catch (conversionError) {
-          console.error('Conversion error:', conversionError);
-          throw new Error(conversionError instanceof Error ? conversionError.message : 'Failed to convert document');
-        } finally {
-          setIsConverting(false);
-        }
-      } else {
-        // Fetch the file as a blob and create an object URL for non-Word docs
-        console.log('Fetching document as blob...');
-        const response = await fetch(fetchUrl);
-
-        if (!response.ok) {
-          console.error('Fetch failed:', response.status, response.statusText);
-          throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        console.log('Blob created, size:', blob.size, 'type:', blob.type);
-
-        const objectURL = URL.createObjectURL(blob);
-        console.log('Object URL created:', objectURL);
-        setBlobUrl(objectURL);
+      if (!response.ok) {
+        console.error('Fetch failed:', response.status, response.statusText);
+        throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
       }
+
+      const blob = await response.blob();
+      console.log('Blob created, size:', blob.size, 'type:', blob.type);
+
+      const objectURL = URL.createObjectURL(blob);
+      console.log('Object URL created:', objectURL);
+      setBlobUrl(objectURL);
 
       console.log('=== END DEBUG ===');
     } catch (err) {
@@ -196,6 +150,78 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       }
     };
   }, [blobUrl]);
+
+  const loadHtmlVersion = async () => {
+    if (htmlBlobUrl) {
+      // Already loaded
+      setShowHtmlView(true);
+      return;
+    }
+
+    setIsLoadingHtml(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Get file path
+      const { data: files, error: filesError } = await supabase
+        .from('document_files')
+        .select('file_path')
+        .eq('document_id', document.id)
+        .order('file_order', { ascending: true })
+        .limit(1);
+
+      let filePath: string;
+      if (files && files.length > 0) {
+        filePath = files[0].file_path;
+      } else {
+        const { data: docData, error: docError } = await supabase
+          .from('documents')
+          .select('file_path')
+          .eq('id', document.id)
+          .single();
+
+        if (docError || !docData?.file_path) {
+          throw new Error('Failed to get document file path');
+        }
+        filePath = docData.file_path;
+      }
+
+      const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-html`;
+
+      const conversionResponse = await fetch(conversionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filePath,
+          documentId: document.id
+        }),
+      });
+
+      if (!conversionResponse.ok) {
+        const errorData = await conversionResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to convert document');
+      }
+
+      const htmlContent = await conversionResponse.text();
+      const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+      const objectURL = URL.createObjectURL(htmlBlob);
+
+      setHtmlBlobUrl(objectURL);
+      setShowHtmlView(true);
+      feedback.showSuccess('HTML View Ready', 'Document converted for highlighting');
+    } catch (error) {
+      console.error('HTML conversion error:', error);
+      feedback.showError('Conversion failed', error instanceof Error ? error.message : 'Failed to convert to HTML');
+    } finally {
+      setIsLoadingHtml(false);
+    }
+  };
 
   const loadDocumentChunks = useCallback(async () => {
     try {
@@ -430,6 +456,34 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           </div>
 
           <div className="flex items-center gap-3">
+            {documentChunks.length > 0 && !showHtmlView && (
+              <button
+                onClick={loadHtmlVersion}
+                disabled={isLoadingHtml}
+                className="flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+              >
+                {isLoadingHtml ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Converting...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="h-4 w-4" />
+                    <span>HTML View</span>
+                  </>
+                )}
+              </button>
+            )}
+            {showHtmlView && (
+              <button
+                onClick={() => setShowHtmlView(false)}
+                className="flex items-center space-x-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md"
+              >
+                <FileText className="h-4 w-4" />
+                <span>PDF View</span>
+              </button>
+            )}
             {documentChunks.length > 0 && (
               <button
                 onClick={() => setShowTextView(true)}
@@ -581,7 +635,39 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
         {blobUrl && !isLoading && !error && (
           <div className="h-full">
-            {isPDFFile() && (
+            {showHtmlView && htmlBlobUrl ? (
+              <div className="h-full flex flex-col">
+                <div className="flex-1 overflow-auto">
+                  <iframe
+                    ref={(ref) => setIframeRef(ref)}
+                    src={htmlBlobUrl}
+                    className="w-full h-full border-0"
+                    title={`${document.name} (HTML View)`}
+                    sandbox="allow-same-origin allow-scripts"
+                    onLoad={() => {
+                      console.log('HTML view loaded successfully');
+                      if (searchResults.length > 0 && iframeRef && iframeRef.contentWindow) {
+                        const matchIds = searchResults.map(r => r.chunk_id);
+                        iframeRef.contentWindow.postMessage({
+                          type: 'highlight',
+                          currentId: highlightedChunkId,
+                          matchIds: matchIds
+                        }, '*');
+                      }
+                    }}
+                    onError={(e) => {
+                      console.error('HTML view load error:', e);
+                      setError('Failed to load HTML view');
+                    }}
+                  />
+                </div>
+                <div className="p-2 bg-blue-50 border-t text-center text-xs text-blue-900 flex items-center justify-center gap-2">
+                  <span className="font-medium">HTML View - Highlighting Enabled</span>
+                  <span>•</span>
+                  <span>Search results will be highlighted in this view</span>
+                </div>
+              </div>
+            ) : isPDFFile() ? (
               <div className="h-full flex flex-col">
                 <div className="flex-1 overflow-auto">
                   <embed
@@ -591,13 +677,17 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                     title={document.name}
                   />
                 </div>
-                <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
-                  PDF loaded successfully • <button onClick={handleDownload} className="text-emerald-600 hover:text-emerald-700 hover:underline">Download</button>
+                <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600 flex items-center justify-center gap-2">
+                  <span>PDF View</span>
+                  <span>•</span>
+                  <span>Click "HTML View" to enable semantic highlighting</span>
+                  <span>•</span>
+                  <button onClick={handleDownload} className="text-emerald-600 hover:text-emerald-700 hover:underline font-medium">
+                    Download
+                  </button>
                 </div>
               </div>
-            )}
-
-            {isImageFile() && (
+            ) : isImageFile() ? (
               <div className="h-full flex flex-col">
                 <div className="flex-1 flex items-center justify-center p-8 overflow-auto bg-gray-50">
                   <img
@@ -612,88 +702,17 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                   />
                 </div>
               </div>
-            )}
-
-            {isConvertedDoc && (
-              <div className="h-full flex flex-col">
-                <div className="flex-1 overflow-auto">
-                  <iframe
-                    src={blobUrl}
-                    className="w-full h-full border-0"
-                    title={document.name}
-                    sandbox="allow-same-origin"
-                    onLoad={() => console.log('Converted document loaded successfully')}
-                    onError={(e) => {
-                      console.error('Converted document load error:', e);
-                      setError('Failed to load converted document');
-                    }}
-                  />
-                </div>
-                <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
-                  Document converted and displayed • <button onClick={handleDownload} className="text-emerald-600 hover:text-emerald-700 hover:underline">Download original</button>
-                </div>
-              </div>
-            )}
-
-            {isOfficeFile() && !isConvertedDoc && (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center max-w-md">
-                  <FileText className="h-20 w-20 text-blue-500 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{document.name}</h3>
-                  <p className="text-gray-600 mb-4">
-                    {isWordFile() && 'Microsoft Word Document'}
-                    {isExcelFile() && 'Microsoft Excel Spreadsheet'}
-                    {isPowerPointFile() && 'Microsoft PowerPoint Presentation'}
-                  </p>
-                  <p className="text-sm text-gray-500 mb-6">
-                    Office documents cannot be previewed directly in the browser. Download the file to view it in Microsoft Office, Google Docs, or a compatible application.
-                  </p>
-                  <button
-                    onClick={handleDownload}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors inline-flex items-center space-x-2"
-                  >
-                    <Download className="h-5 w-5" />
-                    <span>Download Document</span>
-                  </button>
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-800">
-                      <strong>Direct URL:</strong>
-                    </p>
-                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-600 hover:text-emerald-700 hover:underline break-all">
-                      {documentUrl}
-                    </a>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {isTextFile() && (
-              <iframe
-                src={blobUrl}
-                className="w-full h-full border-0 bg-white p-4"
-                title={document.name}
-                onLoad={() => console.log('Text file loaded successfully from blob URL')}
-                onError={(e) => {
-                  console.error('Text file load error:', e);
-                  setError('Failed to load text file');
-                }}
-              />
-            )}
-
-            {!isPDFFile() && !isImageFile() && !isOfficeFile() && !isTextFile() && (
+            ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Preview not available</h3>
                   <p className="text-gray-600 mb-4">
-                    This file type ({document.type || 'Unknown'}) cannot be previewed in the browser.
-                  </p>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Supported preview formats: PDF, Images (JPG, PNG, GIF, WebP, BMP, SVG), Office Documents (Word, Excel, PowerPoint), Text files
+                    This file type cannot be previewed. Use HTML View for text-based documents.
                   </p>
                   <button
                     onClick={handleDownload}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center space-x-2"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center space-x-2"
                   >
                     <Download className="h-4 w-4" />
                     <span>Download to View</span>
