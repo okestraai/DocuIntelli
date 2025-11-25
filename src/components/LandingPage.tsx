@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scale, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRight, CheckCircle, Sparkles, Shield } from 'lucide-react';
+import { ShieldCheck, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRight, CheckCircle, Sparkles, Shield } from 'lucide-react';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -17,7 +17,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
           <div className="text-center">
             <div className="flex justify-center mb-6 sm:mb-8">
               <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-4 sm:p-5 rounded-2xl shadow-lg">
-                <Scale className="h-10 w-10 sm:h-12 sm:w-12 text-white" strokeWidth={2.5} />
+                <ShieldCheck className="h-10 w-10 sm:h-12 sm:w-12 text-white" strokeWidth={2.5} />
               </div>
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 mb-4 sm:mb-6 tracking-tight px-4">

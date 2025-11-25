@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { X, Scale, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { X, ShieldCheck, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { signUp, signIn, resetPassword } from '../lib/supabase';
 
 interface AuthModalProps {
@@ -76,7 +76,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
         <div className="text-center mb-6 sm:mb-8">
           <div className="bg-gradient-to-br from-emerald-600 to-teal-600 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Scale className="h-7 w-7 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
+            <ShieldCheck className="h-7 w-7 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2 tracking-tight">
             {isForgotPassword ? 'Reset Password' : isLogin ? 'Welcome Back' : 'Create Account'}
@@ -223,7 +223,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
         {!isLogin && (
           <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
             <div className="flex items-start gap-2">
-              <Scale className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600 flex-shrink-0 mt-0.5" strokeWidth={2} />
+              <ShieldCheck className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600 flex-shrink-0 mt-0.5" strokeWidth={2} />
               <div>
                 <p className="text-xs sm:text-sm font-medium text-emerald-900">Your privacy is protected</p>
                 <p className="text-xs sm:text-sm text-emerald-700 mt-1">

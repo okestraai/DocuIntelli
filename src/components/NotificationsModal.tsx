@@ -57,8 +57,8 @@ export function NotificationsModal({ isOpen, onClose, expiringDocuments, onSendN
       <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <Bell className="h-6 w-6 text-blue-600" />
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-2 rounded-lg">
+              <Bell className="h-6 w-6 text-emerald-600" strokeWidth={2} />
             </div>
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Notifications</h2>
@@ -142,10 +142,10 @@ export function NotificationsModal({ isOpen, onClose, expiringDocuments, onSendN
               <button
                 onClick={handleSendEmail}
                 disabled={isSending || emailSent}
-                className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg font-medium transition-colors ${
+                className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg font-medium transition-all shadow-md ${
                   emailSent
                     ? 'bg-green-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-400'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none'
                 }`}
               >
                 {isSending ? (

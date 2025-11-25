@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scale, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
+import { ShieldCheck, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -24,7 +24,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
         <div className="flex items-center justify-between h-16 sm:h-20">
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <div className="flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-600 p-2.5 sm:p-3 rounded-xl shadow-md">
-              <Scale className="h-6 w-6 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
+              <ShieldCheck className="h-6 w-6 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
             </div>
             <span className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight truncate">DocuVault AI</span>
           </div>
