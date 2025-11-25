@@ -26,7 +26,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
             <div className="flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-600 p-2 sm:p-2.5 rounded-lg shadow-sm">
               <Scale className="h-5 w-5 sm:h-6 sm:w-6 text-white" strokeWidth={2.5} />
             </div>
-            <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight truncate">LegalEase</span>
+            <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight truncate">DocuVault AI</span>
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2">

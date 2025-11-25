@@ -86,7 +86,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
               ? 'Enter your email to receive a password reset link'
               : isLogin
               ? 'Sign in to access your secure document vault'
-              : 'Join thousands who trust LegalEase with their documents'
+              : 'Join thousands who trust DocuVault AI with their documents'
             }
           </p>
         </div>

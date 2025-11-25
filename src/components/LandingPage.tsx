@@ -21,7 +21,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
               </div>
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 mb-4 sm:mb-6 tracking-tight px-4">
-              Legal<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">Ease</span>
+              DocuVault <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">AI</span>
             </h1>
             <p className="text-lg sm:text-xl lg:text-2xl text-slate-600 mb-3 sm:mb-4 max-w-3xl mx-auto leading-relaxed px-4">
               Your intelligent legal document companion
@@ -54,7 +54,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
               Everything you need to manage<br className="hidden sm:inline" /> legal documents
             </h2>
             <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto">
-              From warranties to insurance policies, LegalEase makes complex legal documents simple and actionable
+              From warranties to insurance policies, DocuVault AI makes complex legal documents simple and actionable
             </p>
           </div>
 
@@ -136,7 +136,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
               Perfect for all your<br className="sm:hidden" /> important documents
             </h2>
             <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto">
-              Whether it's warranties, insurance, leases, or contracts - LegalEase helps you stay organized and informed
+              Whether it's warranties, insurance, leases, or contracts - DocuVault AI helps you stay organized and informed
             </p>
           </div>
 
@@ -197,7 +197,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
                     <p className="text-slate-900 text-sm sm:text-base font-medium">"What is my car insurance deductible?"</p>
                   </div>
                   <div className="bg-emerald-50 p-3 sm:p-4 rounded-lg border border-emerald-200">
-                    <p className="text-xs sm:text-sm text-emerald-700 mb-1.5 font-medium">LegalEase answered:</p>
+                    <p className="text-xs sm:text-sm text-emerald-700 mb-1.5 font-medium">DocuVault AI answered:</p>
                     <p className="text-slate-900 text-sm sm:text-base">Your collision deductible is $500 and comprehensive deductible is $250, as stated in Section 3.2 of your policy.</p>
                   </div>
                 </div>
@@ -216,7 +216,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
             Ready to simplify your<br className="sm:hidden" /> legal documents?
           </h2>
           <p className="text-lg sm:text-xl text-emerald-50 mb-8 sm:mb-10">
-            Join thousands who trust LegalEase to keep their important documents organized and accessible
+            Join thousands who trust DocuVault AI to keep their important documents organized and accessible
           </p>
           <button
             onClick={onGetStarted}

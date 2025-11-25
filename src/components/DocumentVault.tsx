@@ -83,49 +83,49 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Document Vault</h1>
-        <p className="text-gray-600">Securely store and organize all your legal and financial documents.</p>
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2 tracking-tight">Document Vault</h1>
+        <p className="text-sm sm:text-base text-slate-600">Securely store and organize all your legal and financial documents.</p>
       </div>
 
       {/* Upload Area */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-8 mb-8 text-center">
-        <div className="bg-blue-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Plus className="h-8 w-8 text-blue-600" />
+      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl sm:rounded-2xl p-6 sm:p-8 mb-6 sm:mb-8 text-center">
+        <div className="bg-gradient-to-br from-emerald-600 to-teal-600 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <Plus className="h-7 w-7 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Add New Document</h3>
-        <p className="text-gray-600 mb-6 max-w-md mx-auto">
+        <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-2">Add New Document</h3>
+        <p className="text-sm sm:text-base text-slate-600 mb-6 max-w-md mx-auto">
           Upload your legal and financial documents to start organizing and getting AI-powered insights.
         </p>
-        <button 
+        <button
           onClick={() => setShowUploadModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors inline-flex items-center space-x-2"
+          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-medium transition-all inline-flex items-center gap-2 shadow-lg hover:shadow-xl text-sm sm:text-base"
         >
-          <Plus className="h-5 w-5" />
+          <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
           <span>Add Document</span>
         </button>
       </div>
 
       {/* Search and Filter */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <div className="flex flex-col sm:flex-row gap-4">
+      <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 mb-6 sm:mb-8">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4 sm:h-5 sm:w-5" />
             <input
               type="text"
               placeholder="Search documents..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full pl-9 sm:pl-10 pr-4 py-2 sm:py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm sm:text-base transition-all"
             />
           </div>
           <div className="relative">
-            <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+            <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4 sm:h-5 sm:w-5" />
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white"
+              className="pl-9 sm:pl-10 pr-8 py-2 sm:py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 appearance-none bg-white text-sm sm:text-base transition-all w-full sm:w-auto"
             >
               {categories.map(cat => (
                 <option key={cat.value} value={cat.value}>{cat.label}</option>
@@ -136,37 +136,37 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
       </div>
 
       {/* Documents Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredDocuments.map((doc) => (
           <div
             key={doc.id}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden"
+            className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 hover:shadow-lg hover:border-emerald-200 transition-all overflow-hidden"
           >
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="flex items-start justify-between mb-4">
-                <div className="bg-gray-100 w-12 h-12 rounded-lg flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-gray-600" />
+                <div className="bg-gradient-to-br from-slate-50 to-slate-100 w-11 h-11 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center">
+                  <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-slate-600" strokeWidth={2} />
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => onDocumentView(doc)}
-                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                    className="text-slate-400 hover:text-emerald-600 transition-colors p-1 hover:bg-emerald-50 rounded-lg"
                     title="View document"
                   >
-                    <Eye className="h-5 w-5" />
+                    <Eye className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(doc.id)}
-                    className="text-gray-400 hover:text-red-600 transition-colors"
+                    className="text-slate-400 hover:text-red-600 transition-colors p-1 hover:bg-red-50 rounded-lg"
                     title="Delete document"
                   >
-                    <Trash2 className="h-5 w-5" />
+                    <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
                   </button>
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">{doc.name}</h3>
-              <p className="text-sm text-gray-500 mb-3">{doc.type} • {doc.size}</p>
+              <h3 className="font-semibold text-slate-900 mb-2 line-clamp-2 text-sm sm:text-base">{doc.name}</h3>
+              <p className="text-xs sm:text-sm text-slate-500 mb-3">{doc.type} • {doc.size}</p>
 
               <div className="flex items-center justify-between mb-3">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(doc.category)}`}>
@@ -186,7 +186,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
 
               <button
                 onClick={() => onDocumentSelect(doc)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-2 px-4 rounded-lg font-medium transition-all shadow-sm hover:shadow-md text-sm sm:text-base"
               >
                 Chat with Document
               </button>
