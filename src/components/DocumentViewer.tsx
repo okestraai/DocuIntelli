@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2, Search, X } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { supabase } from '../lib/supabase';
+
+interface SearchResult {
+  chunk_id: string;
+  chunk_index: number;
+  chunk_text: string;
+  similarity: number;
+}
 
 interface DocumentViewerProps {
   document: Document;
@@ -16,6 +23,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [isConvertedDoc, setIsConvertedDoc] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [highlightedText, setHighlightedText] = useState<string | null>(null);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -183,6 +195,70 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     };
   }, [blobUrl]);
 
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      feedback.showError('Search error', 'Please enter a search query');
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const searchUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/search-document-chunks`;
+
+      const response = await fetch(searchUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_id: document.id,
+          query: searchQuery,
+          match_threshold: 0.6,
+          match_count: 10,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Search failed');
+      }
+
+      const data = await response.json();
+      setSearchResults(data.results || []);
+      setShowSearchPanel(true);
+
+      if (data.results && data.results.length > 0) {
+        feedback.showSuccess('Search complete', `Found ${data.results.length} matching sections`);
+      } else {
+        feedback.showInfo('No results', 'No matching sections found for your query');
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      feedback.showError('Search failed', error instanceof Error ? error.message : 'Failed to search document');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleHighlight = (text: string) => {
+    setHighlightedText(text);
+    // Scroll to view if possible (implementation depends on document type)
+    feedback.showInfo('Highlighted', 'Section highlighted in document');
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchPanel(false);
+    setHighlightedText(null);
+  };
+
   const handleDownload = async () => {
     // Check if we're in a browser environment
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -295,39 +371,137 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 h-screen flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={onBack}
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <div className="flex items-center space-x-3">
-            <div className="bg-gray-100 w-12 h-12 rounded-lg flex items-center justify-center">
-              {getFileIcon()}
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">{document.name}</h1>
-              <p className="text-sm text-gray-500 capitalize">
-                {document.category} • {document.type} • {document.size}
-              </p>
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={onBack}
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="flex items-center space-x-3">
+              <div className="bg-gray-100 w-12 h-12 rounded-lg flex items-center justify-center">
+                {getFileIcon()}
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">{document.name}</h1>
+                <p className="text-sm text-gray-500 capitalize">
+                  {document.category} • {document.type} • {document.size}
+                </p>
+              </div>
             </div>
           </div>
+
+          <button
+            onClick={handleDownload}
+            disabled={!blobUrl && !documentUrl}
+            className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+          >
+            <Download className="h-4 w-4" />
+            <span>Download</span>
+          </button>
         </div>
 
-        <button
-          onClick={handleDownload}
-          disabled={!blobUrl && !documentUrl}
-          className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
-        >
-          <Download className="h-4 w-4" />
-          <span>Download</span>
-        </button>
+        {/* Search Bar */}
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 flex items-center gap-2 bg-slate-50 rounded-lg px-4 py-2 border border-slate-200 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-200">
+              <Search className="h-5 w-5 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="Semantic search in document..."
+                className="flex-1 bg-transparent outline-none text-slate-900 placeholder-slate-400"
+                disabled={isSearching}
+              />
+              {searchQuery && (
+                <button
+                  onClick={clearSearch}
+                  className="text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleSearch}
+              disabled={isSearching || !searchQuery.trim()}
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+            >
+              {isSearching ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Searching...</span>
+                </>
+              ) : (
+                <>
+                  <Search className="h-4 w-4" />
+                  <span>Search</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Document Viewer */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Document Viewer and Search Results */}
+      <div className="flex-1 flex gap-4 overflow-hidden">
+        {/* Search Results Panel */}
+        {showSearchPanel && (
+          <div className="w-96 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-900">Search Results</h3>
+                <p className="text-sm text-slate-500">{searchResults.length} sections found</p>
+              </div>
+              <button
+                onClick={clearSearch}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {searchResults.map((result, index) => (
+                <div
+                  key={result.chunk_id}
+                  className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                    highlightedText === result.chunk_text
+                      ? 'bg-emerald-50 border-emerald-300 shadow-sm'
+                      : 'bg-slate-50 border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/50'
+                  }`}
+                  onClick={() => handleHighlight(result.chunk_text)}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded">
+                      {(result.similarity * 100).toFixed(0)}% match
+                    </span>
+                    <span className="text-xs text-slate-500">Section {result.chunk_index + 1}</span>
+                  </div>
+                  <p className="text-sm text-slate-700 line-clamp-4">{result.chunk_text}</p>
+                  {highlightedText === result.chunk_text && (
+                    <div className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1">
+                      <div className="w-2 h-2 bg-emerald-600 rounded-full animate-pulse"></div>
+                      Currently highlighted
+                    </div>
+                  )}
+                </div>
+              ))}
+              {searchResults.length === 0 && (
+                <div className="text-center py-8 text-slate-500">
+                  <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">No results found</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Document Viewer */}
+        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {(isLoading || isConverting) && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -482,7 +656,27 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
             )}
           </div>
         )}
+        </div>
       </div>
+
+      {/* Highlighted Text Overlay */}
+      {highlightedText && showSearchPanel && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 max-w-2xl bg-white rounded-xl shadow-2xl border-2 border-emerald-500 p-4 z-50">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-semibold text-emerald-700">Highlighted Section</span>
+            </div>
+            <button
+              onClick={() => setHighlightedText(null)}
+              className="text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="text-sm text-slate-700 max-h-32 overflow-y-auto">{highlightedText}</p>
+        </div>
+      )}
     </div>
   );
 }
