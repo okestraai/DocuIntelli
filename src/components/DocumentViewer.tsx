@@ -152,43 +152,51 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
   const loadHtmlVersion = async () => {
     if (htmlBlobUrl) {
-      // Already loaded
+      console.log('HTML already cached');
       setShowHtmlView(true);
       return;
     }
 
+    console.log('[HTML] Starting conversion for:', document.id, document.name);
     setIsLoadingHtml(true);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('Not authenticated');
       }
+      console.log('[HTML] Session OK');
 
-      // Get file path
-      const { data: files, error: filesError } = await supabase
-        .from('document_files')
-        .select('file_path')
-        .eq('document_id', document.id)
-        .order('file_order', { ascending: true })
-        .limit(1);
-
+      // Get file_path directly from documents table (skip document_files which is empty)
       let filePath: string;
-      if (files && files.length > 0) {
-        filePath = files[0].file_path;
+      if (document.file_path) {
+        filePath = document.file_path;
+        console.log('[HTML] Using file_path from prop:', filePath);
       } else {
+        console.log('[HTML] Fetching file_path from database');
         const { data: docData, error: docError } = await supabase
           .from('documents')
           .select('file_path')
           .eq('id', document.id)
-          .single();
+          .maybeSingle();
 
-        if (docError || !docData?.file_path) {
-          throw new Error('Failed to get document file path');
+        if (docError) {
+          console.error('[HTML] DB error:', docError);
+          throw new Error('Database error: ' + docError.message);
         }
+
+        if (!docData?.file_path) {
+          console.error('[HTML] No file_path found');
+          throw new Error('Document has no file_path');
+        }
+
         filePath = docData.file_path;
+        console.log('[HTML] Got file_path:', filePath);
       }
 
       const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-html`;
+      console.log('[HTML] Calling:', conversionUrl);
+      console.log('[HTML] Payload:', { filePath, documentId: document.id });
 
       const conversionResponse = await fetch(conversionUrl, {
         method: 'POST',
@@ -202,23 +210,38 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         }),
       });
 
+      console.log('[HTML] Response status:', conversionResponse.status);
+      console.log('[HTML] Response headers:', Object.fromEntries(conversionResponse.headers.entries()));
+
       if (!conversionResponse.ok) {
-        const errorData = await conversionResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to convert document');
+        const errorText = await conversionResponse.text();
+        console.error('[HTML] Error response:', errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText };
+        }
+        throw new Error(errorData.error || `HTTP ${conversionResponse.status}: ${conversionResponse.statusText}`);
       }
 
       const htmlContent = await conversionResponse.text();
+      console.log('[HTML] Received HTML, length:', htmlContent.length);
+
       const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
       const objectURL = URL.createObjectURL(htmlBlob);
+      console.log('[HTML] Created blob URL:', objectURL);
 
       setHtmlBlobUrl(objectURL);
       setShowHtmlView(true);
       feedback.showSuccess('HTML View Ready', 'Document converted for highlighting');
+      console.log('[HTML] Conversion complete!');
     } catch (error) {
-      console.error('HTML conversion error:', error);
+      console.error('[HTML] Conversion error:', error);
       feedback.showError('Conversion failed', error instanceof Error ? error.message : 'Failed to convert to HTML');
     } finally {
       setIsLoadingHtml(false);
+      console.log('[HTML] Loading state cleared');
     }
   };
 
