@@ -22,27 +22,64 @@ interface UploadResponse {
 class TextExtractor {
   static async extractFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      // Simple PDF text extraction - in production you'd use a proper PDF parser
       const uint8Array = new Uint8Array(arrayBuffer)
-      const text = new TextDecoder().decode(uint8Array)
+      const text = new TextDecoder('latin1').decode(uint8Array)
       
-      // Extract readable text between stream objects (basic approach)
-      const textMatches = text.match(/stream\s*(.*)\s*endstream/gs)
-      if (textMatches) {
-        return textMatches
-          .map(match => match.replace(/stream|endstream/g, ''))
-          .join(' ')
-          .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
-          .replace(/\s+/g, ' ')
-          .trim()
+      // Try to extract text content from PDF
+      // Look for text between BT (Begin Text) and ET (End Text) operators
+      const textObjects: string[] = []
+      const btPattern = /BT\s+([\s\S]*?)\s+ET/g
+      let match
+      
+      while ((match = btPattern.exec(text)) !== null) {
+        const textBlock = match[1]
+        // Extract strings from Tj and TJ operators
+        const tjPattern = /\(([^)]+)\)/g
+        let tjMatch
+        while ((tjMatch = tjPattern.exec(textBlock)) !== null) {
+          textObjects.push(tjMatch[1])
+        }
+        
+        // Extract hex strings
+        const hexPattern = /<([0-9A-Fa-f]+)>/g
+        let hexMatch
+        while ((hexMatch = hexPattern.exec(textBlock)) !== null) {
+          try {
+            const hexStr = hexMatch[1]
+            const bytes = hexStr.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []
+            const decoded = new TextDecoder('latin1').decode(new Uint8Array(bytes))
+            textObjects.push(decoded)
+          } catch {}
+        }
       }
       
-      // Fallback: extract any readable text
-      return text
+      if (textObjects.length > 0) {
+        const extracted = textObjects.join(' ')
+          .replace(/\\n/g, ' ')
+          .replace(/\\r/g, ' ')
+          .replace(/\\t/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        
+        if (extracted.length > 50) {
+          console.log(`✅ Extracted ${extracted.length} chars from PDF using BT/ET parsing`)
+          return extracted
+        }
+      }
+      
+      // Fallback: try to extract any readable ASCII text
+      console.log('⚠️ BT/ET parsing found little text, trying fallback method')
+      const readable = text
         .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 10000) // Limit to prevent huge extractions
+      
+      if (readable.length > 100) {
+        console.log(`✅ Extracted ${readable.length} chars using fallback method`)
+        return readable.slice(0, 10000)
+      }
+      
+      throw new Error('Could not extract sufficient text from PDF')
     } catch (error) {
       console.error('PDF extraction error:', error)
       throw new Error('Failed to extract text from PDF')
@@ -60,7 +97,6 @@ class TextExtractor {
 
   static async extractFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
-      // Basic DOCX text extraction - in production you'd use a proper parser
       const uint8Array = new Uint8Array(arrayBuffer)
       const text = new TextDecoder().decode(uint8Array)
       
@@ -88,6 +124,8 @@ class TextExtractor {
 
   static async extractText(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer()
+    
+    console.log(`🔍 Attempting extraction for ${file.type}, size: ${arrayBuffer.byteLength} bytes`)
     
     switch (file.type) {
       case 'application/pdf':
@@ -356,7 +394,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     console.log(`✅ Document record created: ${documentData.id}`)
 
-    // Step 3: Extract text content and create chunks (non-blocking)
+    // Step 3: Extract text content and create chunks
     let chunksProcessed = 0
     try {
       console.log(`📝 Extracting text from ${file.type} file`)
@@ -371,7 +409,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         if (textChunks.length > 0) {
           // Step 5: Insert chunks into database with NULL embeddings
-          // The database trigger will automatically generate embeddings
           console.log(`💾 Inserting ${textChunks.length} chunks with NULL embeddings`)
 
           const documentChunks = textChunks.map((chunkText, i) => ({
@@ -392,7 +429,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
           } else {
             chunksProcessed = insertedChunks?.length || 0
             console.log(`✅ Inserted ${chunksProcessed} chunks into database`)
-            console.log(`🔄 Database trigger will automatically generate embeddings`)
 
             // Mark document as processed
             await supabase
@@ -400,6 +436,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
               .update({ processed: true })
               .eq('id', documentData.id)
               .eq('user_id', user.id)
+
+            // Trigger embedding generation directly
+            console.log(`🔄 Triggering embedding generation...`)
+            try {
+              const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`
+              const embeddingResponse = await fetch(embeddingUrl, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  document_id: documentData.id,
+                  limit: 10
+                }),
+              })
+
+              if (embeddingResponse.ok) {
+                const embeddingResult = await embeddingResponse.json()
+                console.log(`✅ Embedding generation triggered: ${embeddingResult.updated} chunks updated`)
+              } else {
+                console.error('⚠️ Embedding generation request failed:', embeddingResponse.status)
+              }
+            } catch (embeddingError) {
+              console.error('⚠️ Failed to trigger embedding generation:', embeddingError)
+            }
           }
         }
       } else {
