@@ -50,12 +50,11 @@ export async function uploadDocumentWithMetadata(
       formData.append('expirationDate', expirationDate);
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const uploadUrl = `${supabaseUrl}/functions/v1/upload-document`;
+    const uploadUrl = 'http://localhost:5000/api/upload';
 
-    console.log('📡 Sending request to Supabase edge function');
+    console.log('📡 Sending request to backend server');
 
-    // Upload via Supabase edge function
+    // Upload via backend server with proper PDF/DOCX/Image extraction
     const res = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
@@ -63,8 +62,8 @@ export async function uploadDocumentWithMetadata(
       },
       body: formData,
     }).catch((fetchError) => {
-      console.error('❌ Network error - upload service not reachable:', fetchError.message);
-      throw new Error('Cannot connect to upload service.');
+      console.error('❌ Network error - backend server not reachable:', fetchError.message);
+      throw new Error('Cannot connect to backend server. Make sure it is running on port 5000.');
     });
 
     console.log('📥 Response received:', res.status, res.statusText);
