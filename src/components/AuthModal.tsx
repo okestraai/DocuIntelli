@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { X, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { X, Scale, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { signUp, signIn, resetPassword } from '../lib/supabase';
 
 interface AuthModalProps {
@@ -64,24 +64,24 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-8 relative">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 sm:p-8 relative shadow-2xl">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 p-1 hover:bg-slate-100 rounded-lg"
           disabled={isLoading}
         >
-          <X className="h-6 w-6" />
+          <X className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
 
-        <div className="text-center mb-8">
-          <div className="bg-blue-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Shield className="h-8 w-8 text-blue-600" />
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="bg-gradient-to-br from-emerald-600 to-teal-600 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Scale className="h-7 w-7 sm:h-8 sm:w-8 text-white" strokeWidth={2.5} />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2 tracking-tight">
             {isForgotPassword ? 'Reset Password' : isLogin ? 'Welcome Back' : 'Create Account'}
           </h2>
-          <p className="text-gray-600">
+          <p className="text-sm sm:text-base text-slate-600">
             {isForgotPassword
               ? 'Enter your email to receive a password reset link'
               : isLogin
@@ -92,33 +92,31 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
         </div>
 
 
-        {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-600">{error}</p>
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-xs sm:text-sm text-red-600">{error}</p>
           </div>
         )}
 
-        {/* Success Message */}
         {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-600">{successMessage}</p>
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-xs sm:text-sm text-emerald-600">{successMessage}</p>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-slate-700 mb-2">
               Email Address
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4 sm:h-5 sm:w-5" />
               <input
                 type="email"
                 id="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-9 sm:pl-10 pr-4 py-2.5 sm:py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm sm:text-base transition-all"
                 placeholder="Enter your email"
                 required
                 disabled={isLoading}
@@ -128,17 +126,17 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
           {!isForgotPassword && (
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="password" className="block text-xs sm:text-sm font-medium text-slate-700 mb-2">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4 sm:h-5 sm:w-5" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-9 sm:pl-10 pr-11 sm:pr-12 py-2.5 sm:py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm sm:text-base transition-all"
                   placeholder="Enter your password"
                   required
                   disabled={isLoading}
@@ -147,10 +145,10 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   disabled={isLoading}
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" /> : <Eye className="h-4 w-4 sm:h-5 sm:w-5" />}
                 </button>
               </div>
             </div>
@@ -159,7 +157,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center"
+            className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-emerald-400 disabled:to-teal-400 text-white font-semibold py-2.5 sm:py-3 px-4 rounded-lg transition-all flex items-center justify-center shadow-lg hover:shadow-xl text-sm sm:text-base"
           >
             {isLoading ? (
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
@@ -169,18 +167,18 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
           </button>
         </form>
 
-        <div className="mt-6 text-center space-y-3">
+        <div className="mt-4 sm:mt-6 text-center space-y-2 sm:space-y-3">
           {!isForgotPassword && isLogin && (
             <button
               onClick={() => setIsForgotPassword(true)}
-              className="text-blue-600 hover:text-blue-700 font-medium text-sm block w-full"
+              className="text-emerald-600 hover:text-emerald-700 font-medium text-xs sm:text-sm block w-full transition-colors"
               disabled={isLoading}
             >
               Forgot your password?
             </button>
           )}
 
-          <p className="text-gray-600">
+          <p className="text-slate-600 text-xs sm:text-sm">
             {isForgotPassword ? (
               <>
                 Remember your password?{' '}
@@ -190,7 +188,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                     setError(null);
                     setSuccessMessage(null);
                   }}
-                  className="text-blue-600 hover:text-blue-700 font-medium"
+                  className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
                   disabled={isLoading}
                 >
                   Sign in
@@ -201,7 +199,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 Don't have an account?{' '}
                 <button
                   onClick={() => setIsLogin(false)}
-                  className="text-blue-600 hover:text-blue-700 font-medium"
+                  className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
                   disabled={isLoading}
                 >
                   Sign up
@@ -212,7 +210,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
                 Already have an account?{' '}
                 <button
                   onClick={() => setIsLogin(true)}
-                  className="text-blue-600 hover:text-blue-700 font-medium"
+                  className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
                   disabled={isLoading}
                 >
                   Sign in
@@ -223,12 +221,12 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
         </div>
 
         {!isLogin && (
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
+            <div className="flex items-start gap-2">
+              <Scale className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600 flex-shrink-0 mt-0.5" strokeWidth={2} />
               <div>
-                <p className="text-sm font-medium text-blue-900">Your privacy is protected</p>
-                <p className="text-sm text-blue-700 mt-1">
+                <p className="text-xs sm:text-sm font-medium text-emerald-900">Your privacy is protected</p>
+                <p className="text-xs sm:text-sm text-emerald-700 mt-1">
                   All documents are encrypted end-to-end. We never access your personal information.
                 </p>
               </div>

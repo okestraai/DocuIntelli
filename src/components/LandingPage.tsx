@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRight, CheckCircle } from 'lucide-react';
+import { Scale, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRight, CheckCircle, Sparkles, Shield } from 'lucide-react';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -7,111 +7,121 @@ interface LandingPageProps {
 
 export function LandingPage({ onGetStarted }: LandingPageProps) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50/30">
       {/* Hero Section */}
       <div className="relative overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-20">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(16,185,129,0.05),transparent_50%)]"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_60%,rgba(14,165,233,0.05),transparent_50%)]"></div>
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-20 pb-16 sm:pb-24">
           <div className="text-center">
-            <div className="flex justify-center mb-8">
-              <Shield className="h-16 w-16 text-blue-600" />
+            <div className="flex justify-center mb-6 sm:mb-8">
+              <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-4 sm:p-5 rounded-2xl shadow-lg">
+                <Scale className="h-10 w-10 sm:h-12 sm:w-12 text-white" strokeWidth={2.5} />
+              </div>
             </div>
-            <h1 className="text-5xl sm:text-6xl font-bold text-gray-900 mb-6 tracking-tight">
-              Legal<span className="text-blue-600">Ease</span>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 mb-4 sm:mb-6 tracking-tight px-4">
+              Legal<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">Ease</span>
             </h1>
-            <p className="text-xl sm:text-2xl text-gray-600 mb-4 max-w-3xl mx-auto leading-relaxed">
-              Your personal legal document assistant
+            <p className="text-lg sm:text-xl lg:text-2xl text-slate-600 mb-3 sm:mb-4 max-w-3xl mx-auto leading-relaxed px-4">
+              Your intelligent legal document companion
             </p>
-            <p className="text-lg text-gray-500 mb-8 max-w-2xl mx-auto">
-              Store, understand, and manage all your legal and financial documents in one secure place. 
-              Never miss another expiration date or struggle with complex legal language again.
+            <p className="text-base sm:text-lg text-slate-500 mb-8 sm:mb-10 max-w-2xl mx-auto leading-relaxed px-4">
+              Store, understand, and manage all your legal and financial documents in one secure place.
+              Never miss another expiration date or struggle with complex legal language.
             </p>
             <button
               onClick={onGetStarted}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-200 hover:shadow-lg transform hover:-translate-y-0.5 inline-flex items-center space-x-2"
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-3 sm:py-4 px-6 sm:px-8 rounded-xl text-base sm:text-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5 inline-flex items-center gap-2 shadow-lg"
             >
               <span>Get Started Free</span>
               <ArrowRight className="h-5 w-5" />
             </button>
+            <p className="mt-4 text-sm text-slate-500">No credit card required • Free forever</p>
           </div>
         </div>
       </div>
 
       {/* Features Section */}
-      <div className="py-20 bg-white">
+      <div className="py-12 sm:py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              Everything you need to manage legal documents
+          <div className="text-center mb-12 sm:mb-16">
+            <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium mb-4">
+              <Sparkles className="h-4 w-4" />
+              <span>Powerful Features</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 mb-4 tracking-tight">
+              Everything you need to manage<br className="hidden sm:inline" /> legal documents
             </h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              From warranties to insurance policies, LegalEase makes complex legal documents simple and actionable.
+            <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto">
+              From warranties to insurance policies, LegalEase makes complex legal documents simple and actionable
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-blue-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <FileText className="h-6 w-6 text-blue-600" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-emerald-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <FileText className="h-6 w-6 sm:h-7 sm:w-7 text-emerald-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">Secure Document Vault</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Upload and organize all your legal documents in one encrypted space. Support for PDFs, 
-                Word docs, and even scanned images with OCR.
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">Secure Document Vault</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Upload and organize all your legal documents in one encrypted space. Support for PDFs,
+                Word docs, and scanned images with OCR.
               </p>
             </div>
 
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-green-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <MessageSquare className="h-6 w-6 text-green-600" />
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-teal-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-teal-50 to-cyan-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <MessageSquare className="h-6 w-6 sm:h-7 sm:w-7 text-teal-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">AI-Powered Q&A</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Ask questions in plain English and get instant answers. "What's covered under my insurance?" 
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">AI-Powered Q&A</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Ask questions in plain English and get instant answers. "What's covered under my insurance?"
                 or "How do I file a claim?" - just ask.
               </p>
             </div>
 
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-orange-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <Bell className="h-6 w-6 text-orange-600" />
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-amber-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <Bell className="h-6 w-6 sm:h-7 sm:w-7 text-amber-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">Smart Reminders</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Never miss important dates again. Get notified before warranties expire, 
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">Smart Reminders</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Never miss important dates. Get notified before warranties expire,
                 insurance renewals are due, or lease agreements end.
               </p>
             </div>
 
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-purple-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <Lock className="h-6 w-6 text-purple-600" />
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-violet-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-violet-50 to-purple-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <Lock className="h-6 w-6 sm:h-7 sm:w-7 text-violet-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">Bank-Level Security</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Your documents are protected with end-to-end encryption. 
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">Bank-Level Security</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Your documents are protected with end-to-end encryption.
                 We never use your data for training and you maintain complete privacy.
               </p>
             </div>
 
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-teal-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <Smartphone className="h-6 w-6 text-teal-600" />
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-blue-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <Smartphone className="h-6 w-6 sm:h-7 sm:w-7 text-blue-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">Cross-Device Access</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Access your documents anywhere, anytime. Seamlessly synced across 
-                desktop, tablet, and mobile with offline capability.
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">Cross-Device Access</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Access your documents anywhere, anytime. Seamlessly synced across
+                desktop, tablet, and mobile.
               </p>
             </div>
 
-            <div className="bg-gray-50 p-8 rounded-2xl hover:shadow-lg transition-shadow">
-              <div className="bg-red-100 w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                <CheckCircle className="h-6 w-6 text-red-600" />
+            <div className="group bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl hover:shadow-xl hover:border-emerald-200 transition-all duration-300">
+              <div className="bg-gradient-to-br from-emerald-50 to-green-50 w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center mb-5 sm:mb-6 group-hover:scale-110 transition-transform">
+                <CheckCircle className="h-6 w-6 sm:h-7 sm:w-7 text-emerald-600" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">Actionable Insights</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Get clear, actionable summaries for every document. Know your coverage, 
-                understand your rights, and learn the steps for claims or renewals.
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-3">Actionable Insights</h3>
+              <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
+                Get clear, actionable summaries for every document. Know your coverage,
+                understand your rights, and learn the steps for claims.
               </p>
             </div>
           </div>
@@ -119,73 +129,76 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
       </div>
 
       {/* Use Cases Section */}
-      <div className="py-20 bg-gray-50">
+      <div className="py-12 sm:py-20 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              Perfect for all your important documents
+          <div className="text-center mb-12 sm:mb-16">
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 mb-4 tracking-tight">
+              Perfect for all your<br className="sm:hidden" /> important documents
             </h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Whether it's warranties, insurance, leases, or contracts - LegalEase helps you stay organized and informed.
+            <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto">
+              Whether it's warranties, insurance, leases, or contracts - LegalEase helps you stay organized and informed
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-12 items-center">
+          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <div>
-              <div className="space-y-8">
-                <div className="flex items-start space-x-4">
-                  <div className="bg-blue-600 text-white rounded-full p-2 flex-shrink-0">
-                    <span className="text-sm font-semibold">1</span>
+              <div className="space-y-6 sm:space-y-8">
+                <div className="flex items-start gap-4">
+                  <div className="bg-gradient-to-br from-emerald-600 to-teal-600 text-white rounded-xl p-2.5 sm:p-3 flex-shrink-0 shadow-lg">
+                    <span className="text-base sm:text-lg font-bold">1</span>
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Warranties & Extended Protection</h3>
-                    <p className="text-gray-600">Upload electronics and appliance warranties. Ask "What repairs are covered?" Get notified before they expire.</p>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-2">Warranties & Extended Protection</h3>
+                    <p className="text-slate-600 text-sm sm:text-base">Upload electronics and appliance warranties. Ask "What repairs are covered?" Get notified before they expire.</p>
                   </div>
                 </div>
 
-                <div className="flex items-start space-x-4">
-                  <div className="bg-blue-600 text-white rounded-full p-2 flex-shrink-0">
-                    <span className="text-sm font-semibold">2</span>
+                <div className="flex items-start gap-4">
+                  <div className="bg-gradient-to-br from-emerald-600 to-teal-600 text-white rounded-xl p-2.5 sm:p-3 flex-shrink-0 shadow-lg">
+                    <span className="text-base sm:text-lg font-bold">2</span>
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Insurance Policies</h3>
-                    <p className="text-gray-600">Manage car, health, and home insurance. Understand your coverage and get renewal reminders.</p>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-2">Insurance Policies</h3>
+                    <p className="text-slate-600 text-sm sm:text-base">Manage car, health, and home insurance. Understand your coverage and get renewal reminders.</p>
                   </div>
                 </div>
 
-                <div className="flex items-start space-x-4">
-                  <div className="bg-blue-600 text-white rounded-full p-2 flex-shrink-0">
-                    <span className="text-sm font-semibold">3</span>
+                <div className="flex items-start gap-4">
+                  <div className="bg-gradient-to-br from-emerald-600 to-teal-600 text-white rounded-xl p-2.5 sm:p-3 flex-shrink-0 shadow-lg">
+                    <span className="text-base sm:text-lg font-bold">3</span>
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Rental & Lease Agreements</h3>
-                    <p className="text-gray-600">Know your tenant rights, understand lease terms, and track renewal dates automatically.</p>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-2">Rental & Lease Agreements</h3>
+                    <p className="text-slate-600 text-sm sm:text-base">Know your tenant rights, understand lease terms, and track renewal dates automatically.</p>
                   </div>
                 </div>
 
-                <div className="flex items-start space-x-4">
-                  <div className="bg-blue-600 text-white rounded-full p-2 flex-shrink-0">
-                    <span className="text-sm font-semibold">4</span>
+                <div className="flex items-start gap-4">
+                  <div className="bg-gradient-to-br from-emerald-600 to-teal-600 text-white rounded-xl p-2.5 sm:p-3 flex-shrink-0 shadow-lg">
+                    <span className="text-base sm:text-lg font-bold">4</span>
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Employment & Service Contracts</h3>
-                    <p className="text-gray-600">Understand your employment terms, freelance agreements, and service contracts with ease.</p>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 mb-2">Employment & Service Contracts</h3>
+                    <p className="text-slate-600 text-sm sm:text-base">Understand your employment terms, freelance agreements, and service contracts with ease.</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-xl">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Example Q&A</h4>
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-slate-200">
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-5 sm:p-6 rounded-xl border border-emerald-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <Shield className="h-5 w-5 text-emerald-600" />
+                  <h4 className="text-base sm:text-lg font-semibold text-slate-900">Example Q&A</h4>
+                </div>
                 <div className="space-y-3">
-                  <div className="bg-white p-3 rounded-lg">
-                    <p className="text-sm text-gray-600 mb-1">You asked:</p>
-                    <p className="text-gray-900">"What is my car insurance deductible?"</p>
+                  <div className="bg-white p-3 sm:p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <p className="text-xs sm:text-sm text-slate-500 mb-1.5">You asked:</p>
+                    <p className="text-slate-900 text-sm sm:text-base font-medium">"What is my car insurance deductible?"</p>
                   </div>
-                  <div className="bg-blue-50 p-3 rounded-lg">
-                    <p className="text-sm text-blue-600 mb-1">LegalEase answered:</p>
-                    <p className="text-gray-900">Your collision deductible is $500 and comprehensive deductible is $250, as stated in Section 3.2 of your policy.</p>
+                  <div className="bg-emerald-50 p-3 sm:p-4 rounded-lg border border-emerald-200">
+                    <p className="text-xs sm:text-sm text-emerald-700 mb-1.5 font-medium">LegalEase answered:</p>
+                    <p className="text-slate-900 text-sm sm:text-base">Your collision deductible is $500 and comprehensive deductible is $250, as stated in Section 3.2 of your policy.</p>
                   </div>
                 </div>
               </div>
@@ -195,17 +208,19 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
       </div>
 
       {/* CTA Section */}
-      <div className="bg-blue-600 py-16">
-        <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Ready to simplify your legal documents?
+      <div className="relative bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-700 py-12 sm:py-16 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.1),transparent_50%)]"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_60%,rgba(255,255,255,0.1),transparent_50%)]"></div>
+        <div className="relative max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4 tracking-tight">
+            Ready to simplify your<br className="sm:hidden" /> legal documents?
           </h2>
-          <p className="text-xl text-blue-100 mb-8">
-            Join thousands of users who trust LegalEase to keep their important documents organized and accessible.
+          <p className="text-lg sm:text-xl text-emerald-50 mb-8 sm:mb-10">
+            Join thousands who trust LegalEase to keep their important documents organized and accessible
           </p>
           <button
             onClick={onGetStarted}
-            className="bg-white hover:bg-gray-100 text-blue-600 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-200 hover:shadow-lg transform hover:-translate-y-0.5 inline-flex items-center space-x-2"
+            className="bg-white hover:bg-slate-50 text-emerald-700 font-semibold py-3 sm:py-4 px-6 sm:px-8 rounded-xl text-base sm:text-lg transition-all duration-200 hover:shadow-2xl transform hover:-translate-y-0.5 inline-flex items-center gap-2 shadow-xl"
           >
             <span>Start Your Free Account</span>
             <ArrowRight className="h-5 w-5" />

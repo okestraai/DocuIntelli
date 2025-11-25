@@ -11,10 +11,8 @@ interface DashboardProps {
 }
 
 export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
-  // Ensure documents is always an array to prevent crashes
   const safeDocuments = documents ?? [];
-  
-  // Safe calculations with fallback to 0
+
   const totalDocuments = safeDocuments.length;
   const expiringDocuments = safeDocuments.filter(doc => doc?.status === 'expiring').length;
   const expiredDocuments = safeDocuments.filter(doc => doc?.status === 'expired').length;
@@ -26,7 +24,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
 
   const handleDeleteDocument = async (documentId: string) => {
     if (!onDocumentDelete) return;
-    
+
     setDeletingDocId(documentId);
     try {
       await onDocumentDelete(documentId);
@@ -38,105 +36,104 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
     }
   };
 
-  // Show loading state if documents is undefined (still loading)
   if (documents === undefined) {
     return <DashboardSkeleton />;
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-        <p className="text-gray-600">Welcome back! Here's an overview of your documents and important dates.</p>
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2 tracking-tight">Dashboard</h1>
+        <p className="text-sm sm:text-base text-slate-600">Welcome back! Here's an overview of your documents and important dates.</p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-emerald-200 transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Documents</p>
-              <p className="text-3xl font-bold text-gray-900">{totalDocuments}</p>
+              <p className="text-xs sm:text-sm font-medium text-slate-600 mb-1">Total</p>
+              <p className="text-2xl sm:text-3xl font-bold text-slate-900">{totalDocuments}</p>
             </div>
-            <div className="bg-blue-100 p-3 rounded-lg">
-              <FileText className="h-6 w-6 text-blue-600" />
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-2 sm:p-3 rounded-lg">
+              <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600" strokeWidth={2} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-green-200 transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Active Documents</p>
-              <p className="text-3xl font-bold text-green-600">{activeDocuments}</p>
+              <p className="text-xs sm:text-sm font-medium text-slate-600 mb-1">Active</p>
+              <p className="text-2xl sm:text-3xl font-bold text-green-600">{activeDocuments}</p>
             </div>
-            <div className="bg-green-100 p-3 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-green-600" />
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-2 sm:p-3 rounded-lg">
+              <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" strokeWidth={2} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-amber-200 transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Expiring Soon</p>
-              <p className="text-3xl font-bold text-orange-600">{expiringDocuments}</p>
+              <p className="text-xs sm:text-sm font-medium text-slate-600 mb-1">Expiring</p>
+              <p className="text-2xl sm:text-3xl font-bold text-amber-600">{expiringDocuments}</p>
             </div>
-            <div className="bg-orange-100 p-3 rounded-lg">
-              <Calendar className="h-6 w-6 text-orange-600" />
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 p-2 sm:p-3 rounded-lg">
+              <Calendar className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" strokeWidth={2} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-red-200 transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Expired</p>
-              <p className="text-3xl font-bold text-red-600">{expiredDocuments}</p>
+              <p className="text-xs sm:text-sm font-medium text-slate-600 mb-1">Expired</p>
+              <p className="text-2xl sm:text-3xl font-bold text-red-600">{expiredDocuments}</p>
             </div>
-            <div className="bg-red-100 p-3 rounded-lg">
-              <AlertTriangle className="h-6 w-6 text-red-600" />
+            <div className="bg-gradient-to-br from-red-50 to-rose-50 p-2 sm:p-3 rounded-lg">
+              <AlertTriangle className="h-5 w-5 sm:h-6 sm:w-6 text-red-600" strokeWidth={2} />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
         {/* Recent Documents */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200">
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200">
+          <div className="p-4 sm:p-6 border-b border-slate-200">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">Recent Documents</h2>
+              <h2 className="text-lg sm:text-xl font-semibold text-slate-900">Recent Documents</h2>
               <button
                 onClick={() => onNavigate('vault')}
-                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                className="text-emerald-600 hover:text-emerald-700 text-sm font-medium transition-colors"
               >
                 View All
               </button>
             </div>
           </div>
-          <div className="p-6 space-y-4">
+          <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
             {recentDocuments.map((doc) => (
-              <div key={doc?.id || Math.random()} className="flex items-center space-x-4 p-4 hover:bg-gray-50 rounded-lg transition-colors group">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  doc.category === 'insurance' ? 'bg-blue-100' :
-                  doc.category === 'warranty' ? 'bg-green-100' :
-                  doc.category === 'lease' ? 'bg-purple-100' : 'bg-gray-100'
+              <div key={doc?.id || Math.random()} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-slate-50 rounded-lg sm:rounded-xl transition-colors group">
+                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  doc.category === 'insurance' ? 'bg-gradient-to-br from-blue-50 to-cyan-50' :
+                  doc.category === 'warranty' ? 'bg-gradient-to-br from-green-50 to-emerald-50' :
+                  doc.category === 'lease' ? 'bg-gradient-to-br from-violet-50 to-purple-50' : 'bg-gradient-to-br from-slate-50 to-slate-100'
                 }`}>
-                  <FileText className={`h-5 w-5 ${
+                  <FileText className={`h-5 w-5 sm:h-6 sm:w-6 ${
                     doc.category === 'insurance' ? 'text-blue-600' :
                     doc.category === 'warranty' ? 'text-green-600' :
-                    doc.category === 'lease' ? 'text-purple-600' : 'text-gray-600'
-                  }`} />
+                    doc.category === 'lease' ? 'text-violet-600' : 'text-slate-600'
+                  }`} strokeWidth={2} />
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">{doc.name}</h3>
-                  <p className="text-sm text-gray-500 capitalize">{doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}</p>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium text-slate-900 text-sm sm:text-base truncate">{doc.name}</h3>
+                  <p className="text-xs sm:text-sm text-slate-500 capitalize truncate">{doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}</p>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <div className={`px-2 py-1 rounded-full text-xs font-medium ${
                     doc.status === 'active' ? 'bg-green-100 text-green-800' :
-                    doc.status === 'expiring' ? 'bg-orange-100 text-orange-800' :
+                    doc.status === 'expiring' ? 'bg-amber-100 text-amber-800' :
                     'bg-red-100 text-red-800'
                   }`}>
                     {doc.status}
@@ -144,62 +141,72 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                   <button
                     onClick={() => doc?.id && setShowDeleteConfirm(doc.id)}
                     disabled={deletingDocId === doc.id}
-                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 transition-all disabled:opacity-50"
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all disabled:opacity-50"
                     title="Delete document"
                   >
                     {deletingDocId === doc.id ? (
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent"></div>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-slate-400 border-t-transparent"></div>
                     ) : (
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4" strokeWidth={2} />
                     )}
                   </button>
                 </div>
               </div>
             ))}
           </div>
-          
+
           {recentDocuments.length === 0 && (
-            <div className="p-6 text-center text-gray-500">
-              <p>No documents uploaded yet. Upload your first document to get started!</p>
+            <div className="p-8 sm:p-12 text-center">
+              <div className="bg-slate-50 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FileText className="h-8 w-8 sm:h-10 sm:w-10 text-slate-400" strokeWidth={2} />
+              </div>
+              <p className="text-slate-500 text-sm sm:text-base">No documents uploaded yet</p>
+              <p className="text-slate-400 text-xs sm:text-sm mt-1">Upload your first document to get started</p>
             </div>
           )}
         </div>
 
         {/* Quick Actions */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
+        <div className="space-y-4 sm:space-y-6">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-semibold text-slate-900 mb-4 sm:mb-5">Quick Actions</h2>
             <div className="space-y-3">
               <button
                 onClick={onAddDocument}
-                className="w-full flex items-center space-x-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-br from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 border border-emerald-200 rounded-lg sm:rounded-xl transition-all text-left group"
               >
-                <Upload className="h-5 w-5 text-blue-600" />
-                <div>
-                  <h3 className="font-medium text-gray-900">Upload New Document</h3>
-                  <p className="text-sm text-gray-600">Add a new legal or financial document</p>
+                <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-2 rounded-lg group-hover:scale-110 transition-transform">
+                  <Upload className="h-4 w-4 sm:h-5 sm:w-5 text-white" strokeWidth={2} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-slate-900 text-sm sm:text-base">Upload Document</h3>
+                  <p className="text-xs sm:text-sm text-slate-600 truncate">Add a new legal or financial document</p>
                 </div>
               </button>
-              
+
               <button
                 onClick={() => onNavigate('tracker')}
-                className="w-full flex items-center space-x-3 p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 rounded-lg sm:rounded-xl transition-all text-left group"
               >
-                <Calendar className="h-5 w-5 text-orange-600" />
-                <div>
-                  <h3 className="font-medium text-gray-900">Check Expiration Dates</h3>
-                  <p className="text-sm text-gray-600">View upcoming renewals and expirations</p>
+                <div className="bg-gradient-to-br from-amber-600 to-orange-600 p-2 rounded-lg group-hover:scale-110 transition-transform">
+                  <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-white" strokeWidth={2} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-slate-900 text-sm sm:text-base">Check Expirations</h3>
+                  <p className="text-xs sm:text-sm text-slate-600 truncate">View upcoming renewals and expirations</p>
                 </div>
               </button>
 
               <button
                 onClick={() => onNavigate('vault')}
-                className="w-full flex items-center space-x-3 p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-br from-teal-50 to-cyan-50 hover:from-teal-100 hover:to-cyan-100 border border-teal-200 rounded-lg sm:rounded-xl transition-all text-left group"
               >
-                <MessageSquare className="h-5 w-5 text-green-600" />
-                <div>
-                  <h3 className="font-medium text-gray-900">Ask AI Assistant</h3>
-                  <p className="text-sm text-gray-600">Get instant answers about your documents</p>
+                <div className="bg-gradient-to-br from-teal-600 to-cyan-600 p-2 rounded-lg group-hover:scale-110 transition-transform">
+                  <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5 text-white" strokeWidth={2} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-slate-900 text-sm sm:text-base">Ask AI Assistant</h3>
+                  <p className="text-xs sm:text-sm text-slate-600 truncate">Get instant answers about documents</p>
                 </div>
               </button>
             </div>
@@ -207,19 +214,22 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
 
           {/* Alerts */}
           {expiringDocuments > 0 && safeDocuments.length > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
-              <div className="flex items-center space-x-2 mb-3">
-                <AlertTriangle className="h-5 w-5 text-orange-600" />
-                <h3 className="font-semibold text-orange-900">Attention Required</h3>
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="bg-amber-100 p-1.5 rounded-lg">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" strokeWidth={2} />
+                </div>
+                <h3 className="font-semibold text-amber-900 text-sm sm:text-base">Attention Required</h3>
               </div>
-              <p className="text-orange-800 mb-3">
+              <p className="text-amber-800 mb-3 text-sm sm:text-base">
                 You have {expiringDocuments} document{expiringDocuments !== 1 ? 's' : ''} expiring soon.
               </p>
               <button
                 onClick={() => onNavigate('tracker')}
-                className="text-orange-700 hover:text-orange-800 font-medium text-sm underline"
+                className="text-amber-700 hover:text-amber-800 font-medium text-sm inline-flex items-center gap-1 hover:gap-2 transition-all"
               >
-                Review expiring documents →
+                Review expiring documents
+                <span>→</span>
               </button>
             </div>
           )}
@@ -242,33 +252,31 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
   );
 }
 
-// Loading skeleton component
 function DashboardSkeleton() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <div className="h-8 bg-gray-200 rounded w-48 mb-2 animate-pulse"></div>
-        <div className="h-4 bg-gray-200 rounded w-96 animate-pulse"></div>
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+      <div className="mb-6 sm:mb-8">
+        <div className="h-7 sm:h-8 bg-slate-200 rounded w-32 sm:w-48 mb-2 animate-pulse"></div>
+        <div className="h-4 bg-slate-200 rounded w-48 sm:w-96 animate-pulse"></div>
       </div>
 
-      {/* Stats Grid Skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <div key={i} className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-200">
             <div className="flex items-center justify-between">
               <div>
-                <div className="h-4 bg-gray-200 rounded w-24 mb-2 animate-pulse"></div>
-                <div className="h-8 bg-gray-200 rounded w-16 animate-pulse"></div>
+                <div className="h-3 sm:h-4 bg-slate-200 rounded w-16 sm:w-24 mb-2 animate-pulse"></div>
+                <div className="h-6 sm:h-8 bg-slate-200 rounded w-10 sm:w-16 animate-pulse"></div>
               </div>
-              <div className="w-12 h-12 bg-gray-200 rounded-lg animate-pulse"></div>
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-200 rounded-lg animate-pulse"></div>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
-        <div className="h-96 bg-white rounded-xl shadow-sm border border-gray-200 animate-pulse"></div>
-        <div className="h-96 bg-white rounded-xl shadow-sm border border-gray-200 animate-pulse"></div>
+      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
+        <div className="h-80 sm:h-96 bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 animate-pulse"></div>
+        <div className="h-80 sm:h-96 bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 animate-pulse"></div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
+import { Scale, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -19,67 +19,69 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
   ];
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
-          <div className="flex items-center space-x-3">
-            <Shield className="h-10 w-10 text-blue-600" />
-            <span className="text-3xl font-bold text-gray-900">LegalEase</span>
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
+        <div className="flex items-center justify-between h-16 sm:h-18">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-600 p-2 sm:p-2.5 rounded-lg shadow-sm">
+              <Scale className="h-5 w-5 sm:h-6 sm:w-6 text-white" strokeWidth={2.5} />
+            </div>
+            <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight truncate">LegalEase</span>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <nav className="hidden md:flex space-x-2">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <nav className="hidden md:flex items-center gap-1">
               {navItems.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => onNavigate(id)}
-                  className={`group relative flex items-center justify-center p-3 rounded-lg transition-all ${
+                  className={`group relative flex items-center justify-center p-2.5 rounded-lg transition-all duration-200 ${
                     currentPage === id
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
+                      ? 'bg-emerald-50 text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-emerald-700 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon className="h-6 w-6" />
-                  <span className="absolute top-full mt-2 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+                  <Icon className="h-5 w-5" strokeWidth={2} />
+                  <span className="absolute top-full mt-2 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
                     {label}
                   </span>
                 </button>
               ))}
             </nav>
 
-            <div className="h-8 w-px bg-gray-300 mx-2"></div>
+            <div className="hidden md:block h-6 w-px bg-slate-200 mx-1"></div>
 
             <button
               onClick={onOpenNotifications}
-              className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
+              className="group relative flex items-center justify-center p-2.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-all duration-200"
             >
-              <Bell className="h-6 w-6" />
+              <Bell className="h-5 w-5" strokeWidth={2} />
               {notificationCount && notificationCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                <span className="absolute top-1 right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center shadow-sm">
                   {notificationCount > 9 ? '9+' : notificationCount}
                 </span>
               )}
-              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+              <span className="absolute top-full mt-2 right-0 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
                 Notifications
               </span>
             </button>
 
             <button
               onClick={onOpenProfile}
-              className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
+              className="group relative flex items-center justify-center p-2.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-all duration-200"
             >
-              <User className="h-6 w-6" />
-              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+              <User className="h-5 w-5" strokeWidth={2} />
+              <span className="absolute top-full mt-2 right-0 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
                 Profile
               </span>
             </button>
 
             <button
               onClick={onSignOut}
-              className="group relative flex items-center justify-center p-3 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-all"
+              className="group relative flex items-center justify-center p-2.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
             >
-              <LogOut className="h-6 w-6" />
-              <span className="absolute top-full mt-2 right-0 px-3 py-1.5 bg-blue-600 text-white text-base font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+              <LogOut className="h-5 w-5" strokeWidth={2} />
+              <span className="absolute top-full mt-2 right-0 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
                 Sign Out
               </span>
             </button>
