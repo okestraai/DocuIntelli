@@ -155,7 +155,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
               .eq('id', documentData.id);
             console.log(`✅ Document marked as processed: ${documentData.id}`);
 
-            // Trigger embedding generation
+            // Trigger embedding generation with continue_processing for all chunks
             console.log(`🔄 Triggering embedding generation for: ${documentData.id}`);
             try {
               const embeddingUrl = `${supabaseUrl}/functions/v1/generate-embeddings`;
@@ -165,15 +165,19 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
                   'Authorization': `Bearer ${supabaseServiceKey}`,
                   'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ document_id: documentData.id }),
+                body: JSON.stringify({
+                  document_id: documentData.id,
+                  limit: 3,
+                  continue_processing: true // This will process all chunks recursively
+                }),
               });
 
               if (!embeddingResponse.ok) {
                 const errorData = await embeddingResponse.json();
                 console.error('⚠️ Embedding generation failed:', errorData);
               } else {
-                const result = await embeddingResponse.json() as { updated: number };
-                console.log(`✅ Embeddings generated: ${result.updated} chunks updated`);
+                const result = await embeddingResponse.json() as { updated: number, remaining: number };
+                console.log(`✅ Embeddings started: ${result.updated} chunks updated, ${result.remaining} remaining`);
               }
             } catch (embErr: any) {
               console.error('⚠️ Failed to trigger embedding generation:', embErr.message);

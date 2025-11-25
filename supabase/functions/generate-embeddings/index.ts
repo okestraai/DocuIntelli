@@ -10,6 +10,7 @@ const corsHeaders = {
 interface RequestBody {
   document_id?: string;
   limit?: number;
+  continue_processing?: boolean;
 }
 
 interface DocumentChunk {
@@ -36,14 +37,16 @@ Deno.serve(async (req: Request) => {
     console.log("📊 Starting embedding generation...");
 
     let document_id: string | undefined;
-    let limit = 3; // Process 3 chunks at a time to avoid timeouts
+    let limit = 2; // Process 2 chunks at a time to avoid timeouts
+    let continue_processing = false;
 
     if (req.method === "POST") {
       try {
         const body: RequestBody = await req.json();
         document_id = body.document_id;
+        continue_processing = body.continue_processing || false;
         if (body.limit && body.limit > 0) {
-          limit = Math.min(body.limit, 10); // Max 10 at a time
+          limit = Math.min(body.limit, 3); // Max 3 at a time to stay within compute limits
         }
       } catch {
         // No body or invalid JSON, use defaults
@@ -56,6 +59,7 @@ Deno.serve(async (req: Request) => {
       .is("embedding", null)
       .not("chunk_text", "eq", "")
       .not("chunk_text", "is", null)
+      .order("created_at", { ascending: true })
       .limit(limit);
 
     if (document_id) {
@@ -154,6 +158,24 @@ Deno.serve(async (req: Request) => {
 
     console.log(`🎉 Completed: ${updatedCount}/${chunks.length} chunks updated`);
     console.log(`📊 Remaining chunks with null embeddings: ${remainingCount || 0}`);
+
+    // If continue_processing is true and there are more chunks, trigger another round
+    if (continue_processing && remainingCount && remainingCount > 0) {
+      console.log("🔄 Scheduling next batch...");
+      // Don't await - fire and forget
+      fetch(req.url, {
+        method: "POST",
+        headers: {
+          "Authorization": req.headers.get("Authorization") || "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          document_id,
+          limit,
+          continue_processing: true,
+        }),
+      }).catch(err => console.error("Failed to schedule next batch:", err));
+    }
 
     return new Response(
       JSON.stringify({
