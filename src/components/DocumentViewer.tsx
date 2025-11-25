@@ -241,7 +241,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
   const getFileIcon = () => {
     if (isPDFFile()) return <FileText className="h-6 w-6 text-red-600" />;
-    if (isImageFile()) return <Image className="h-6 w-6 text-blue-600" />;
+    if (isImageFile()) return <Image className="h-6 w-6 text-emerald-600" strokeWidth={2} />;
     return <FileText className="h-6 w-6 text-gray-600" />;
   };
 
@@ -319,7 +319,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         <button
           onClick={handleDownload}
           disabled={!blobUrl && !documentUrl}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+          className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
         >
           <Download className="h-4 w-4" />
           <span>Download</span>
@@ -331,7 +331,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         {(isLoading || isConverting) && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto mb-4" />
+              <Loader2 className="h-12 w-12 text-emerald-600 animate-spin mx-auto mb-4" strokeWidth={2} />
               <p className="text-gray-600">
                 {isConverting ? 'Converting Word document...' : 'Loading document...'}
               </p>
@@ -350,7 +350,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
               <p className="text-gray-600 mb-4">{error}</p>
               <button
                 onClick={loadDocument}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md"
               >
                 Try Again
               </button>
@@ -371,7 +371,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                   />
                 </div>
                 <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
-                  PDF loaded successfully • <button onClick={handleDownload} className="text-blue-600 hover:underline">Download</button>
+                  PDF loaded successfully • <button onClick={handleDownload} className="text-emerald-600 hover:text-emerald-700 hover:underline">Download</button>
                 </div>
               </div>
             )}
@@ -409,7 +409,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                   />
                 </div>
                 <div className="p-2 bg-gray-50 border-t text-center text-xs text-gray-600">
-                  Document converted and displayed • <button onClick={handleDownload} className="text-blue-600 hover:underline">Download original</button>
+                  Document converted and displayed • <button onClick={handleDownload} className="text-emerald-600 hover:text-emerald-700 hover:underline">Download original</button>
                 </div>
               </div>
             )}
@@ -438,7 +438,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                     <p className="text-xs text-blue-800">
                       <strong>Direct URL:</strong>
                     </p>
-                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline break-all">
+                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-600 hover:text-emerald-700 hover:underline break-all">
                       {documentUrl}
                     </a>
                   </div>

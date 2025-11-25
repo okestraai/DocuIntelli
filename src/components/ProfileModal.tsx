@@ -268,7 +268,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                   onClick={() => setActiveTab(id)}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
                     activeTab === id
-                      ? 'bg-blue-100 text-blue-700'
+                      ? 'bg-emerald-100 text-emerald-700'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
                 >
@@ -282,8 +282,8 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             {userProfile && (
               <div className="mt-8 p-4 bg-white rounded-lg border border-gray-200">
                 <div className="flex items-center space-x-3 mb-3">
-                  <div className="bg-blue-100 w-10 h-10 rounded-full flex items-center justify-center">
-                    <User className="h-5 w-5 text-blue-600" />
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 w-10 h-10 rounded-full flex items-center justify-center">
+                    <User className="h-5 w-5 text-emerald-600" strokeWidth={2} />
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">{displayName || 'User'}</p>
@@ -304,7 +304,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           <div className="flex-1 p-6 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-emerald-600 border-t-transparent"></div>
               </div>
             ) : (
               <>
@@ -324,7 +324,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
                             placeholder="Enter your display name"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                           />
                         </div>
 
@@ -359,7 +359,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                             onChange={(e) => setBio(e.target.value)}
                             placeholder="Tell us about yourself..."
                             rows={3}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                           />
                         </div>
                       </div>
@@ -367,7 +367,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                       <button
                         onClick={handleUpdateProfile}
                         disabled={isUpdating}
-                        className="mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+                        className="mt-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none flex items-center space-x-2"
                       >
                         {isUpdating ? (
                           <>
@@ -398,7 +398,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               type={showCurrentPassword ? 'text' : 'password'}
                               value={currentPassword}
                               onChange={(e) => setCurrentPassword(e.target.value)}
-                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                             />
                             <button
                               type="button"
@@ -419,7 +419,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               type={showNewPassword ? 'text' : 'password'}
                               value={newPassword}
                               onChange={(e) => setNewPassword(e.target.value)}
-                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                             />
                             <button
                               type="button"
@@ -440,7 +440,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               type={showConfirmPassword ? 'text' : 'password'}
                               value={confirmPassword}
                               onChange={(e) => setConfirmPassword(e.target.value)}
-                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                             />
                             <button
                               type="button"
@@ -518,7 +518,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               onChange={(e) => setEmailNotifications(e.target.checked)}
                               className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                           </label>
                         </div>
 
@@ -534,7 +534,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               onChange={(e) => setDocumentReminders(e.target.checked)}
                               className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                           </label>
                         </div>
 
@@ -550,7 +550,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                               onChange={(e) => setSecurityAlerts(e.target.checked)}
                               className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                           </label>
                         </div>
                       </div>
@@ -558,7 +558,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                       <button
                         onClick={handleUpdatePreferences}
                         disabled={isUpdating}
-                        className="mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+                        className="mt-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none flex items-center space-x-2"
                       >
                         {isUpdating ? (
                           <>
