@@ -147,8 +147,8 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
                 isDragOver
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-gray-300 hover:border-gray-400'
+                  ? 'border-emerald-400 bg-emerald-50'
+                  : 'border-slate-300 hover:border-slate-400'
               }`}
             >
               <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -160,7 +160,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
               </p>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md"
               >
                 Choose Files
               </button>
@@ -187,7 +187,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                 </h3>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  className="text-emerald-600 hover:text-emerald-700 text-sm font-medium"
                 >
                   Add More Files
                 </button>
@@ -206,7 +206,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                   <div key={index} className="bg-gray-50 rounded-lg p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center space-x-3">
-                        <FileText className="h-8 w-8 text-blue-600 flex-shrink-0" />
+                        <FileText className="h-8 w-8 text-emerald-600 flex-shrink-0" strokeWidth={2} />
                         <div>
                           <p className="font-medium text-gray-900">{doc.file.name}</p>
                           <p className="text-sm text-gray-500">{formatFileSize(doc.file.size)}</p>
@@ -230,7 +230,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                           value={doc.name}
                           onChange={(e) => updateDocument(index, 'name', e.target.value)}
                           placeholder="Enter document name"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         />
                       </div>
 
@@ -242,7 +242,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                           <select
                             value={doc.category}
                             onChange={(e) => updateDocument(index, 'category', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                           >
                             {categories.map(cat => (
                               <option key={cat.value} value={cat.value}>{cat.label}</option>
@@ -258,7 +258,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
                             type="date"
                             value={doc.expirationDate}
                             onChange={(e) => updateDocument(index, 'expirationDate', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                           />
                         </div>
                       </div>
@@ -283,7 +283,7 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
           <button
             onClick={handleSubmit}
             disabled={!isFormValid() || isUploading}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+            className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-6 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none flex items-center space-x-2"
           >
             {isUploading ? (
               <>

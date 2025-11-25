@@ -140,64 +140,64 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 h-screen flex flex-col">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 h-screen flex flex-col">
       {/* Header */}
-      <div className="flex items-center mb-6">
+      <div className="flex items-center mb-4 sm:mb-6">
         <button
           onClick={onBack}
-          className="mr-4 p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          className="mr-3 sm:mr-4 p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors active:scale-95"
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-5 w-5" strokeWidth={2} />
         </button>
-        <div className="flex items-center space-x-3">
-          <div className="bg-blue-100 w-10 h-10 rounded-lg flex items-center justify-center">
-            <FileText className="h-5 w-5 text-blue-600" />
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0">
+            <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600" strokeWidth={2} />
           </div>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">{document.name}</h1>
-            <p className="text-sm text-gray-500 capitalize">{document.category} • {document.type}</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-xl font-semibold text-slate-900 truncate">{document.name}</h1>
+            <p className="text-xs sm:text-sm text-slate-500 capitalize truncate">{document.category} • {document.type}</p>
           </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
-        <div className="flex-1 p-6 overflow-y-auto">
+      <div className="flex-1 bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+        <div className="flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto overscroll-contain">
           {isLoadingHistory ? (
             <div className="flex items-center justify-center h-full">
-              <div className="flex items-center space-x-2 text-gray-500">
-                <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
-                <span>Loading conversation...</span>
+              <div className="flex items-center gap-2 text-slate-500">
+                <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-2 border-emerald-600 border-t-transparent"></div>
+                <span className="text-sm sm:text-base">Loading conversation...</span>
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                  className={`max-w-[85%] sm:max-w-xs lg:max-w-md px-3 sm:px-4 py-2 sm:py-3 rounded-2xl ${
                     message.type === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-900'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                      : 'bg-slate-100 text-slate-900'
                   }`}
                 >
                   {message.type === 'user' ? (
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    <p className="text-sm sm:text-base whitespace-pre-wrap break-words">{message.content}</p>
                   ) : (
-                    <div className="text-sm prose prose-sm max-w-none
+                    <div className="text-sm sm:text-base prose prose-sm max-w-none
                       prose-p:my-1 prose-p:leading-relaxed
                       prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
                       prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
                       prose-li:my-0.5
-                      prose-strong:font-semibold prose-strong:text-gray-900
+                      prose-strong:font-semibold prose-strong:text-slate-900
                       prose-em:italic
-                      prose-headings:font-semibold prose-headings:text-gray-900
+                      prose-headings:font-semibold prose-headings:text-slate-900
                       prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
-                      prose-code:bg-gray-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-                      prose-pre:bg-gray-200 prose-pre:p-2 prose-pre:rounded prose-pre:text-xs
+                      prose-code:bg-slate-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+                      prose-pre:bg-slate-200 prose-pre:p-2 prose-pre:rounded prose-pre:text-xs
                     ">
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
@@ -205,13 +205,13 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
                 </div>
               </div>
             ))}
-            
+
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                    <span className="text-sm">Generating answer...</span>
+                <div className="bg-slate-100 text-slate-900 px-3 sm:px-4 py-2 sm:py-3 rounded-2xl">
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-emerald-600 border-t-transparent"></div>
+                    <span className="text-sm sm:text-base">Generating answer...</span>
                   </div>
                 </div>
               </div>
@@ -224,17 +224,17 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
 
         {/* Suggested Questions */}
         {!isLoadingHistory && messages.length === 1 && (
-          <div className="border-t border-gray-200 p-4">
-            <div className="flex items-center space-x-2 mb-3">
-              <Lightbulb className="h-4 w-4 text-yellow-600" />
-              <span className="text-sm font-medium text-gray-700">Suggested questions:</span>
+          <div className="border-t border-slate-200 p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Lightbulb className="h-4 w-4 text-amber-600" strokeWidth={2} />
+              <span className="text-xs sm:text-sm font-medium text-slate-700">Suggested questions:</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {suggestedQuestions.map((question, index) => (
                 <button
                   key={index}
                   onClick={() => handleSuggestedQuestion(question)}
-                  className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-full transition-colors"
+                  className="text-xs sm:text-sm bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 px-3 py-1.5 rounded-full transition-all active:scale-95 border border-transparent hover:border-emerald-200"
                 >
                   {question}
                 </button>
@@ -244,23 +244,23 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
         )}
 
         {/* Input */}
-        <div className="border-t border-gray-200 p-4">
-          <form onSubmit={handleSubmit} className="flex space-x-2">
+        <div className="border-t border-slate-200 p-3 sm:p-4 safe-area-inset-bottom">
+          <form onSubmit={handleSubmit} className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ask a question about this document..."
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Ask a question..."
+              className="flex-1 border border-slate-300 rounded-lg sm:rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm sm:text-base transition-all"
               disabled={isLoading}
             />
             <button
               type="submit"
               disabled={!inputValue.trim() || isLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white p-2 rounded-lg transition-colors"
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white p-2.5 sm:p-3 rounded-lg sm:rounded-xl transition-all active:scale-95 shadow-md disabled:shadow-none flex-shrink-0"
             >
-              <Send className="h-5 w-5" />
+              <Send className="h-5 w-5" strokeWidth={2} />
             </button>
           </form>
         </div>
