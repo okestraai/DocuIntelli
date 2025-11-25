@@ -65,7 +65,7 @@ export function useDocuments(isAuthenticated: boolean) {
     try {
       setError(null);
       console.log(`🗑️ Deleting document: ${id}`);
-
+      
       // Delete via backend API (which handles both COS and database)
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
