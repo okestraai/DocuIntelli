@@ -27,7 +27,9 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
-  const [highlightedText, setHighlightedText] = useState<string | null>(null);
+  const [highlightedChunkId, setHighlightedChunkId] = useState<string | null>(null);
+  const [documentChunks, setDocumentChunks] = useState<Array<{id: string, chunk_text: string, chunk_index: number}>>([]);
+  const [showTextView, setShowTextView] = useState(false);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -195,6 +197,32 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     };
   }, [blobUrl]);
 
+  const loadDocumentChunks = useCallback(async () => {
+    try {
+      const { data: chunks, error: chunksError } = await supabase
+        .from('document_chunks')
+        .select('id, chunk_text, chunk_index')
+        .eq('document_id', document.id)
+        .order('chunk_index', { ascending: true });
+
+      if (chunksError) {
+        console.error('Error loading document chunks:', chunksError);
+        return;
+      }
+
+      if (chunks && chunks.length > 0) {
+        setDocumentChunks(chunks);
+        console.log(`Loaded ${chunks.length} chunks for highlighting`);
+      }
+    } catch (error) {
+      console.error('Failed to load document chunks:', error);
+    }
+  }, [document.id]);
+
+  useEffect(() => {
+    loadDocumentChunks();
+  }, [loadDocumentChunks]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       feedback.showError('Search error', 'Please enter a search query');
@@ -246,17 +274,25 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     }
   };
 
-  const handleHighlight = (text: string) => {
-    setHighlightedText(text);
-    // Scroll to view if possible (implementation depends on document type)
-    feedback.showInfo('Highlighted', 'Section highlighted in document');
+  const handleHighlight = (chunkId: string) => {
+    setHighlightedChunkId(chunkId);
+    setShowTextView(true);
+
+    // Scroll to the highlighted chunk
+    setTimeout(() => {
+      const element = document.getElementById(`chunk-${chunkId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults([]);
     setShowSearchPanel(false);
-    setHighlightedText(null);
+    setHighlightedChunkId(null);
+    setShowTextView(false);
   };
 
   const handleDownload = async () => {
@@ -393,14 +429,25 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
             </div>
           </div>
 
-          <button
-            onClick={handleDownload}
-            disabled={!blobUrl && !documentUrl}
-            className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
-          >
-            <Download className="h-4 w-4" />
-            <span>Download</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {documentChunks.length > 0 && (
+              <button
+                onClick={() => setShowTextView(true)}
+                className="flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-all border border-slate-300"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Text View</span>
+              </button>
+            )}
+            <button
+              onClick={handleDownload}
+              disabled={!blobUrl && !documentUrl}
+              className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Bar */}
@@ -469,11 +516,11 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                 <div
                   key={result.chunk_id}
                   className={`p-3 rounded-lg border transition-all cursor-pointer ${
-                    highlightedText === result.chunk_text
+                    highlightedChunkId === result.chunk_id
                       ? 'bg-emerald-50 border-emerald-300 shadow-sm'
                       : 'bg-slate-50 border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/50'
                   }`}
-                  onClick={() => handleHighlight(result.chunk_text)}
+                  onClick={() => handleHighlight(result.chunk_id)}
                 >
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded">
@@ -482,7 +529,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                     <span className="text-xs text-slate-500">Section {result.chunk_index + 1}</span>
                   </div>
                   <p className="text-sm text-slate-700 line-clamp-4">{result.chunk_text}</p>
-                  {highlightedText === result.chunk_text && (
+                  {highlightedChunkId === result.chunk_id && (
                     <div className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1">
                       <div className="w-2 h-2 bg-emerald-600 rounded-full animate-pulse"></div>
                       Currently highlighted
@@ -659,22 +706,65 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         </div>
       </div>
 
-      {/* Highlighted Text Overlay */}
-      {highlightedText && showSearchPanel && (
-        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 max-w-2xl bg-white rounded-xl shadow-2xl border-2 border-emerald-500 p-4 z-50">
-          <div className="flex items-start justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-semibold text-emerald-700">Highlighted Section</span>
+      {/* Text View Overlay with Highlighting */}
+      {showTextView && documentChunks.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Document Text View</h3>
+                <p className="text-sm text-slate-500">
+                  {searchResults.length > 0 ? `${searchResults.length} matching sections highlighted` : 'Full document text'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowTextView(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-lg"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
-            <button
-              onClick={() => setHighlightedText(null)}
-              className="text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {documentChunks.map((chunk) => {
+                const isHighlighted = highlightedChunkId === chunk.id;
+                const isSearchResult = searchResults.some(r => r.chunk_id === chunk.id);
+
+                return (
+                  <div
+                    key={chunk.id}
+                    id={`chunk-${chunk.id}`}
+                    className={`p-4 rounded-lg transition-all ${
+                      isHighlighted
+                        ? 'bg-emerald-100 border-2 border-emerald-500 shadow-lg scale-[1.02]'
+                        : isSearchResult
+                        ? 'bg-yellow-50 border border-yellow-300'
+                        : 'bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-500">
+                        Section {chunk.chunk_index + 1}
+                      </span>
+                      {isHighlighted && (
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-200 px-2 py-1 rounded flex items-center gap-1">
+                          <div className="w-2 h-2 bg-emerald-600 rounded-full animate-pulse"></div>
+                          Current Selection
+                        </span>
+                      )}
+                      {isSearchResult && !isHighlighted && (
+                        <span className="text-xs font-medium text-yellow-700 bg-yellow-200 px-2 py-1 rounded">
+                          Match
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                      {chunk.chunk_text}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <p className="text-sm text-slate-700 max-h-32 overflow-y-auto">{highlightedText}</p>
         </div>
       )}
     </div>
