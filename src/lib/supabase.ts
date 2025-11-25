@@ -26,6 +26,7 @@ export interface SupabaseDocument {
   processed: boolean
   created_at: string
   updated_at: string
+  tags?: string[]
 }
 
 export interface UserProfile {

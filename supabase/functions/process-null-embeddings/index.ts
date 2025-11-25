@@ -97,6 +97,51 @@ Deno.serve(async (req: Request) => {
 
     console.log(`🎉 Processing complete: ${totalProcessed} chunks processed, ${remainingCount || 0} remaining`);
 
+    console.log("🏷️ Checking for documents ready for tag generation...");
+
+    const { data: documents } = await supabase
+      .from("documents")
+      .select("id, tags")
+      .or("tags.is.null,tags.eq.{}");
+
+    if (documents && documents.length > 0) {
+      for (const doc of documents) {
+        const { data: stats } = await supabase
+          .from("document_chunks")
+          .select("id, embedding")
+          .eq("document_id", doc.id);
+
+        if (stats && stats.length > 0) {
+          const totalChunks = stats.length;
+          const chunksWithEmbeddings = stats.filter(chunk => chunk.embedding !== null).length;
+          const progress = (chunksWithEmbeddings / totalChunks) * 100;
+
+          if (progress >= 60 && (!doc.tags || doc.tags.length === 0)) {
+            console.log(`🏷️ Document ${doc.id} is ${progress.toFixed(1)}% complete, generating tags...`);
+
+            try {
+              const tagsUrl = `${supabaseUrl}/functions/v1/generate-tags`;
+              const tagsResponse = await fetch(tagsUrl, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${supabaseServiceKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ document_id: doc.id }),
+              });
+
+              if (tagsResponse.ok) {
+                const tagsResult = await tagsResponse.json();
+                console.log(`✅ Tags generated for document ${doc.id}:`, tagsResult.tags);
+              }
+            } catch (tagError) {
+              console.error(`⚠️ Failed to generate tags for document ${doc.id}:`, tagError);
+            }
+          }
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

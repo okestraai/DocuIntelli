@@ -29,6 +29,7 @@ export interface Document {
   expirationDate?: string;
   size: string;
   status: 'active' | 'expiring' | 'expired';
+  tags?: string[];
 }
 
 function App() {
@@ -124,6 +125,13 @@ function App() {
     setViewingDocument(null);
   };
 
+  const handleNavigate = (page: Page) => {
+    // Clear any selected/viewing document states when navigating
+    setSelectedDocument(null);
+    setViewingDocument(null);
+    setCurrentPage(page);
+  };
+
   const handleDocumentsUploadNew = async (documentsData: DocumentUploadRequest[]) => {
     const loadingToastId = feedback.showLoading('Uploading documents...', 'Please wait while we process your files');
     try {
@@ -166,6 +174,8 @@ function App() {
     }
 
     // Only show app UI if authenticated
+    // Note: When in DocumentChat or DocumentViewer, header navigation still works
+    // because the Header is always rendered when authenticated
     if (selectedDocument) {
       return (
         <DocumentChat
@@ -284,7 +294,7 @@ function App() {
       {isAuthenticated && (
         <Header
           currentPage={currentPage}
-          onNavigate={setCurrentPage}
+          onNavigate={handleNavigate}
           onSignOut={() => setShowLogoutConfirm(true)}
           onOpenProfile={() => setShowProfileModal(true)}
           onOpenNotifications={() => setShowNotificationsModal(true)}

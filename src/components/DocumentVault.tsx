@@ -178,9 +178,22 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
               </div>
 
               {doc.expirationDate && (
-                <div className="flex items-center text-sm text-gray-500 mb-4">
+                <div className="flex items-center text-sm text-gray-500 mb-3">
                   <Calendar className="h-4 w-4 mr-1" />
                   <span>Expires: {formatUTCDate(doc.expirationDate)}</span>
+                </div>
+              )}
+
+              {doc.tags && doc.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {doc.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    >
+                      {tag}
+                    </span>
+                  ))}
                 </div>
               )}
 
