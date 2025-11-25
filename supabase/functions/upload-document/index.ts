@@ -27,7 +27,7 @@ class TextExtractor {
       const text = new TextDecoder().decode(uint8Array)
       
       // Extract readable text between stream objects (basic approach)
-      const textMatches = text.match(/stream\s*(.*?)\s*endstream/gs)
+      const textMatches = text.match(/stream\s*(.*)\s*endstream/gs)
       if (textMatches) {
         return textMatches
           .map(match => match.replace(/stream|endstream/g, ''))
@@ -356,68 +356,50 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     console.log(`✅ Document record created: ${documentData.id}`)
 
-    // Step 3: Extract text content (non-blocking)
+    // Step 3: Extract text content and create chunks (non-blocking)
     let chunksProcessed = 0
     try {
       console.log(`📝 Extracting text from ${file.type} file`)
       const extractedText = await TextExtractor.extractText(file)
-      
+
       if (extractedText && extractedText.trim().length > 0) {
         console.log(`📄 Extracted ${extractedText.length} characters of text`)
-        
+
         // Step 4: Split into chunks
         const textChunks = TextChunker.chunkText(extractedText)
         console.log(`✂️ Created ${textChunks.length} text chunks`)
-        
-        if (textChunks.length > 0) {
-          // Step 5: Generate embeddings using Supabase AI
-          console.log(`🧠 Generating embeddings for ${textChunks.length} chunks`)
-          const model = new Supabase.ai.Session('gte-small')
-          
-          const documentChunks = []
-          
-          for (let i = 0; i < textChunks.length; i++) {
-            try {
-              const embedding = await model.run(textChunks[i], { 
-                mean_pool: true, 
-                normalize: true 
-              })
-              
-              documentChunks.push({
-                document_id: documentData.id,
-                user_id: user.id,
-                chunk_index: i,
-                chunk_text: textChunks[i],
-                embedding: embedding
-              })
-              
-              console.log(`✅ Generated embedding for chunk ${i + 1}/${textChunks.length}`)
-            } catch (embeddingError) {
-              console.error(`❌ Embedding error for chunk ${i + 1}:`, embeddingError)
-              // Continue with other chunks
-            }
-          }
-          
-          // Step 6: Insert chunks into database
-          if (documentChunks.length > 0) {
-            const { data: insertedChunks, error: insertError } = await supabase
-              .from('document_chunks')
-              .insert(documentChunks)
-              .select('id')
 
-            if (insertError) {
-              console.error('❌ Chunk insert error:', insertError)
-            } else {
-              chunksProcessed = insertedChunks?.length || 0
-              console.log(`✅ Inserted ${chunksProcessed} chunks into database`)
-              
-              // Mark document as processed
-              await supabase
-                .from('documents')
-                .update({ processed: true })
-                .eq('id', documentData.id)
-                .eq('user_id', user.id)
-            }
+        if (textChunks.length > 0) {
+          // Step 5: Insert chunks into database with NULL embeddings
+          // The database trigger will automatically generate embeddings
+          console.log(`💾 Inserting ${textChunks.length} chunks with NULL embeddings`)
+
+          const documentChunks = textChunks.map((chunkText, i) => ({
+            document_id: documentData.id,
+            user_id: user.id,
+            chunk_index: i,
+            chunk_text: chunkText,
+            embedding: null
+          }))
+
+          const { data: insertedChunks, error: insertError } = await supabase
+            .from('document_chunks')
+            .insert(documentChunks)
+            .select('id')
+
+          if (insertError) {
+            console.error('❌ Chunk insert error:', insertError)
+          } else {
+            chunksProcessed = insertedChunks?.length || 0
+            console.log(`✅ Inserted ${chunksProcessed} chunks into database`)
+            console.log(`🔄 Database trigger will automatically generate embeddings`)
+
+            // Mark document as processed
+            await supabase
+              .from('documents')
+              .update({ processed: true })
+              .eq('id', documentData.id)
+              .eq('user_id', user.id)
           }
         }
       } else {
