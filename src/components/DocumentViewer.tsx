@@ -29,7 +29,6 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [highlightedChunkId, setHighlightedChunkId] = useState<string | null>(null);
   const [documentChunks, setDocumentChunks] = useState<Array<{id: string, chunk_text: string, chunk_index: number}>>([]);
-  const [showTextView, setShowTextView] = useState(false);
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
   const [showHtmlView, setShowHtmlView] = useState(false);
   const [htmlBlobUrl, setHtmlBlobUrl] = useState<string | null>(null);
@@ -302,15 +301,17 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
   const handleHighlight = (chunkId: string) => {
     setHighlightedChunkId(chunkId);
-    setShowTextView(true);
 
-    // Scroll to the highlighted chunk
-    setTimeout(() => {
-      const element = document.getElementById(`chunk-${chunkId}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 100);
+    // Send highlight message to iframe
+    if (iframeRef && iframeRef.contentWindow) {
+      const matchIds = searchResults.map(r => r.chunk_id);
+      iframeRef.contentWindow.postMessage({
+        type: 'highlight',
+        currentId: chunkId,
+        matchIds: matchIds,
+        searchText: searchQuery
+      }, '*');
+    }
   };
 
   const clearSearch = () => {
@@ -318,8 +319,30 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
     setSearchResults([]);
     setShowSearchPanel(false);
     setHighlightedChunkId(null);
-    setShowTextView(false);
+
+    // Clear highlights in iframe
+    if (iframeRef && iframeRef.contentWindow) {
+      iframeRef.contentWindow.postMessage({
+        type: 'highlight',
+        currentId: null,
+        matchIds: [],
+        searchText: ''
+      }, '*');
+    }
   };
+
+  // Update highlights when search results change
+  useEffect(() => {
+    if (searchResults.length > 0 && iframeRef && iframeRef.contentWindow && showHtmlView) {
+      const matchIds = searchResults.map(r => r.chunk_id);
+      iframeRef.contentWindow.postMessage({
+        type: 'highlight',
+        currentId: highlightedChunkId,
+        matchIds: matchIds,
+        searchText: searchQuery
+      }, '*');
+    }
+  }, [searchResults, highlightedChunkId, iframeRef, searchQuery, showHtmlView]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment
@@ -484,15 +507,6 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                 <span>PDF View</span>
               </button>
             )}
-            {documentChunks.length > 0 && (
-              <button
-                onClick={() => setShowTextView(true)}
-                className="flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-all border border-slate-300"
-              >
-                <FileText className="h-4 w-4" />
-                <span>Text View</span>
-              </button>
-            )}
             <button
               onClick={handleDownload}
               disabled={!blobUrl && !documentUrl}
@@ -651,7 +665,8 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                         iframeRef.contentWindow.postMessage({
                           type: 'highlight',
                           currentId: highlightedChunkId,
-                          matchIds: matchIds
+                          matchIds: matchIds,
+                          searchText: searchQuery
                         }, '*');
                       }
                     }}
@@ -725,67 +740,6 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         </div>
       </div>
 
-      {/* Text View Overlay with Highlighting */}
-      {showTextView && documentChunks.length > 0 && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-slate-900">Document Text View</h3>
-                <p className="text-sm text-slate-500">
-                  {searchResults.length > 0 ? `${searchResults.length} matching sections highlighted` : 'Full document text'}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowTextView(false)}
-                className="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-lg"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {documentChunks.map((chunk) => {
-                const isHighlighted = highlightedChunkId === chunk.id;
-                const isSearchResult = searchResults.some(r => r.chunk_id === chunk.id);
-
-                return (
-                  <div
-                    key={chunk.id}
-                    id={`chunk-${chunk.id}`}
-                    className={`p-4 rounded-lg transition-all ${
-                      isHighlighted
-                        ? 'bg-emerald-100 border-2 border-emerald-500 shadow-lg scale-[1.02]'
-                        : isSearchResult
-                        ? 'bg-yellow-50 border border-yellow-300'
-                        : 'bg-slate-50 border border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium text-slate-500">
-                        Section {chunk.chunk_index + 1}
-                      </span>
-                      {isHighlighted && (
-                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-200 px-2 py-1 rounded flex items-center gap-1">
-                          <div className="w-2 h-2 bg-emerald-600 rounded-full animate-pulse"></div>
-                          Current Selection
-                        </span>
-                      )}
-                      {isSearchResult && !isHighlighted && (
-                        <span className="text-xs font-medium text-yellow-700 bg-yellow-200 px-2 py-1 rounded">
-                          Match
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                      {chunk.chunk_text}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
