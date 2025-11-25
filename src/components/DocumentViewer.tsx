@@ -33,6 +33,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
   const [showHtmlView, setShowHtmlView] = useState(false);
   const [htmlBlobUrl, setHtmlBlobUrl] = useState<string | null>(null);
   const [isLoadingHtml, setIsLoadingHtml] = useState(false);
+  const [resolvedFilePath, setResolvedFilePath] = useState<string | null>(null);
   const feedback = useFeedback();
 
   const loadDocument = useCallback(async () => {
@@ -76,6 +77,9 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
         filePath = docData.file_path;
         console.log('Single file document, using file_path:', filePath);
       }
+
+      // Store the resolved file path for use in HTML conversion
+      setResolvedFilePath(filePath);
 
       console.log('=== DOCUMENT VIEWER DEBUG ===');
       console.log('Document ID:', document.id);
@@ -167,32 +171,14 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
       }
       console.log('[HTML] Session OK');
 
-      // Get file_path directly from documents table (skip document_files which is empty)
-      let filePath: string;
-      if (document.file_path) {
-        filePath = document.file_path;
-        console.log('[HTML] Using file_path from prop:', filePath);
-      } else {
-        console.log('[HTML] Fetching file_path from database');
-        const { data: docData, error: docError } = await supabase
-          .from('documents')
-          .select('file_path')
-          .eq('id', document.id)
-          .maybeSingle();
-
-        if (docError) {
-          console.error('[HTML] DB error:', docError);
-          throw new Error('Database error: ' + docError.message);
-        }
-
-        if (!docData?.file_path) {
-          console.error('[HTML] No file_path found');
-          throw new Error('Document has no file_path');
-        }
-
-        filePath = docData.file_path;
-        console.log('[HTML] Got file_path:', filePath);
+      // Use the SAME file path that was used to display the document
+      if (!resolvedFilePath) {
+        console.error('[HTML] No resolved file path available');
+        throw new Error('Document not loaded yet');
       }
+
+      const filePath = resolvedFilePath;
+      console.log('[HTML] Using resolved file_path from viewer:', filePath);
 
       const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-html`;
       console.log('[HTML] Calling:', conversionUrl);
