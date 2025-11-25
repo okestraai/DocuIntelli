@@ -129,6 +129,23 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-slate-900 text-sm sm:text-base truncate">{doc.name}</h3>
                   <p className="text-xs sm:text-sm text-slate-500 capitalize truncate">{doc?.category || 'Unknown'} • {doc?.size || 'Unknown size'}</p>
+                  {doc.tags && doc.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {doc.tags.slice(0, 3).map((tag, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {doc.tags.length > 3 && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium text-slate-500">
+                          +{doc.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <div className={`px-2 py-1 rounded-full text-xs font-medium ${

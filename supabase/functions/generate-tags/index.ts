@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: document, error: docError } = await supabase
       .from("documents")
-      .select("name, category")
+      .select("name, category, tags")
       .eq("id", document_id)
       .single();
 
