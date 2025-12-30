@@ -170,7 +170,7 @@ function App() {
   const renderPage = () => {
     // Always show landing page if not authenticated
     if (!isAuthenticated) {
-      return <LandingPage onGetStarted={handleGetStarted} />;
+      return <LandingPage onGetStarted={handleGetStarted} onSignIn={handleGetStarted} />;
     }
 
     // Only show app UI if authenticated
