@@ -131,12 +131,51 @@ export const getCurrentUser = async () => {
   return user
 }
 
-// Password reset function
+// Password reset function (backward compatibility)
 export const resetPassword = async (email: string) => {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/reset-password`
   })
   if (error) throw error
+}
+
+// Password reset function with OTP
+export const resetPasswordWithOTP = async (email: string) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`
+  })
+  if (error) throw error
+}
+
+// Verify OTP code
+export const verifyOTP = async (
+  email: string,
+  token: string,
+  type: 'signup' | 'recovery' | 'email'
+) => {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type,
+  })
+  if (error) throw error
+  return data
+}
+
+// Resend OTP code
+export const resendOTP = async (email: string, type: 'signup' | 'recovery') => {
+  if (type === 'signup') {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+    })
+    if (error) throw error
+  } else {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`
+    })
+    if (error) throw error
+  }
 }
 
 // Update user profile
