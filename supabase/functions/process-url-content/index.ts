@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import puppeteer from 'npm:puppeteer@22.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,45 +14,14 @@ interface URLContentRequest {
   expirationDate?: string;
 }
 
-function extractTextFromHTML(html: string): string {
-  const text = html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return text;
-}
-
-function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end));
-    start = end - overlap;
-
-    if (start >= text.length) break;
-  }
-
-  return chunks;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 200 });
   }
 
+  let browser;
   try {
-    console.log('Process URL Content function started');
+    console.log('🚀 Process URL Content function started');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -59,7 +29,7 @@ Deno.serve(async (req: Request) => {
     );
 
     const authHeader = req.headers.get('Authorization');
-    console.log('Auth header present:', !!authHeader);
+    console.log('🔑 Auth header present:', !!authHeader);
 
     if (!authHeader) {
       return new Response(
@@ -73,17 +43,17 @@ Deno.serve(async (req: Request) => {
     );
 
     if (userError || !user) {
-      console.error('User auth error:', userError);
+      console.error('❌ User auth error:', userError);
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid token' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
       );
     }
 
-    console.log('User authenticated:', user.id);
+    console.log('✅ User authenticated:', user.id);
 
     const { url, name, category, expirationDate }: URLContentRequest = await req.json();
-    console.log('Request data:', { url, name, category, hasExpiration: !!expirationDate });
+    console.log('📋 Request data:', { url, name, category, hasExpiration: !!expirationDate });
 
     if (!url || !name || !category) {
       return new Response(
@@ -92,123 +62,131 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`Fetching content from URL: ${url}`);
+    console.log(`🌐 Converting URL to PDF: ${url}`);
 
-    let urlResponse;
+    // Launch Puppeteer browser
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ],
+    });
+
+    const page = await browser.newPage();
+
+    // Set timeout and navigate to URL
+    await page.setDefaultNavigationTimeout(30000);
+
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      urlResponse = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; DocuVaultAI/1.0)',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!urlResponse.ok) {
-        console.error(`URL fetch failed: ${urlResponse.status} ${urlResponse.statusText}`);
-        return new Response(
-          JSON.stringify({ success: false, error: `Failed to fetch URL: ${urlResponse.status} ${urlResponse.statusText}` }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-        );
-      }
-    } catch (fetchError) {
-      console.error('URL fetch error:', fetchError);
+      await page.goto(url, { waitUntil: 'networkidle2' });
+    } catch (navigationError) {
+      await browser.close();
+      console.error('❌ Navigation error:', navigationError);
       return new Response(
         JSON.stringify({
           success: false,
-          error: fetchError instanceof Error && fetchError.name === 'AbortError'
-            ? 'URL fetch timeout (30s limit)'
-            : 'Failed to fetch URL'
+          error: 'Failed to load URL. Please check if the URL is accessible.'
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    const html = await urlResponse.text();
-    console.log(`Fetched ${html.length} bytes from URL`);
+    console.log('📄 Generating PDF from webpage...');
 
-    const extractedText = extractTextFromHTML(html);
+    // Generate PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '20px',
+        right: '20px',
+        bottom: '20px',
+        left: '20px',
+      },
+    });
 
-    if (extractedText.length < 50) {
+    await browser.close();
+    browser = null;
+
+    console.log(`✅ PDF generated: ${pdfBuffer.length} bytes`);
+
+    // Create unique file path
+    const timestamp = Date.now();
+    const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const filePath = `${user.id}/${timestamp}_${sanitizedName}.pdf`;
+
+    console.log(`💾 Uploading PDF to storage: ${filePath}`);
+
+    // Upload PDF to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(filePath, pdfBuffer, {
+        contentType: 'application/pdf',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('❌ Upload error:', uploadError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Insufficient content extracted from URL' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        JSON.stringify({
+          success: false,
+          error: 'Failed to upload PDF to storage',
+          details: uploadError.message,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
 
-    console.log(`Extracted ${extractedText.length} characters from URL`);
+    console.log('✅ PDF uploaded successfully');
 
-    const sizeInKB = Math.round(extractedText.length / 1024);
+    // Calculate size
+    const sizeInKB = Math.round(pdfBuffer.length / 1024);
     const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
 
+    // Create document record
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
         user_id: user.id,
         name: name,
         original_name: name,
-        type: 'text/html',
+        type: 'application/pdf',
         category: category,
         expiration_date: expirationDate || null,
         size: sizeText,
-        file_path: null,
+        file_path: filePath,
         status: 'active',
         source_type: 'url',
         source_url: url,
+        processed: false,
       })
       .select('id')
       .single();
 
     if (docError || !document) {
-      console.error('Document creation error:', docError);
-      console.error('Error details:', JSON.stringify(docError, null, 2));
+      console.error('❌ Document creation error:', docError);
+      // Clean up uploaded file
+      await supabase.storage.from('documents').remove([filePath]);
       return new Response(
         JSON.stringify({
           success: false,
           error: docError?.message || 'Failed to create document record',
-          details: docError
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
 
-    console.log(`Document created with ID: ${document.id}`);
+    console.log(`✅ Document created with ID: ${document.id}`);
 
-    const chunks = chunkText(extractedText);
-    console.log(`Created ${chunks.length} chunks`);
-
-    const chunkInserts = chunks.map((chunk, index) => ({
-      document_id: document.id,
-      chunk_index: index,
-      chunk_text: chunk,
-      embedding: null,
-    }));
-
-    const { error: chunksError } = await supabase
-      .from('document_chunks')
-      .insert(chunkInserts);
-
-    if (chunksError) {
-      console.error('Chunks insertion error:', chunksError);
-      await supabase.from('documents').delete().eq('id', document.id);
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to create document chunks' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      );
-    }
-
-    console.log(`Successfully created ${chunks.length} chunks for document ${document.id}`);
-
-    console.log('Triggering embeddings generation...');
+    // Trigger process-document function to extract text and create chunks
+    console.log('🔄 Triggering document processing...');
 
     try {
-      const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`;
-      const embeddingResponse = await fetch(embeddingUrl, {
+      const processUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/process-document`;
+      const processResponse = await fetch(processUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
@@ -217,33 +195,60 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ document_id: document.id }),
       });
 
-      if (!embeddingResponse.ok) {
-        console.warn('Embedding generation failed, but document was created');
-      } else {
-        console.log('Embedding generation triggered successfully');
+      if (!processResponse.ok) {
+        const errorText = await processResponse.text();
+        console.error('❌ Document processing failed:', errorText);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Document uploaded but processing failed. It will be processed automatically.',
+            document_id: document.id,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 207 }
+        );
       }
-    } catch (embeddingError) {
-      console.warn('Error triggering embeddings (non-fatal):', embeddingError);
+
+      const processResult = await processResponse.json();
+      console.log('✅ Document processed successfully:', processResult);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            document_id: document.id,
+            chunks_created: processResult.data?.chunks_processed || 0,
+            message: 'URL converted to PDF and processed successfully',
+          },
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
+
+    } catch (processError) {
+      console.error('❌ Error triggering processing:', processError);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            document_id: document.id,
+            message: 'PDF created successfully. Processing will happen automatically.',
+          },
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
     }
 
-    const successResponse = {
-      success: true,
-      data: {
-        document_id: document.id,
-        chunks_created: chunks.length,
-        content_length: extractedText.length,
-      },
-    };
-
-    console.log('Returning success response:', successResponse);
-
-    return new Response(
-      JSON.stringify(successResponse),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-    );
-
   } catch (error) {
-    console.error('URL processing error:', error);
+    console.error('❌ URL processing error:', error);
+
+    // Clean up browser if still open
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Error closing browser:', closeError);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: false,
