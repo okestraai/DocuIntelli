@@ -46,6 +46,22 @@ function App() {
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile && !isAuthenticated && !isLoading && currentPage === 'landing') {
+      setShowAuthModal(true);
+    }
+  }, [isMobile, isAuthenticated, isLoading, currentPage]);
 
   const expiringDocuments = useMemo(() => {
     const today = new Date();
