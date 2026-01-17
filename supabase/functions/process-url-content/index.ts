@@ -14,7 +14,6 @@ interface URLContentRequest {
 }
 
 function extractTextFromHTML(html: string): string {
-  // Remove scripts, styles, and other non-content elements
   let text = html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
@@ -24,7 +23,6 @@ function extractTextFromHTML(html: string): string {
     .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
     .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '');
 
-  // Convert common HTML entities
   text = text
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -35,16 +33,31 @@ function extractTextFromHTML(html: string): string {
     .replace(/&mdash;/g, '—')
     .replace(/&ndash;/g, '–');
 
-  // Remove all HTML tags
   text = text.replace(/<[^>]+>/g, ' ');
 
-  // Clean up whitespace
   text = text
     .replace(/\s+/g, ' ')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
 
   return text;
+}
+
+function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    const end = Math.min(start + chunkSize, text.length);
+    const chunk = text.slice(start, end).trim();
+    if (chunk.length > 50) {
+      chunks.push(chunk);
+    }
+    start = end - overlap;
+    if (start >= text.length) break;
+  }
+
+  return chunks;
 }
 
 Deno.serve(async (req: Request) => {
@@ -61,8 +74,6 @@ Deno.serve(async (req: Request) => {
     );
 
     const authHeader = req.headers.get('Authorization');
-    console.log('🔑 Auth header present:', !!authHeader);
-
     if (!authHeader) {
       return new Response(
         JSON.stringify({ success: false, error: 'Authorization required' }),
@@ -85,7 +96,6 @@ Deno.serve(async (req: Request) => {
     console.log('✅ User authenticated:', user.id);
 
     const { url, name, category, expirationDate }: URLContentRequest = await req.json();
-    console.log('📋 Request data:', { url, name, category, hasExpiration: !!expirationDate });
 
     if (!url || !name || !category) {
       return new Response(
@@ -96,7 +106,6 @@ Deno.serve(async (req: Request) => {
 
     console.log(`🌐 Fetching content from URL: ${url}`);
 
-    // Fetch HTML content from URL
     let htmlResponse;
     try {
       const controller = new AbortController();
@@ -113,7 +122,6 @@ Deno.serve(async (req: Request) => {
       clearTimeout(timeoutId);
 
       if (!htmlResponse.ok) {
-        console.error(`❌ URL fetch failed: ${htmlResponse.status} ${htmlResponse.statusText}`);
         return new Response(
           JSON.stringify({
             success: false,
@@ -123,7 +131,6 @@ Deno.serve(async (req: Request) => {
         );
       }
     } catch (fetchError) {
-      console.error('❌ URL fetch error:', fetchError);
       return new Response(
         JSON.stringify({
           success: false,
@@ -138,7 +145,6 @@ Deno.serve(async (req: Request) => {
     const html = await htmlResponse.text();
     console.log(`✅ Fetched ${html.length} bytes from URL`);
 
-    // Extract text from HTML
     const extractedText = extractTextFromHTML(html);
 
     if (!extractedText || extractedText.length < 50) {
@@ -153,18 +159,15 @@ Deno.serve(async (req: Request) => {
 
     console.log(`✅ Extracted ${extractedText.length} characters of text`);
 
-    // Convert text to a text file buffer
     const textEncoder = new TextEncoder();
     const textBuffer = textEncoder.encode(extractedText);
 
-    // Create unique file path
     const timestamp = Date.now();
     const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '_');
     const filePath = `${user.id}/${timestamp}_${sanitizedName}.txt`;
 
     console.log(`💾 Uploading text file to storage: ${filePath}`);
 
-    // Upload text file to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from('documents')
       .upload(filePath, textBuffer, {
@@ -186,11 +189,9 @@ Deno.serve(async (req: Request) => {
 
     console.log('✅ Text file uploaded successfully');
 
-    // Calculate size
     const sizeInKB = Math.round(textBuffer.length / 1024);
     const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
 
-    // Create document record
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
@@ -212,7 +213,6 @@ Deno.serve(async (req: Request) => {
 
     if (docError || !document) {
       console.error('❌ Document creation error:', docError);
-      // Clean up uploaded file
       await supabase.storage.from('documents').remove([filePath]);
       return new Response(
         JSON.stringify({
@@ -225,63 +225,83 @@ Deno.serve(async (req: Request) => {
 
     console.log(`✅ Document created with ID: ${document.id}`);
 
-    // Trigger process-document function to chunk and create embeddings
-    console.log('🔄 Triggering document processing...');
+    console.log('✂️ Chunking text...');
+    const chunks = chunkText(extractedText);
+    console.log(`✅ Created ${chunks.length} chunks`);
 
-    try {
-      const processUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/process-document`;
-      const processResponse = await fetch(processUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ document_id: document.id }),
-      });
-
-      if (!processResponse.ok) {
-        const errorText = await processResponse.text();
-        console.error('❌ Document processing failed:', errorText);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            data: {
-              document_id: document.id,
-              message: 'Content uploaded. Processing will happen automatically.',
-            },
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-        );
-      }
-
-      const processResult = await processResponse.json();
-      console.log('✅ Document processed successfully:', processResult);
-
+    if (chunks.length === 0) {
       return new Response(
         JSON.stringify({
-          success: true,
-          data: {
-            document_id: document.id,
-            chunks_created: processResult.data?.chunks_processed || 0,
-            message: 'URL content extracted and processed successfully',
-          },
+          success: false,
+          error: 'No valid text chunks could be created from the URL content'
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-      );
-
-    } catch (processError) {
-      console.error('❌ Error triggering processing:', processError);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            document_id: document.id,
-            message: 'Content uploaded successfully. Processing will happen automatically.',
-          },
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
+
+    const chunkInserts = chunks.map((chunk, index) => ({
+      document_id: document.id,
+      user_id: user.id,
+      chunk_index: index,
+      chunk_text: chunk,
+      embedding: null,
+    }));
+
+    console.log('💾 Inserting chunks into database...');
+    const { error: chunksError } = await supabase
+      .from('document_chunks')
+      .insert(chunkInserts);
+
+    if (chunksError) {
+      console.error('❌ Chunks insertion error:', chunksError);
+      await supabase.from('documents').delete().eq('id', document.id);
+      await supabase.storage.from('documents').remove([filePath]);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Failed to create document chunks',
+          details: chunksError.message,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
+    }
+
+    console.log(`✅ Inserted ${chunks.length} chunks into database`);
+
+    await supabase
+      .from('documents')
+      .update({ processed: true })
+      .eq('id', document.id);
+
+    console.log('🧠 Triggering embedding generation...');
+    try {
+      const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`;
+      fetch(embeddingUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ document_id: document.id, continue_processing: true }),
+      }).catch(err => console.error('Embedding trigger error:', err));
+    } catch (embeddingError) {
+      console.error('❌ Error triggering embeddings:', embeddingError);
+    }
+
+    console.log('🎉 URL processing completed successfully');
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          document_id: document.id,
+          chunks_created: chunks.length,
+          content_length: extractedText.length,
+          message: 'URL content extracted and processed successfully',
+        },
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+    );
 
   } catch (error) {
     console.error('❌ URL processing error:', error);
