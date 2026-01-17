@@ -1,5 +1,4 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
-import puppeteer from 'npm:puppeteer@22.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,12 +13,45 @@ interface URLContentRequest {
   expirationDate?: string;
 }
 
+function extractTextFromHTML(html: string): string {
+  // Remove scripts, styles, and other non-content elements
+  let text = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<head\b[^<]*(?:(?!<\/head>)<[^<]*)*<\/head>/gi, '')
+    .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '')
+    .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '');
+
+  // Convert common HTML entities
+  text = text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–');
+
+  // Remove all HTML tags
+  text = text.replace(/<[^>]+>/g, ' ');
+
+  // Clean up whitespace
+  text = text
+    .replace(/\s+/g, ' ')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
+
+  return text;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 200 });
   }
 
-  let browser;
   try {
     console.log('🚀 Process URL Content function started');
 
@@ -62,69 +94,81 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`🌐 Converting URL to PDF: ${url}`);
+    console.log(`🌐 Fetching content from URL: ${url}`);
 
-    // Launch Puppeteer browser
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
-
-    const page = await browser.newPage();
-
-    // Set timeout and navigate to URL
-    await page.setDefaultNavigationTimeout(30000);
-
+    // Fetch HTML content from URL
+    let htmlResponse;
     try {
-      await page.goto(url, { waitUntil: 'networkidle2' });
-    } catch (navigationError) {
-      await browser.close();
-      console.error('❌ Navigation error:', navigationError);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      htmlResponse = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; DocuVaultBot/1.0)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!htmlResponse.ok) {
+        console.error(`❌ URL fetch failed: ${htmlResponse.status} ${htmlResponse.statusText}`);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `Failed to fetch URL: ${htmlResponse.status} ${htmlResponse.statusText}`
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        );
+      }
+    } catch (fetchError) {
+      console.error('❌ URL fetch error:', fetchError);
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Failed to load URL. Please check if the URL is accessible.'
+          error: fetchError instanceof Error && fetchError.name === 'AbortError'
+            ? 'URL fetch timeout (30s limit)'
+            : 'Failed to fetch URL. Please check if the URL is accessible.'
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    console.log('📄 Generating PDF from webpage...');
+    const html = await htmlResponse.text();
+    console.log(`✅ Fetched ${html.length} bytes from URL`);
 
-    // Generate PDF
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '20px',
-        right: '20px',
-        bottom: '20px',
-        left: '20px',
-      },
-    });
+    // Extract text from HTML
+    const extractedText = extractTextFromHTML(html);
 
-    await browser.close();
-    browser = null;
+    if (!extractedText || extractedText.length < 50) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Insufficient content extracted from URL. The page may be empty or requires JavaScript.'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
 
-    console.log(`✅ PDF generated: ${pdfBuffer.length} bytes`);
+    console.log(`✅ Extracted ${extractedText.length} characters of text`);
+
+    // Convert text to a text file buffer
+    const textEncoder = new TextEncoder();
+    const textBuffer = textEncoder.encode(extractedText);
 
     // Create unique file path
     const timestamp = Date.now();
     const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const filePath = `${user.id}/${timestamp}_${sanitizedName}.pdf`;
+    const filePath = `${user.id}/${timestamp}_${sanitizedName}.txt`;
 
-    console.log(`💾 Uploading PDF to storage: ${filePath}`);
+    console.log(`💾 Uploading text file to storage: ${filePath}`);
 
-    // Upload PDF to Supabase Storage
+    // Upload text file to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(filePath, pdfBuffer, {
-        contentType: 'application/pdf',
+      .upload(filePath, textBuffer, {
+        contentType: 'text/plain',
         upsert: false,
       });
 
@@ -133,17 +177,17 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Failed to upload PDF to storage',
+          error: 'Failed to upload content to storage',
           details: uploadError.message,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
 
-    console.log('✅ PDF uploaded successfully');
+    console.log('✅ Text file uploaded successfully');
 
     // Calculate size
-    const sizeInKB = Math.round(pdfBuffer.length / 1024);
+    const sizeInKB = Math.round(textBuffer.length / 1024);
     const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
 
     // Create document record
@@ -153,7 +197,7 @@ Deno.serve(async (req: Request) => {
         user_id: user.id,
         name: name,
         original_name: name,
-        type: 'application/pdf',
+        type: 'text/plain',
         category: category,
         expiration_date: expirationDate || null,
         size: sizeText,
@@ -181,7 +225,7 @@ Deno.serve(async (req: Request) => {
 
     console.log(`✅ Document created with ID: ${document.id}`);
 
-    // Trigger process-document function to extract text and create chunks
+    // Trigger process-document function to chunk and create embeddings
     console.log('🔄 Triggering document processing...');
 
     try {
@@ -200,11 +244,13 @@ Deno.serve(async (req: Request) => {
         console.error('❌ Document processing failed:', errorText);
         return new Response(
           JSON.stringify({
-            success: false,
-            error: 'Document uploaded but processing failed. It will be processed automatically.',
-            document_id: document.id,
+            success: true,
+            data: {
+              document_id: document.id,
+              message: 'Content uploaded. Processing will happen automatically.',
+            },
           }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 207 }
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
         );
       }
 
@@ -217,7 +263,7 @@ Deno.serve(async (req: Request) => {
           data: {
             document_id: document.id,
             chunks_created: processResult.data?.chunks_processed || 0,
-            message: 'URL converted to PDF and processed successfully',
+            message: 'URL content extracted and processed successfully',
           },
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
@@ -230,7 +276,7 @@ Deno.serve(async (req: Request) => {
           success: true,
           data: {
             document_id: document.id,
-            message: 'PDF created successfully. Processing will happen automatically.',
+            message: 'Content uploaded successfully. Processing will happen automatically.',
           },
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
@@ -239,16 +285,6 @@ Deno.serve(async (req: Request) => {
 
   } catch (error) {
     console.error('❌ URL processing error:', error);
-
-    // Clean up browser if still open
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeError) {
-        console.error('Error closing browser:', closeError);
-      }
-    }
-
     return new Response(
       JSON.stringify({
         success: false,
