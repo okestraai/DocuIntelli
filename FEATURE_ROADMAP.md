@@ -1,6 +1,39 @@
-# LegalEase Feature Roadmap & Enhancement Recommendations
+# DocuVault AI Feature Roadmap & Enhancement Recommendations
 
-This document outlines potential features and improvements to make LegalEase a more robust and comprehensive document lifecycle management platform.
+This document outlines potential features and improvements to make DocuVault AI a more robust and comprehensive document lifecycle management platform.
+
+---
+
+## Current Pricing Structure
+
+### Active Plans
+
+#### Free Plan
+- **Cost**: $0/month
+- **Limits**: 2 documents, 5 AI questions per month
+- **Features**: Basic expiration tracking, single device access
+
+#### Starter Plan
+- **Cost**: $5/month or $50/year
+- **Limits**: 25 documents, 50 AI questions per month
+- **Features**: Smart expiration reminders, all devices sync, email notifications, OCR for scanned documents
+
+#### Pro Plan
+- **Cost**: $15/month or $150/year
+- **Limits**: 100 documents, 200 AI questions per month
+- **Features**: Everything in Starter plus priority processing and priority support
+
+#### Business Plan (Coming Soon)
+- **Cost**: $29/month or $290/year (when available)
+- **Limits**: 500 AI questions per month
+- **Features**: Everything in Pro plus team sharing (5 members), advanced analytics, dedicated support
+
+### Subscription Management
+- Users start on Free plan by default
+- Database tracks document and AI question usage
+- Monthly AI question counters reset automatically
+- Stripe integration for payment processing
+- Business plan is visible but not yet purchasable (Coming Soon badge)
 
 ---
 
@@ -324,8 +357,32 @@ Advanced features for mature product:
 - **Cloud Storage APIs**: Google Drive, Dropbox sync
 - **Calendar APIs**: Google Calendar, Outlook
 - **DocuSign/HelloSign**: Digital signatures
-- **Stripe**: Premium features monetization
+- **Stripe**: Payment processing (currently integrated)
 - **Analytics**: User behavior tracking
+
+### Monetization Strategy
+
+#### Current Implementation
+- **Free Tier**: Serves as entry point with meaningful but limited functionality
+- **Starter Tier**: Low-cost option for individual users with moderate needs
+- **Pro Tier**: Premium features for power users and families
+- **Business Tier**: Planned for teams and organizations (not yet available)
+
+#### Revenue Opportunities
+1. **Subscription Tiers**: Primary revenue source through monthly/annual subscriptions
+2. **Add-on Services**:
+   - Extra document storage blocks
+   - Additional AI question packs
+   - Priority support packages
+3. **Enterprise Custom Plans**: Tailored solutions for large organizations
+4. **API Access**: For developers and third-party integrations
+5. **White-label Solutions**: For businesses wanting branded document management
+
+#### Value Proposition by Tier
+- **Free**: Prove value with basic features, encourage upgrade through limits
+- **Starter**: Affordable entry to paid features, ideal for personal use
+- **Pro**: Comprehensive features for individuals/families who rely on the platform
+- **Business**: Team collaboration and advanced analytics (future)
 
 ### Performance Optimizations
 - Implement pagination for large document lists
@@ -378,5 +435,6 @@ By implementing these features, LegalEase would differentiate itself through:
 
 ---
 
-*Last Updated: November 23, 2025*
-*Document Version: 1.0*
+*Last Updated: January 17, 2026*
+*Document Version: 1.1*
+*Changes: Updated pricing structure with new Starter plan and Business plan (Coming Soon)*

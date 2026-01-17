@@ -1,7 +1,46 @@
+# DocuVault AI - Intelligent Document Management
+
+DocuVault AI is a comprehensive document lifecycle management platform with AI-powered features, smart expiration tracking, and seamless document organization.
+
+## Features
+
+### Subscription Plans
+
+#### Free Plan
+- 2 documents
+- 5 AI questions per month
+- Basic expiration tracking
+- Single device access
+
+#### Starter Plan ($5/month)
+- 25 documents
+- 50 AI questions per month
+- Smart expiration reminders
+- All devices sync
+- Email notifications
+- OCR for scanned documents
+
+#### Pro Plan ($15/month)
+- 100 documents
+- 200 AI questions per month
+- Smart expiration reminders
+- All devices sync
+- Email notifications
+- Priority processing
+- OCR for scanned documents
+- Priority support
+
+#### Business Plan (Coming Soon)
+- Everything in Pro
+- 500 AI questions per month
+- Team sharing (5 members)
+- Advanced analytics
+- Dedicated support
+
 ## Development Setup
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - npm or yarn
 - Supabase project with email authentication enabled
 
@@ -17,10 +56,21 @@ This will start both the frontend (Vite) and backend (Express) servers concurren
 1. Create a new project at [Supabase](https://supabase.com)
 2. Go to Settings > API to get your project URL and anon key
 3. Enable Email authentication in Authentication > Settings
-4. Run the database migration to create the documents table
+4. Run the database migrations in the `supabase/migrations` folder
 5. Add your environment variables to `.env`:
    - `VITE_SUPABASE_URL=your-project-url`
    - `VITE_SUPABASE_ANON_KEY=your-anon-key`
+
+### Stripe Setup (Optional - For Paid Plans)
+1. Create a Stripe account at [Stripe Dashboard](https://dashboard.stripe.com)
+2. Create products and prices for each plan:
+   - Starter: $5/month (or $50/year)
+   - Pro: $15/month (or $150/year)
+   - Business: $29/month (or $290/year) - Coming Soon
+3. Add the price IDs to your `.env`:
+   - `VITE_STRIPE_STARTER_PRICE_ID=price_xxxxx`
+   - `VITE_STRIPE_PRO_PRICE_ID=price_xxxxx`
+   - `VITE_STRIPE_BUSINESS_PRICE_ID=price_xxxxx`
 
 ### Database Setup
 Run the SQL migration in your Supabase SQL editor:
