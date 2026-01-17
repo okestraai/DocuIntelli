@@ -4,7 +4,7 @@ import { X, Crown, Zap, Check } from 'lucide-react';
 interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUpgrade: (plan: 'pro' | 'business') => void;
+  onUpgrade: (plan: 'starter' | 'pro' | 'business') => void;
   reason?: 'documents' | 'ai-questions' | 'features';
   currentUsage?: {
     documents: number;
@@ -31,11 +31,11 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
   const getMessage = () => {
     switch (reason) {
       case 'documents':
-        return `You've reached your limit of ${currentUsage?.documentLimit || 5} documents. Upgrade to Pro for unlimited documents.`;
+        return `You've reached your limit of ${currentUsage?.documentLimit || 2} documents. Upgrade to get more storage.`;
       case 'ai-questions':
-        return `You've used all ${currentUsage?.aiQuestionsLimit || 10} AI questions this month. Upgrade to Pro for 100 questions per month.`;
+        return `You've used all ${currentUsage?.aiQuestionsLimit || 5} AI questions this month. Upgrade for more questions.`;
       default:
-        return 'Unlock unlimited documents and more AI questions with our Pro plan.';
+        return 'Unlock more documents and AI questions with our paid plans.';
     }
   };
 
@@ -90,7 +90,53 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
 
         {/* Plans */}
         <div className="p-6">
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Starter Plan */}
+            <div className="bg-white border-2 border-slate-200 rounded-xl p-6 hover:border-slate-300 transition-all">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="bg-slate-100 p-3 rounded-xl">
+                  <Zap className="h-6 w-6 text-slate-600" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">Starter</h3>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-slate-900">$5</span>
+                    <span className="text-slate-600">/month</span>
+                  </div>
+                </div>
+              </div>
+
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-start gap-2">
+                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-700">25 documents</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-700">50 AI questions per month</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-700">Smart expiration reminders</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-700">OCR for scanned documents</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-700">All devices sync</span>
+                </li>
+              </ul>
+
+              <button
+                onClick={() => onUpgrade('starter')}
+                className="w-full bg-slate-900 text-white font-semibold py-3 px-6 rounded-xl hover:bg-slate-800 transition-all shadow-md hover:shadow-xl"
+              >
+                Upgrade to Starter
+              </button>
+            </div>
+
             {/* Pro Plan */}
             <div className="relative bg-white border-2 border-emerald-500 rounded-xl p-6 shadow-lg">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -104,9 +150,9 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
                   <Crown className="h-6 w-6 text-emerald-600" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900">Pro Plan</h3>
+                  <h3 className="text-xl font-bold text-slate-900">Pro</h3>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-bold text-slate-900">$9</span>
+                    <span className="text-3xl font-bold text-slate-900">$15</span>
                     <span className="text-slate-600">/month</span>
                   </div>
                 </div>
@@ -115,11 +161,11 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
               <ul className="space-y-3 mb-6">
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-700">Unlimited documents</span>
+                  <span className="text-slate-700">100 documents</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-700">100 AI questions per month</span>
+                  <span className="text-slate-700">200 AI questions per month</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -135,7 +181,7 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-700">All devices sync</span>
+                  <span className="text-slate-700">Priority support</span>
                 </li>
               </ul>
 
@@ -147,14 +193,20 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
               </button>
             </div>
 
-            {/* Business Plan */}
-            <div className="bg-white border-2 border-slate-200 rounded-xl p-6 hover:border-slate-300 transition-all">
+            {/* Business Plan - Coming Soon */}
+            <div className="relative bg-white border-2 border-slate-200 rounded-xl p-6 opacity-75">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-bold px-4 py-1 rounded-full">
+                  Coming Soon
+                </span>
+              </div>
+
               <div className="flex items-center gap-3 mb-4">
                 <div className="bg-slate-100 p-3 rounded-xl">
                   <Zap className="h-6 w-6 text-slate-600" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900">Business Plan</h3>
+                  <h3 className="text-xl font-bold text-slate-900">Business</h3>
                   <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-bold text-slate-900">$29</span>
                     <span className="text-slate-600">/month</span>
@@ -169,15 +221,11 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-700">Unlimited AI questions</span>
+                  <span className="text-slate-700">500 AI questions per month</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <span className="text-slate-700">Team sharing (5 members)</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-700">Bulk document upload</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -190,10 +238,10 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
               </ul>
 
               <button
-                onClick={() => onUpgrade('business')}
-                className="w-full bg-slate-900 text-white font-semibold py-3 px-6 rounded-xl hover:bg-slate-800 transition-all shadow-md hover:shadow-xl"
+                disabled
+                className="w-full bg-slate-100 text-slate-400 font-semibold py-3 px-6 rounded-xl cursor-not-allowed"
               >
-                Upgrade to Business
+                Coming Soon
               </button>
             </div>
           </div>

@@ -3,8 +3,8 @@ import { Check, X, Zap, Crown, Building2, ArrowLeft } from 'lucide-react';
 
 interface PricingPageProps {
   onBack: () => void;
-  onSelectPlan: (plan: 'free' | 'pro' | 'business') => void;
-  currentPlan?: 'free' | 'pro' | 'business';
+  onSelectPlan: (plan: 'free' | 'starter' | 'pro' | 'business') => void;
+  currentPlan?: 'free' | 'starter' | 'pro' | 'business';
 }
 
 export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: PricingPageProps) {
@@ -18,27 +18,48 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
       price: { monthly: 0, yearly: 0 },
       description: 'Perfect for trying out DocuVault AI',
       features: [
-        { text: '5 documents', included: true },
-        { text: '10 AI questions per month', included: true },
+        { text: '2 documents', included: true },
+        { text: '5 AI questions per month', included: true },
         { text: 'Basic expiration tracking', included: true },
         { text: 'Single device access', included: true },
         { text: 'Email notifications', included: false },
         { text: 'Priority processing', included: false },
         { text: 'OCR for images', included: false },
-        { text: 'Unlimited AI questions', included: false },
+        { text: 'Priority support', included: false },
       ],
       cta: 'Current Plan',
       popular: false,
+      comingSoon: false,
+    },
+    {
+      id: 'starter' as const,
+      name: 'Starter',
+      icon: Zap,
+      price: { monthly: 5, yearly: 50 },
+      description: 'For light personal use',
+      features: [
+        { text: '25 documents', included: true },
+        { text: '50 AI questions per month', included: true },
+        { text: 'Smart expiration reminders', included: true },
+        { text: 'All devices sync', included: true },
+        { text: 'Email notifications', included: true },
+        { text: 'OCR for images', included: true },
+        { text: 'Priority processing', included: false },
+        { text: 'Priority support', included: false },
+      ],
+      cta: 'Upgrade to Starter',
+      popular: false,
+      comingSoon: false,
     },
     {
       id: 'pro' as const,
       name: 'Pro',
       icon: Crown,
-      price: { monthly: 9, yearly: 90 },
+      price: { monthly: 15, yearly: 150 },
       description: 'For individuals and families',
       features: [
-        { text: 'Unlimited documents', included: true },
-        { text: '100 AI questions per month', included: true },
+        { text: '100 documents', included: true },
+        { text: '200 AI questions per month', included: true },
         { text: 'Smart expiration reminders', included: true },
         { text: 'All devices sync', included: true },
         { text: 'Email notifications', included: true },
@@ -48,6 +69,7 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
       ],
       cta: 'Upgrade to Pro',
       popular: true,
+      comingSoon: false,
     },
     {
       id: 'business' as const,
@@ -57,7 +79,7 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
       description: 'For teams and businesses',
       features: [
         { text: 'Everything in Pro', included: true },
-        { text: 'Unlimited AI questions', included: true },
+        { text: '500 AI questions per month', included: true },
         { text: 'Team sharing (5 members)', included: true },
         { text: 'Bulk document upload', included: true },
         { text: 'Advanced analytics', included: true },
@@ -65,8 +87,9 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
         { text: 'Dedicated support', included: true },
         { text: 'SLA guarantee', included: true },
       ],
-      cta: 'Upgrade to Business',
+      cta: 'Coming Soon',
       popular: false,
+      comingSoon: true,
     },
   ];
 
@@ -140,7 +163,7 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
 
       {/* Pricing Cards */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           {plans.map((plan) => {
             const Icon = plan.icon;
             const price = getPrice(plan);
@@ -154,12 +177,19 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
                   plan.popular
                     ? 'border-emerald-500 scale-105'
                     : 'border-slate-200 hover:border-emerald-300'
-                }`}
+                } ${plan.comingSoon ? 'opacity-75' : ''}`}
               >
-                {plan.popular && (
+                {plan.popular && !plan.comingSoon && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2">
                     <span className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-bold px-4 py-1.5 rounded-full shadow-lg">
                       Most Popular
+                    </span>
+                  </div>
+                )}
+                {plan.comingSoon && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                    <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-bold px-4 py-1.5 rounded-full shadow-lg">
+                      Coming Soon
                     </span>
                   </div>
                 )}
@@ -201,10 +231,10 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
 
                   {/* CTA Button */}
                   <button
-                    onClick={() => onSelectPlan(plan.id)}
-                    disabled={isCurrentPlan}
+                    onClick={() => !plan.comingSoon && onSelectPlan(plan.id)}
+                    disabled={isCurrentPlan || plan.comingSoon}
                     className={`w-full py-3 px-6 rounded-xl font-semibold transition-all duration-200 ${
-                      isCurrentPlan
+                      isCurrentPlan || plan.comingSoon
                         ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                         : plan.popular
                         ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 shadow-md hover:shadow-xl transform hover:-translate-y-0.5'

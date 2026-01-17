@@ -290,13 +290,14 @@ export async function loadChatHistory(documentId: string) {
 /**
  * Create a Stripe checkout session for subscription
  */
-export async function createCheckoutSession(plan: 'pro' | 'business'): Promise<{ url: string }> {
+export async function createCheckoutSession(plan: 'starter' | 'pro' | 'business'): Promise<{ url: string }> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
 
   const priceIds = {
+    starter: import.meta.env.VITE_STRIPE_STARTER_PRICE_ID,
     pro: import.meta.env.VITE_STRIPE_PRO_PRICE_ID,
     business: import.meta.env.VITE_STRIPE_BUSINESS_PRICE_ID,
   };
