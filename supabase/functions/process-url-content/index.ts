@@ -43,31 +43,12 @@ function extractTextFromHTML(html: string): string {
   return text;
 }
 
-function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    const chunk = text.slice(start, end).trim();
-    if (chunk.length > 50) {
-      chunks.push(chunk);
-    }
-    start = end - overlap;
-    if (start >= text.length) break;
-  }
-
-  return chunks;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 200 });
   }
 
   try {
-    console.log('🚀 Process URL Content function started');
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -86,14 +67,11 @@ Deno.serve(async (req: Request) => {
     );
 
     if (userError || !user) {
-      console.error('❌ User auth error:', userError);
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid token' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
       );
     }
-
-    console.log('✅ User authenticated:', user.id);
 
     const { url, name, category, expirationDate }: URLContentRequest = await req.json();
 
@@ -103,8 +81,6 @@ Deno.serve(async (req: Request) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
-
-    console.log(`🌐 Fetching content from URL: ${url}`);
 
     let htmlResponse;
     try {
@@ -143,8 +119,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const html = await htmlResponse.text();
-    console.log(`✅ Fetched ${html.length} bytes from URL`);
-
     const extractedText = extractTextFromHTML(html);
 
     if (!extractedText || extractedText.length < 50) {
@@ -157,16 +131,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`✅ Extracted ${extractedText.length} characters of text`);
-
     const textEncoder = new TextEncoder();
     const textBuffer = textEncoder.encode(extractedText);
 
     const timestamp = Date.now();
     const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '_');
     const filePath = `${user.id}/${timestamp}_${sanitizedName}.txt`;
-
-    console.log(`💾 Uploading text file to storage: ${filePath}`);
 
     const { error: uploadError } = await supabase.storage
       .from('documents')
@@ -176,7 +146,6 @@ Deno.serve(async (req: Request) => {
       });
 
     if (uploadError) {
-      console.error('❌ Upload error:', uploadError);
       return new Response(
         JSON.stringify({
           success: false,
@@ -186,8 +155,6 @@ Deno.serve(async (req: Request) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
-
-    console.log('✅ Text file uploaded successfully');
 
     const sizeInKB = Math.round(textBuffer.length / 1024);
     const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
@@ -212,7 +179,6 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (docError || !document) {
-      console.error('❌ Document creation error:', docError);
       await supabase.storage.from('documents').remove([filePath]);
       return new Response(
         JSON.stringify({
@@ -223,88 +189,30 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`✅ Document created with ID: ${document.id}`);
-
-    console.log('✂️ Chunking text...');
-    const chunks = chunkText(extractedText);
-    console.log(`✅ Created ${chunks.length} chunks`);
-
-    if (chunks.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'No valid text chunks could be created from the URL content'
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      );
-    }
-
-    const chunkInserts = chunks.map((chunk, index) => ({
-      document_id: document.id,
-      user_id: user.id,
-      chunk_index: index,
-      chunk_text: chunk,
-      embedding: null,
-    }));
-
-    console.log('💾 Inserting chunks into database...');
-    const { error: chunksError } = await supabase
-      .from('document_chunks')
-      .insert(chunkInserts);
-
-    if (chunksError) {
-      console.error('❌ Chunks insertion error:', chunksError);
-      await supabase.from('documents').delete().eq('id', document.id);
-      await supabase.storage.from('documents').remove([filePath]);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Failed to create document chunks',
-          details: chunksError.message,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      );
-    }
-
-    console.log(`✅ Inserted ${chunks.length} chunks into database`);
-
-    await supabase
-      .from('documents')
-      .update({ processed: true })
-      .eq('id', document.id);
-
-    console.log('🧠 Triggering embedding generation...');
-    try {
-      const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`;
-      fetch(embeddingUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ document_id: document.id, continue_processing: true }),
-      }).catch(err => console.error('Embedding trigger error:', err));
-    } catch (embeddingError) {
-      console.error('❌ Error triggering embeddings:', embeddingError);
-    }
-
-    console.log('🎉 URL processing completed successfully');
+    // Trigger process-document to handle chunking (fire-and-forget)
+    const processUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/process-document`;
+    fetch(processUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ document_id: document.id }),
+    }).catch(() => {});
 
     return new Response(
       JSON.stringify({
         success: true,
         data: {
           document_id: document.id,
-          chunks_created: chunks.length,
           content_length: extractedText.length,
-          message: 'URL content extracted and processed successfully',
+          message: 'URL content saved. Processing will complete shortly.',
         },
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
 
   } catch (error) {
-    console.error('❌ URL processing error:', error);
     return new Response(
       JSON.stringify({
         success: false,
