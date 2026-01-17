@@ -162,15 +162,13 @@ export function useDocuments(isAuthenticated: boolean) {
   };
 }
 
-// Transform Supabase response to match our Document interface
 function transformSupabaseDocument(supabaseDoc: SupabaseDocument): Document {
-  // Calculate status based on expiration date
   let status: 'active' | 'expiring' | 'expired' = 'active';
   if (supabaseDoc.expiration_date) {
     const expirationDate = new Date(supabaseDoc.expiration_date);
     const today = new Date();
     const thirtyDaysFromNow = new Date(today.getTime() + (30 * 24 * 60 * 60 * 1000));
-    
+
     if (expirationDate < today) {
       status = 'expired';
     } else if (expirationDate <= thirtyDaysFromNow) {
@@ -178,22 +176,13 @@ function transformSupabaseDocument(supabaseDoc: SupabaseDocument): Document {
     }
   }
 
-  // Format size from bytes to human-readable string
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
-
   return {
     id: supabaseDoc.id,
     name: supabaseDoc.name,
     type: supabaseDoc.type,
     category: supabaseDoc.category as Document['category'],
     uploadDate: supabaseDoc.upload_date,
-    size: formatSize(supabaseDoc.size),
+    size: supabaseDoc.size || '0 KB',
     status: status,
     expirationDate: supabaseDoc.expiration_date,
     tags: supabaseDoc.tags || []

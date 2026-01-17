@@ -17,7 +17,7 @@ export interface SupabaseDocument {
   name: string
   category: string
   type: string
-  size: number
+  size: string
   file_path: string
   original_name: string
   upload_date: string

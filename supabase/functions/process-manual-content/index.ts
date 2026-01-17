@@ -95,6 +95,7 @@ Deno.serve(async (req: Request) => {
         status: 'active',
         source_type: 'manual',
         content_text: cleanedContent,
+        upload_date: new Date().toISOString(),
       })
       .select('id')
       .single();
