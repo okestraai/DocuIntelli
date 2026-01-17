@@ -31,13 +31,31 @@ function extractTextFromHTML(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&mdash;/g, '—')
-    .replace(/&ndash;/g, '–');
-
-  text = text.replace(/<[^>]+>/g, ' ');
+    .replace(/&ndash;/g, '–')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
 
   text = text
-    .replace(/\s+/g, ' ')
-    .replace(/\n\s*\n/g, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/blockquote>/gi, '\n\n')
+    .replace(/<\/article>/gi, '\n\n')
+    .replace(/<\/section>/gi, '\n\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<h([1-6])[^>]*>/gi, '\n\n')
+    .replace(/<p[^>]*>/gi, '\n')
+    .replace(/<hr\s*\/?>/gi, '\n---\n');
+
+  text = text.replace(/<[^>]+>/g, '');
+
+  text = text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n /g, '\n')
+    .replace(/ \n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
   return text;
