@@ -286,3 +286,51 @@ export async function loadChatHistory(documentId: string) {
 
   return data || [];
 }
+
+/**
+ * Create a Stripe checkout session for subscription
+ */
+export async function createCheckoutSession(plan: 'pro' | 'business'): Promise<{ url: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
+
+  const priceIds = {
+    pro: import.meta.env.VITE_STRIPE_PRO_PRICE_ID,
+    business: import.meta.env.VITE_STRIPE_BUSINESS_PRICE_ID,
+  };
+
+  const priceId = priceIds[plan];
+  if (!priceId) {
+    throw new Error(`Price ID not configured for ${plan} plan. Please add VITE_STRIPE_${plan.toUpperCase()}_PRICE_ID to your environment variables.`);
+  }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const apiUrl = `${supabaseUrl}/functions/v1/stripe-checkout`;
+
+  const successUrl = `${window.location.origin}/?checkout=success`;
+  const cancelUrl = `${window.location.origin}/?checkout=cancel`;
+
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      price_id: priceId,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      mode: 'subscription',
+    }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: 'Checkout session creation failed' }));
+    throw new Error(errorData.error || `Failed to create checkout session: ${res.status}`);
+  }
+
+  const result = await res.json();
+  return { url: result.url };
+}

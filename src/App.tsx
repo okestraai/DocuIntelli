@@ -15,7 +15,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { useDocuments } from './hooks/useDocuments';
 import { useSubscription } from './hooks/useSubscription';
-import { DocumentUploadRequest } from './lib/api';
+import { DocumentUploadRequest, createCheckoutSession } from './lib/api';
 import { supabase, signOut } from './lib/supabase';
 import { useFeedback } from './hooks/useFeedback';
 import { ToastContainer } from './components/Toast';
@@ -200,14 +200,52 @@ function App() {
       return;
     }
 
-    feedback.showInfo('Upgrade Coming Soon', 'Payment integration will be available soon. Stay tuned!');
-    setShowUpgradeModal(false);
+    try {
+      const loadingToastId = feedback.showLoading('Creating checkout session...', 'Please wait while we prepare your payment');
+      const { url } = await createCheckoutSession(plan);
+      feedback.removeToast(loadingToastId);
+
+      window.location.href = url;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create checkout session';
+
+      if (errorMessage.includes('Price ID not configured')) {
+        feedback.showError(
+          'Stripe Not Configured',
+          'Payment processing is not set up yet. Please add your Stripe price IDs to the environment variables.',
+          10000
+        );
+      } else {
+        feedback.showError('Checkout Failed', errorMessage);
+      }
+
+      console.error('Checkout error:', error);
+    }
   };
 
   const renderPage = () => {
-    // Always show landing page if not authenticated
+    // Show pricing page if requested, even when not authenticated
+    if (currentPage === 'pricing' && !isAuthenticated) {
+      return (
+        <ErrorBoundary>
+          <PricingPage
+            onBack={() => handleNavigate('landing')}
+            onSelectPlan={(plan) => {
+              if (plan === 'free') {
+                handleGetStarted();
+              } else {
+                handleGetStarted();
+              }
+            }}
+            currentPlan="free"
+          />
+        </ErrorBoundary>
+      );
+    }
+
+    // Always show landing page if not authenticated (except for pricing)
     if (!isAuthenticated) {
-      return <LandingPage onGetStarted={handleGetStarted} onSignIn={handleGetStarted} />;
+      return <LandingPage onGetStarted={handleGetStarted} onSignIn={handleGetStarted} onViewPricing={() => setCurrentPage('pricing')} />;
     }
 
     // Only show app UI if authenticated

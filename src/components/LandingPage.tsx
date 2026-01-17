@@ -4,9 +4,10 @@ import { ShieldCheck, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRigh
 interface LandingPageProps {
   onGetStarted: () => void;
   onSignIn: () => void;
+  onViewPricing: () => void;
 }
 
-export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
+export function LandingPage({ onGetStarted, onSignIn, onViewPricing }: LandingPageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50/30">
       {/* Top Navigation */}
@@ -21,13 +22,21 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
                 DocuVault <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">AI</span>
               </span>
             </div>
-            <button
-              onClick={onSignIn}
-              className="flex items-center gap-2 text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"
-            >
-              <LogIn className="h-4 w-4" />
-              <span>Sign In</span>
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onViewPricing}
+                className="text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"
+              >
+                Pricing
+              </button>
+              <button
+                onClick={onSignIn}
+                className="flex items-center gap-2 text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"
+              >
+                <LogIn className="h-4 w-4" />
+                <span>Sign In</span>
+              </button>
+            </div>
           </div>
         </div>
       </nav>
