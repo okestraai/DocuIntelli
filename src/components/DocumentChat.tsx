@@ -32,7 +32,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const feedback = useFeedback();
-  const { canAskQuestion, incrementAIQuestions, subscription } = useSubscription();
+  const { canAskQuestion, incrementAIQuestions, subscription, loading: subscriptionLoading } = useSubscription();
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -92,7 +92,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
     e.preventDefault();
     if (!inputValue.trim()) return;
 
-    if (!canAskQuestion) {
+    if (!subscriptionLoading && subscription && !canAskQuestion) {
       if (onUpgradeNeeded) {
         onUpgradeNeeded();
       } else {

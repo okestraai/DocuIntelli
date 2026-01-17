@@ -25,7 +25,7 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { canUploadDocument, documentCount, subscription } = useSubscription();
+  const { canUploadDocument, documentCount, subscription, loading } = useSubscription();
 
   const [urlData, setUrlData] = useState({
     url: '',
@@ -118,7 +118,7 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
   };
 
   const handleSubmit = async () => {
-    if (!canUploadDocument) {
+    if (!loading && subscription && !canUploadDocument) {
       if (onUpgradeNeeded) {
         onUpgradeNeeded();
       }

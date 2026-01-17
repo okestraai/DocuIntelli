@@ -136,13 +136,17 @@ export function useSubscription(): UseSubscriptionReturn {
     };
   }, []);
 
-  const canUploadDocument = subscription
+  const canUploadDocument = loading
+    ? true
+    : subscription
     ? subscription.plan !== 'free' || documentCount < subscription.document_limit
-    : false;
+    : true;
 
-  const canAskQuestion = subscription
+  const canAskQuestion = loading
+    ? true
+    : subscription
     ? subscription.plan === 'business' || subscription.ai_questions_used < subscription.ai_questions_limit
-    : false;
+    : true;
 
   return {
     subscription,
