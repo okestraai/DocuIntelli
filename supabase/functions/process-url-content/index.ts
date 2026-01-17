@@ -233,7 +233,7 @@ Deno.serve(async (req: Request) => {
       const processResponse = await fetch(processUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'Authorization': authHeader,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ document_id: document.id }),
