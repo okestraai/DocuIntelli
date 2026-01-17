@@ -6,22 +6,148 @@ export interface UploadResponse {
   success: boolean;
   data?: {
     document_id: string;
-    file_key: string;
+    file_key?: string;
     public_url?: string;
     file_type?: string;
+    chunks_created?: number;
+    content_length?: number;
   };
   error?: string;
 }
 
-export interface DocumentUploadRequest {
-  name: string;
-  category: string;
-  file: File;
-  expirationDate?: string;
+export type DocumentUploadRequest =
+  | {
+      type: 'file';
+      name: string;
+      category: string;
+      file: File;
+      expirationDate?: string;
+    }
+  | {
+      type: 'url';
+      name: string;
+      category: string;
+      url: string;
+      expirationDate?: string;
+    }
+  | {
+      type: 'manual';
+      name: string;
+      category: string;
+      content: string;
+      expirationDate?: string;
+    };
+
+/**
+ * Process a URL and create a document
+ */
+export async function processURLContent(
+  url: string,
+  name: string,
+  category: string,
+  expirationDate?: string
+): Promise<UploadResponse> {
+  try {
+    console.log('🔗 Processing URL:', { url, name, category });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const apiUrl = `${supabaseUrl}/functions/v1/process-url-content`;
+
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        name,
+        category,
+        expirationDate,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'URL processing failed' }));
+      return {
+        success: false,
+        error: errorData.error || `URL processing failed with status ${res.status}`,
+      };
+    }
+
+    const result = await res.json();
+    console.log('✅ URL processed successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ URL processing error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'URL processing failed',
+    };
+  }
 }
 
 /**
- * Upload a document with metadata to IBM COS via backend API
+ * Process manually pasted content and create a document
+ */
+export async function processManualContent(
+  content: string,
+  name: string,
+  category: string,
+  expirationDate?: string
+): Promise<UploadResponse> {
+  try {
+    console.log('📝 Processing manual content:', { name, category, contentLength: content.length });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const apiUrl = `${supabaseUrl}/functions/v1/process-manual-content`;
+
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+        name,
+        category,
+        expirationDate,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Content processing failed' }));
+      return {
+        success: false,
+        error: errorData.error || `Content processing failed with status ${res.status}`,
+      };
+    }
+
+    const result = await res.json();
+    console.log('✅ Manual content processed successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ Manual content processing error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Content processing failed',
+    };
+  }
+}
+
+/**
+ * Upload a document file with metadata via backend API
  */
 export async function uploadDocumentWithMetadata(
   file: File,

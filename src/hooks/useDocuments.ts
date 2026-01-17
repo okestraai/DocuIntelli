@@ -1,14 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getDocuments, SupabaseDocument, supabase } from '../lib/supabase';
-import { uploadDocumentWithMetadata } from '../lib/api';
+import { uploadDocumentWithMetadata, processURLContent, processManualContent, DocumentUploadRequest } from '../lib/api';
 import type { Document } from '../App';
 
-export interface DocumentUploadRequest {
-  name: string;
-  category: string;
-  file: File;
-  expirationDate?: string;
-}
+export type { DocumentUploadRequest } from '../lib/api';
 
 export function useDocuments(isAuthenticated: boolean) {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -18,44 +13,65 @@ export function useDocuments(isAuthenticated: boolean) {
   const uploadDocuments = async (documentsData: DocumentUploadRequest[]): Promise<Document[]> => {
     try {
       setError(null);
-      console.log(`📤 Starting upload of ${documentsData.length} documents`);
-      
+      console.log(`📤 Starting processing of ${documentsData.length} item(s)`);
+
       const uploadPromises = documentsData.map(async (docData, index) => {
-        console.log(`📄 Uploading document ${index + 1}/${documentsData.length}: ${docData.name}`);
-        
-        // Upload file using backend API (which uses IBM COS)
-        const uploadResult = await uploadDocumentWithMetadata(
-          docData.file,
-          docData.name,
-          docData.category,
-          docData.expirationDate
-        );
-        
-        if (!uploadResult.success || !uploadResult.data) {
-          throw new Error(uploadResult.error || 'Upload failed');
+        console.log(`📄 Processing item ${index + 1}/${documentsData.length}: ${docData.name}`);
+
+        let uploadResult;
+
+        if (docData.type === 'file') {
+          console.log('📁 Processing file upload');
+          uploadResult = await uploadDocumentWithMetadata(
+            docData.file,
+            docData.name,
+            docData.category,
+            docData.expirationDate
+          );
+        } else if (docData.type === 'url') {
+          console.log('🔗 Processing URL content');
+          uploadResult = await processURLContent(
+            docData.url,
+            docData.name,
+            docData.category,
+            docData.expirationDate
+          );
+        } else if (docData.type === 'manual') {
+          console.log('📝 Processing manual content');
+          uploadResult = await processManualContent(
+            docData.content,
+            docData.name,
+            docData.category,
+            docData.expirationDate
+          );
+        } else {
+          throw new Error('Invalid document type');
         }
 
-        console.log(`✅ Document ${index + 1} uploaded successfully:`, {
+        if (!uploadResult.success || !uploadResult.data) {
+          throw new Error(uploadResult.error || 'Processing failed');
+        }
+
+        console.log(`✅ Item ${index + 1} processed successfully:`, {
           document_id: uploadResult.data.document_id,
-          file_key: uploadResult.data.file_key,
-          file_type: uploadResult.data.file_type
+          type: docData.type
         });
 
         return uploadResult.data.document_id;
       });
 
       const uploadedDocIds = await Promise.all(uploadPromises);
-      console.log(`🎉 All ${uploadedDocIds.length} documents uploaded successfully`);
-      
+      console.log(`🎉 All ${uploadedDocIds.length} item(s) processed successfully`);
+
       // Refresh documents list to get the new uploads
       await refetchDocuments();
-      
+
       // Return the newly uploaded documents
       const newDocuments = documents.filter(doc => uploadedDocIds.includes(doc.id));
       return newDocuments;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to upload documents';
-      console.error('❌ Upload failed:', errorMessage);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to process content';
+      console.error('❌ Processing failed:', errorMessage);
       setError(errorMessage);
       throw new Error(errorMessage);
     }
