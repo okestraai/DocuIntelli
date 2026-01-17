@@ -58,6 +58,8 @@ export async function processURLContent(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const apiUrl = `${supabaseUrl}/functions/v1/process-url-content`;
 
+    console.log('📡 Calling edge function:', apiUrl);
+
     const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -72,11 +74,22 @@ export async function processURLContent(
       }),
     });
 
+    console.log('📥 Response status:', res.status, res.statusText);
+
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ error: 'URL processing failed' }));
+      const errorText = await res.text();
+      console.error('❌ Error response:', errorText);
+
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: errorText || 'URL processing failed' };
+      }
+
       return {
         success: false,
-        error: errorData.error || `URL processing failed with status ${res.status}`,
+        error: errorData.error || errorData.message || `URL processing failed with status ${res.status}`,
       };
     }
 

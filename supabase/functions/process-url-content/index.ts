@@ -51,12 +51,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    console.log('Process URL Content function started');
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
     const authHeader = req.headers.get('Authorization');
+    console.log('Auth header present:', !!authHeader);
+
     if (!authHeader) {
       return new Response(
         JSON.stringify({ success: false, error: 'Authorization required' }),
@@ -69,13 +73,17 @@ Deno.serve(async (req: Request) => {
     );
 
     if (userError || !user) {
+      console.error('User auth error:', userError);
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid token' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
       );
     }
 
+    console.log('User authenticated:', user.id);
+
     const { url, name, category, expirationDate }: URLContentRequest = await req.json();
+    console.log('Request data:', { url, name, category, hasExpiration: !!expirationDate });
 
     if (!url || !name || !category) {
       return new Response(
@@ -86,20 +94,44 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Fetching content from URL: ${url}`);
 
-    const urlResponse = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; DocuVaultAI/1.0)',
-      },
-    });
+    let urlResponse;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    if (!urlResponse.ok) {
+      urlResponse = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; DocuVaultAI/1.0)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!urlResponse.ok) {
+        console.error(`URL fetch failed: ${urlResponse.status} ${urlResponse.statusText}`);
+        return new Response(
+          JSON.stringify({ success: false, error: `Failed to fetch URL: ${urlResponse.status} ${urlResponse.statusText}` }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        );
+      }
+    } catch (fetchError) {
+      console.error('URL fetch error:', fetchError);
       return new Response(
-        JSON.stringify({ success: false, error: `Failed to fetch URL: ${urlResponse.status} ${urlResponse.statusText}` }),
+        JSON.stringify({
+          success: false,
+          error: fetchError instanceof Error && fetchError.name === 'AbortError'
+            ? 'URL fetch timeout (30s limit)'
+            : 'Failed to fetch URL'
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
     const html = await urlResponse.text();
+    console.log(`Fetched ${html.length} bytes from URL`);
+
     const extractedText = extractTextFromHTML(html);
 
     if (extractedText.length < 50) {
@@ -170,7 +202,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log('Generating embeddings for chunks...');
+    console.log(`Successfully created ${chunks.length} chunks for document ${document.id}`);
+
+    console.log('Triggering embeddings generation...');
 
     try {
       const embeddingUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-embeddings`;
@@ -184,21 +218,27 @@ Deno.serve(async (req: Request) => {
       });
 
       if (!embeddingResponse.ok) {
-        console.error('Embedding generation failed, but document was created');
+        console.warn('Embedding generation failed, but document was created');
+      } else {
+        console.log('Embedding generation triggered successfully');
       }
     } catch (embeddingError) {
-      console.error('Error triggering embeddings:', embeddingError);
+      console.warn('Error triggering embeddings (non-fatal):', embeddingError);
     }
 
+    const successResponse = {
+      success: true,
+      data: {
+        document_id: document.id,
+        chunks_created: chunks.length,
+        content_length: extractedText.length,
+      },
+    };
+
+    console.log('Returning success response:', successResponse);
+
     return new Response(
-      JSON.stringify({
-        success: true,
-        data: {
-          document_id: document.id,
-          chunks_created: chunks.length,
-          content_length: extractedText.length,
-        },
-      }),
+      JSON.stringify(successResponse),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
 
