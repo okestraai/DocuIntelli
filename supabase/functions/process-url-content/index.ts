@@ -116,22 +116,28 @@ Deno.serve(async (req: Request) => {
       .insert({
         user_id: user.id,
         name: name,
+        original_name: name,
         type: 'text/html',
         category: category,
         expiration_date: expirationDate || null,
-        size: `${Math.round(extractedText.length / 1024)} KB`,
+        size: extractedText.length,
+        file_path: null,
         status: 'active',
         source_type: 'url',
         source_url: url,
-        uploaded_at: new Date().toISOString(),
       })
       .select('id')
       .single();
 
     if (docError || !document) {
       console.error('Document creation error:', docError);
+      console.error('Error details:', JSON.stringify(docError, null, 2));
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to create document record' }),
+        JSON.stringify({
+          success: false,
+          error: docError?.message || 'Failed to create document record',
+          details: docError
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
