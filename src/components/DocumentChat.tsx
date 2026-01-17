@@ -3,11 +3,13 @@ import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
+import { useSubscription } from '../hooks/useSubscription';
 import { chatWithDocument, loadChatHistory } from '../lib/api';
 
 interface DocumentChatProps {
   document: Document;
   onBack: () => void;
+  onUpgradeNeeded?: () => void;
 }
 
 interface Message {
@@ -22,7 +24,7 @@ interface Message {
   }>;
 }
 
-export function DocumentChat({ document, onBack }: DocumentChatProps) {
+export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,6 +32,7 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const feedback = useFeedback();
+  const { canAskQuestion, incrementAIQuestions, subscription } = useSubscription();
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -89,6 +92,15 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
+    if (!canAskQuestion) {
+      if (onUpgradeNeeded) {
+        onUpgradeNeeded();
+      } else {
+        feedback.showError('AI Question Limit Reached', `You've used all ${subscription?.ai_questions_limit || 10} AI questions this month. Upgrade to Pro for more questions.`);
+      }
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
@@ -105,6 +117,8 @@ export function DocumentChat({ document, onBack }: DocumentChatProps) {
       const result = await chatWithDocument(document.id, currentQuestion);
 
       if (result.success) {
+        await incrementAIQuestions();
+
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           type: 'assistant',

@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2 } from 'lucide-react';
+import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2, Crown, Zap } from 'lucide-react';
 import type { Document, Page } from '../App';
 import { ConfirmDialog } from './ConfirmDialog';
+import { useSubscription } from '../hooks/useSubscription';
 
 interface DashboardProps {
   documents?: Document[];
   onNavigate: (page: Page) => void;
   onAddDocument: () => void;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  onUpgrade?: () => void;
 }
 
-export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete }: DashboardProps) {
+export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete, onUpgrade }: DashboardProps) {
   const safeDocuments = documents ?? [];
+  const { subscription, documentCount } = useSubscription();
 
   const totalDocuments = safeDocuments.length;
   const expiringDocuments = safeDocuments.filter(doc => doc?.status === 'expiring').length;
@@ -97,6 +100,91 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
           </div>
         </div>
       </div>
+
+      {/* Subscription Card */}
+      {subscription && (
+        <div className="mb-6 sm:mb-8">
+          <div className="bg-gradient-to-br from-slate-50 to-white border-2 border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${
+                  subscription.plan === 'business' ? 'bg-gradient-to-br from-slate-100 to-slate-200' :
+                  subscription.plan === 'pro' ? 'bg-gradient-to-br from-emerald-100 to-teal-100' :
+                  'bg-slate-100'
+                }`}>
+                  {subscription.plan === 'business' ? (
+                    <Zap className="h-6 w-6 text-slate-700" strokeWidth={2} />
+                  ) : subscription.plan === 'pro' ? (
+                    <Crown className="h-6 w-6 text-emerald-600" strokeWidth={2} />
+                  ) : (
+                    <FileText className="h-6 w-6 text-slate-600" strokeWidth={2} />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 capitalize">
+                    {subscription.plan} Plan
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    {subscription.plan === 'free' ? 'Limited features' :
+                     subscription.plan === 'pro' ? 'Full features' :
+                     'Unlimited features'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className="flex-1 sm:flex-none">
+                  <div className="text-sm text-slate-600 mb-1">Documents</div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {documentCount} / {subscription.plan === 'free' ? subscription.document_limit : '∞'}
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div
+                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
+                      style={{
+                        width: subscription.plan === 'free'
+                          ? `${Math.min((documentCount / subscription.document_limit) * 100, 100)}%`
+                          : '100%'
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 sm:flex-none">
+                  <div className="text-sm text-slate-600 mb-1">AI Questions</div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {subscription.ai_questions_used} / {subscription.plan === 'business' ? '∞' : subscription.ai_questions_limit}
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div
+                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
+                      style={{
+                        width: subscription.plan === 'business'
+                          ? '100%'
+                          : `${Math.min((subscription.ai_questions_used / subscription.ai_questions_limit) * 100, 100)}%`
+                      }}
+                    />
+                  </div>
+                </div>
+                {subscription.plan === 'free' && onUpgrade && (
+                  <button
+                    onClick={onUpgrade}
+                    className="flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-sm"
+                  >
+                    Upgrade
+                  </button>
+                )}
+                {subscription.plan !== 'free' && (
+                  <button
+                    onClick={() => onNavigate('pricing' as Page)}
+                    className="flex-shrink-0 text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors"
+                  >
+                    Manage Plan
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
         {/* Recent Documents */}

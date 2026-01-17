@@ -7,18 +7,21 @@ import { DocumentVault } from './components/DocumentVault';
 import { DocumentChat } from './components/DocumentChat';
 import { DocumentViewer } from './components/DocumentViewer';
 import { ExpirationTracker } from './components/ExpirationTracker';
+import { PricingPage } from './components/PricingPage';
+import { UpgradeModal } from './components/UpgradeModal';
 import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
 import { ProfileModal } from './components/ProfileModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { useDocuments } from './hooks/useDocuments';
+import { useSubscription } from './hooks/useSubscription';
 import { DocumentUploadRequest } from './lib/api';
 import { supabase, signOut } from './lib/supabase';
 import { useFeedback } from './hooks/useFeedback';
 import { ToastContainer } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
-export type Page = 'landing' | 'dashboard' | 'vault' | 'tracker';
+export type Page = 'landing' | 'dashboard' | 'vault' | 'tracker' | 'pricing';
 
 export interface Document {
   id: string;
@@ -41,8 +44,11 @@ function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<'documents' | 'ai-questions' | 'features'>('features');
   const [isLoading, setIsLoading] = useState(true);
   const { documents, uploadDocuments, deleteDocument } = useDocuments(isAuthenticated);
+  const { subscription, documentCount } = useSubscription();
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -183,6 +189,21 @@ function App() {
     }
   };
 
+  const handleUpgradeNeeded = (reason: 'documents' | 'ai-questions' = 'features') => {
+    setUpgradeReason(reason);
+    setShowUpgradeModal(true);
+  };
+
+  const handleSelectPlan = async (plan: 'free' | 'pro' | 'business') => {
+    if (plan === 'free') {
+      setShowUpgradeModal(false);
+      return;
+    }
+
+    feedback.showInfo('Upgrade Coming Soon', 'Payment integration will be available soon. Stay tuned!');
+    setShowUpgradeModal(false);
+  };
+
   const renderPage = () => {
     // Always show landing page if not authenticated
     if (!isAuthenticated) {
@@ -197,6 +218,7 @@ function App() {
         <DocumentChat
           document={selectedDocument}
           onBack={handleBackToVault}
+          onUpgradeNeeded={() => handleUpgradeNeeded('ai-questions')}
         />
       );
     }
@@ -211,15 +233,25 @@ function App() {
     }
 
     switch (currentPage) {
+      case 'pricing':
+        return (
+          <ErrorBoundary>
+            <PricingPage
+              onBack={() => handleNavigate('dashboard')}
+              onSelectPlan={handleSelectPlan}
+              currentPlan={subscription?.plan}
+            />
+          </ErrorBoundary>
+        );
       case 'dashboard':
         return (
           <ErrorBoundary>
-            <Dashboard 
-              documents={documents} 
+            <Dashboard
+              documents={documents}
               onNavigate={setCurrentPage}
               onAddDocument={() => setShowUploadModal(true)}
               onDocumentDelete={handleDocumentDelete}
-              feedback={feedback}
+              onUpgrade={() => handleUpgradeNeeded('features')}
             />
           </ErrorBoundary>
         );
@@ -245,12 +277,12 @@ function App() {
       default:
         return (
           <ErrorBoundary>
-            <Dashboard 
-              documents={documents} 
+            <Dashboard
+              documents={documents}
               onNavigate={setCurrentPage}
               onAddDocument={() => setShowUploadModal(true)}
               onDocumentDelete={handleDocumentDelete}
-              feedback={feedback}
+              onUpgrade={() => handleUpgradeNeeded('features')}
             />
           </ErrorBoundary>
         );
@@ -334,6 +366,23 @@ function App() {
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
           onUpload={handleDocumentsUploadNew}
+          onUpgradeNeeded={() => handleUpgradeNeeded('documents')}
+        />
+      )}
+
+      {/* Upgrade Modal */}
+      {showUpgradeModal && isAuthenticated && subscription && (
+        <UpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          onUpgrade={handleSelectPlan}
+          reason={upgradeReason}
+          currentUsage={{
+            documents: documentCount,
+            documentLimit: subscription.document_limit,
+            aiQuestions: subscription.ai_questions_used,
+            aiQuestionsLimit: subscription.ai_questions_limit,
+          }}
         />
       )}
 

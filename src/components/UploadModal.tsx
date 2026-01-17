@@ -1,11 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, Trash2, Link, FileEdit } from 'lucide-react';
 import { DocumentUploadRequest } from '../lib/api';
+import { useSubscription } from '../hooks/useSubscription';
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpload: (documentsData: DocumentUploadRequest[]) => Promise<void>;
+  onUpgradeNeeded?: () => void;
 }
 
 type TabType = 'file' | 'url' | 'manual';
@@ -17,12 +19,13 @@ interface FileDocumentData {
   expirationDate: string;
 }
 
-export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
+export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: UploadModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('file');
   const [documents, setDocuments] = useState<FileDocumentData[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { canUploadDocument, documentCount, subscription } = useSubscription();
 
   const [urlData, setUrlData] = useState({
     url: '',
@@ -115,6 +118,13 @@ export function UploadModal({ isOpen, onClose, onUpload }: UploadModalProps) {
   };
 
   const handleSubmit = async () => {
+    if (!canUploadDocument) {
+      if (onUpgradeNeeded) {
+        onUpgradeNeeded();
+      }
+      return;
+    }
+
     setIsUploading(true);
     try {
       let uploadData: DocumentUploadRequest[];

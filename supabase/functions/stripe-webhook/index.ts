@@ -135,6 +135,20 @@ async function syncCustomerFromStripe(customerId: string) {
       expand: ['data.default_payment_method'],
     });
 
+    // Get user_id from stripe_customers
+    const { data: customerData, error: customerError } = await supabase
+      .from('stripe_customers')
+      .select('user_id')
+      .eq('customer_id', customerId)
+      .single();
+
+    if (customerError) {
+      console.error('Error fetching customer data:', customerError);
+      throw new Error('Failed to fetch customer data');
+    }
+
+    const userId = customerData.user_id;
+
     // TODO verify if needed
     if (subscriptions.data.length === 0) {
       console.info(`No active subscriptions found for customer: ${customerId}`);
@@ -152,17 +166,43 @@ async function syncCustomerFromStripe(customerId: string) {
         console.error('Error updating subscription status:', noSubError);
         throw new Error('Failed to update subscription status in database');
       }
+
+      // Update user_subscriptions to free plan
+      await supabase
+        .from('user_subscriptions')
+        .update({
+          plan: 'free',
+          status: 'active',
+          document_limit: 5,
+          ai_questions_limit: 10,
+          stripe_customer_id: customerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+
+      return;
     }
 
     // assumes that a customer can only have a single subscription
     const subscription = subscriptions.data[0];
+    const priceId = subscription.items.data[0].price.id;
 
-    // store subscription state
+    // Map price_id to plan and limits
+    const planMapping: Record<string, { plan: 'pro' | 'business'; documentLimit: number; aiQuestionsLimit: number }> = {
+      'price_pro_monthly': { plan: 'pro', documentLimit: 999999, aiQuestionsLimit: 100 },
+      'price_pro_yearly': { plan: 'pro', documentLimit: 999999, aiQuestionsLimit: 100 },
+      'price_business_monthly': { plan: 'business', documentLimit: 999999, aiQuestionsLimit: 999999 },
+      'price_business_yearly': { plan: 'business', documentLimit: 999999, aiQuestionsLimit: 999999 },
+    };
+
+    const planDetails = planMapping[priceId] || { plan: 'pro', documentLimit: 999999, aiQuestionsLimit: 100 };
+
+    // store subscription state in stripe_subscriptions
     const { error: subError } = await supabase.from('stripe_subscriptions').upsert(
       {
         customer_id: customerId,
         subscription_id: subscription.id,
-        price_id: subscription.items.data[0].price.id,
+        price_id: priceId,
         current_period_start: subscription.current_period_start,
         current_period_end: subscription.current_period_end,
         cancel_at_period_end: subscription.cancel_at_period_end,
@@ -183,6 +223,32 @@ async function syncCustomerFromStripe(customerId: string) {
       console.error('Error syncing subscription:', subError);
       throw new Error('Failed to sync subscription in database');
     }
+
+    // Update user_subscriptions table
+    const subscriptionStatus = subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'expired';
+
+    const { error: userSubError } = await supabase
+      .from('user_subscriptions')
+      .update({
+        plan: planDetails.plan,
+        status: subscriptionStatus,
+        stripe_customer_id: customerId,
+        stripe_subscription_id: subscription.id,
+        stripe_price_id: priceId,
+        current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+        current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        document_limit: planDetails.documentLimit,
+        ai_questions_limit: planDetails.aiQuestionsLimit,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+
+    if (userSubError) {
+      console.error('Error updating user subscription:', userSubError);
+      throw new Error('Failed to update user subscription');
+    }
+
     console.info(`Successfully synced subscription for customer: ${customerId}`);
   } catch (error) {
     console.error(`Failed to sync subscription for customer ${customerId}:`, error);
