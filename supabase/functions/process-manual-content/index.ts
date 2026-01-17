@@ -78,6 +78,9 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Processing manual content: ${cleanedContent.length} characters`);
 
+    const sizeInKB = Math.round(cleanedContent.length / 1024);
+    const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
+
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
@@ -87,7 +90,7 @@ Deno.serve(async (req: Request) => {
         type: 'text/plain',
         category: category,
         expiration_date: expirationDate || null,
-        size: cleanedContent.length,
+        size: sizeText,
         file_path: null,
         status: 'active',
         source_type: 'manual',

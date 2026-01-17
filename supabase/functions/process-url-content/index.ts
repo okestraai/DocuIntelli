@@ -111,6 +111,9 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Extracted ${extractedText.length} characters from URL`);
 
+    const sizeInKB = Math.round(extractedText.length / 1024);
+    const sizeText = sizeInKB > 0 ? `${sizeInKB} KB` : '1 KB';
+
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
@@ -120,7 +123,7 @@ Deno.serve(async (req: Request) => {
         type: 'text/html',
         category: category,
         expiration_date: expirationDate || null,
-        size: extractedText.length,
+        size: sizeText,
         file_path: null,
         status: 'active',
         source_type: 'url',
