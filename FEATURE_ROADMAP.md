@@ -1,6 +1,6 @@
-# DocuVault AI Feature Roadmap & Enhancement Recommendations
+# DocuIntelli AI Feature Roadmap & Enhancement Recommendations
 
-This document outlines potential features and improvements to make DocuVault AI a more robust and comprehensive document lifecycle management platform.
+This document outlines potential features and improvements to make DocuIntelli AI a more robust and comprehensive document lifecycle management platform.
 
 ---
 

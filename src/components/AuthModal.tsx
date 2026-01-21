@@ -263,7 +263,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
               ? 'Enter your email to receive a verification code'
               : isLogin
               ? 'Sign in to access your secure document vault'
-              : 'Join thousands who trust DocuVault AI with their documents'
+              : 'Join thousands who trust DocuIntelli AI with their documents'
             }
           </p>
         </div>

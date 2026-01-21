@@ -16,7 +16,7 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
       name: 'Free',
       icon: Zap,
       price: { monthly: 0, yearly: 0 },
-      description: 'Perfect for trying out DocuVault AI',
+      description: 'Perfect for trying out DocuIntelli AI',
       features: [
         { text: '2 documents', included: true },
         { text: '5 AI questions per month', included: true },

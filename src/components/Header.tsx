@@ -27,7 +27,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
               <div className="flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-600 p-2 md:p-3 rounded-xl shadow-md">
                 <ShieldCheck className="h-5 w-5 md:h-8 md:w-8 text-white" strokeWidth={2.5} />
               </div>
-              <span className="text-lg md:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight truncate">DocuVault AI</span>
+              <span className="text-lg md:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight truncate">DocuIntelli AI</span>
             </div>
 
             <div className="flex items-center gap-1 md:gap-2">

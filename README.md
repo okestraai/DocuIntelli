@@ -1,6 +1,6 @@
-# DocuVault AI - Intelligent Document Management
+# DocuIntelli AI - Intelligent Document Management
 
-DocuVault AI is a comprehensive document lifecycle management platform with AI-powered features, smart expiration tracking, and seamless document organization.
+DocuIntelli AI is a comprehensive document lifecycle management platform with AI-powered features, smart expiration tracking, and seamless document organization.
 
 ## Features
 
