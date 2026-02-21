@@ -306,7 +306,10 @@ export default function FinancialInsightsScreen() {
           visible={plaid.nativeModal.visible}
           linkToken={plaid.nativeModal.linkToken}
           onSuccess={plaid.nativeModal.onSuccess}
-          onClose={plaid.nativeModal.onClose}
+          onClose={() => {
+            plaid.nativeModal.onClose();
+            loadData();
+          }}
         />
       )}
     </View>

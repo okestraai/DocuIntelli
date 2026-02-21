@@ -237,7 +237,7 @@ router.post('/reactivate', async (req: Request, res: Response): Promise<void> =>
 router.post('/upgrade-preview', async (req: Request, res: Response): Promise<void> => {
   try {
     const subscription = req.subscription!;
-    const { new_plan } = req.body;
+    const new_plan = req.body.new_plan || req.body.newPlan;
 
     if (!new_plan || !['starter', 'pro'].includes(new_plan)) {
       res.status(400).json({ success: false, error: 'Invalid plan specified' });
@@ -317,7 +317,7 @@ router.post('/upgrade', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const subscription = req.subscription!;
-    const { new_plan } = req.body;
+    const new_plan = req.body.new_plan || req.body.newPlan;
 
     console.log('⬆️  Upgrade subscription request:', { userId, currentPlan: subscription.plan, newPlan: new_plan });
 
@@ -444,11 +444,12 @@ router.post('/downgrade', async (req: Request, res: Response): Promise<void> => 
   try {
     const userId = req.userId!;
     const subscription = req.subscription!;
-    const { new_plan, documents_to_keep } = req.body;
+    const new_plan = req.body.new_plan || req.body.newPlan;
+    const documents_to_keep = req.body.documents_to_keep || req.body.documentsToKeep;
 
     console.log('⬇️  Downgrade subscription request:', { userId, currentPlan: subscription.plan, newPlan: new_plan, documentsToKeep: documents_to_keep?.length });
 
-    if (!['free', 'starter', 'pro'].includes(new_plan)) {
+    if (!new_plan || !['free', 'starter', 'pro'].includes(new_plan)) {
       res.status(400).json({ success: false, error: 'Invalid plan specified' });
       return;
     }

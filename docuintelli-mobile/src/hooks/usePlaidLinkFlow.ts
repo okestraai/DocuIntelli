@@ -9,7 +9,7 @@ import { createLinkToken, exchangePublicToken } from '../lib/financialApi';
 interface NativeModalProps {
   visible: boolean;
   linkToken: string | null;
-  onSuccess: (publicToken: string, institutionName: string) => void;
+  onSuccess: (publicToken: string, institutionName: string) => Promise<void> | void;
   onClose: () => void;
 }
 

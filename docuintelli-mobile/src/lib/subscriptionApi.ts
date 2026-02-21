@@ -38,7 +38,7 @@ export async function upgradeSubscription(newPlan: string): Promise<{ success: b
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/subscription/upgrade`, {
     method: 'POST', headers,
-    body: JSON.stringify({ newPlan }),
+    body: JSON.stringify({ new_plan: newPlan }),
   });
   if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to upgrade'); }
   return res.json();
@@ -49,7 +49,7 @@ export async function previewUpgrade(newPlan: string): Promise<{ prorated_amount
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/subscription/upgrade-preview`, {
     method: 'POST', headers,
-    body: JSON.stringify({ newPlan }),
+    body: JSON.stringify({ new_plan: newPlan }),
   });
   if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Preview failed'); }
   return res.json();
@@ -60,7 +60,7 @@ export async function downgradeSubscription(newPlan: string, documentsToKeep?: s
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/subscription/downgrade`, {
     method: 'POST', headers,
-    body: JSON.stringify({ newPlan, documentsToKeep }),
+    body: JSON.stringify({ new_plan: newPlan, documents_to_keep: documentsToKeep }),
   });
   if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed to downgrade'); }
   return res.json();

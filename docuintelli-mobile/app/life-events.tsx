@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useFocusEffect } from 'expo-router';
 import {
   Compass, Plus, ChevronRight, ChevronLeft, CheckCircle, AlertTriangle,
   Clock, Archive, ArrowLeft, Home, Heart, Briefcase, Baby, GraduationCap,
@@ -137,7 +137,14 @@ export default function LifeEventsScreen() {
   const { isAuthenticated } = useAuth();
   const { documents } = useDocuments(isAuthenticated);
   const { showToast } = useToast();
-  const { isPro, loading: subLoading } = useSubscription();
+  const { isPro, loading: subLoading, refreshSubscription } = useSubscription();
+
+  // Re-fetch subscription when screen comes into focus (e.g. after upgrading on billing screen)
+  useFocusEffect(
+    useCallback(() => {
+      refreshSubscription();
+    }, [refreshSubscription])
+  );
 
   const [subView, setSubView] = useState<SubView>('list');
   const [templates, setTemplates] = useState<TemplateOverview[]>([]);
