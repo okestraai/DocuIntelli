@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get("ALLOWED_ORIGIN") || "http://localhost:5173",
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
@@ -11,6 +11,25 @@ interface URLContentRequest {
   name: string;
   category: string;
   expirationDate?: string;
+}
+
+function sanitizeText(text: string): string {
+  // Remove null bytes and other problematic characters for PostgreSQL
+  let sanitized = text
+    .replace(/\0/g, '') // Remove null bytes
+    .replace(/\\/g, '\\\\') // Escape backslashes
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters except \t, \n, \r
+    .replace(/\uFFFD/g, '') // Remove replacement character
+    .replace(/[\uD800-\uDFFF]/g, ''); // Remove unpaired surrogates
+
+  // Normalize Unicode
+  try {
+    sanitized = sanitized.normalize('NFC');
+  } catch (e) {
+    console.warn('Unicode normalization failed, using original text');
+  }
+
+  return sanitized;
 }
 
 function extractTextFromHTML(html: string): string {
@@ -58,7 +77,8 @@ function extractTextFromHTML(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return text;
+  // Sanitize the final text to remove problematic Unicode
+  return sanitizeText(text);
 }
 
 Deno.serve(async (req: Request) => {
@@ -96,6 +116,50 @@ Deno.serve(async (req: Request) => {
     if (!url || !name || !category) {
       return new Response(
         JSON.stringify({ success: false, error: 'URL, name, and category are required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // SSRF protection: validate URL before fetching
+    try {
+      const parsedUrl = new URL(url);
+
+      // Only allow http/https protocols
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Only HTTP and HTTPS URLs are allowed' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        );
+      }
+
+      // Block private/internal IP ranges
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const blockedPatterns = [
+        /^localhost$/i,
+        /^127\./,
+        /^10\./,
+        /^192\.168\./,
+        /^172\.(1[6-9]|2[0-9]|3[01])\./,
+        /^169\.254\./,
+        /^0\./,
+        /^\[?::1\]?$/,
+        /^\[?fc00:/i,
+        /^\[?fd00:/i,
+        /^\[?fe80:/i,
+        /^metadata\.google\.internal$/i,
+      ];
+
+      for (const pattern of blockedPatterns) {
+        if (pattern.test(hostname)) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'URLs pointing to internal or private networks are not allowed' }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+          );
+        }
+      }
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid URL format' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }

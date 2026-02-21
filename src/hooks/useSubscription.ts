@@ -4,16 +4,25 @@ import { supabase } from '../lib/supabaseClient';
 export interface Subscription {
   id: string;
   user_id: string;
-  plan: 'free' | 'pro' | 'business';
-  status: 'active' | 'canceled' | 'expired' | 'trialing';
+  plan: 'free' | 'starter' | 'pro';
+  status: 'active' | 'canceling' | 'canceled' | 'expired' | 'trialing';
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   document_limit: number;
   ai_questions_limit: number;
   ai_questions_used: number;
   ai_questions_reset_date: string;
+  monthly_upload_limit: number;
+  monthly_uploads_used: number;
+  monthly_upload_reset_date: string;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
+  pending_plan: string | null;
+  documents_to_keep: string[] | null;
+  payment_status?: 'active' | 'past_due' | 'restricted' | 'downgraded';
+  dunning_step?: number;
+  payment_failed_at?: string | null;
+  deletion_scheduled_at?: string | null;
 }
 
 interface UseSubscriptionReturn {
@@ -25,6 +34,7 @@ interface UseSubscriptionReturn {
   documentCount: number;
   refreshSubscription: () => Promise<void>;
   incrementAIQuestions: () => Promise<void>;
+  incrementMonthlyUploads: () => Promise<void>;
 }
 
 export function useSubscription(): UseSubscriptionReturn {
@@ -57,9 +67,11 @@ export function useSubscription(): UseSubscriptionReturn {
               user_id: user.id,
               plan: 'free',
               status: 'active',
-              document_limit: 5,
-              ai_questions_limit: 10,
+              document_limit: 3,
+              ai_questions_limit: 5,
               ai_questions_used: 0,
+              monthly_upload_limit: 3,
+              monthly_uploads_used: 0,
             })
             .select()
             .single();
@@ -91,13 +103,55 @@ export function useSubscription(): UseSubscriptionReturn {
   };
 
   const incrementAIQuestions = async () => {
-    if (!subscription) return;
+    if (!subscription) {
+      console.warn('Cannot increment AI questions: No subscription loaded');
+      return;
+    }
+
+    const newCount = subscription.ai_questions_used + 1;
+    console.log(`Incrementing AI questions: ${subscription.ai_questions_used} → ${newCount}`);
 
     try {
       const { error } = await supabase
         .from('user_subscriptions')
         .update({
-          ai_questions_used: subscription.ai_questions_used + 1,
+          ai_questions_used: newCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', subscription.id);
+
+      if (error) throw error;
+
+      // Update local state immediately for responsive UI
+      setSubscription({
+        ...subscription,
+        ai_questions_used: newCount,
+      });
+
+      console.log(`✅ AI question counter updated successfully to ${newCount}`);
+    } catch (err) {
+      console.error('❌ Error incrementing AI questions:', err);
+      // Still update local state to prevent UI from feeling broken
+      setSubscription({
+        ...subscription,
+        ai_questions_used: newCount,
+      });
+    }
+  };
+
+  const incrementMonthlyUploads = async () => {
+    if (!subscription) {
+      console.warn('Cannot increment monthly uploads: No subscription loaded');
+      return;
+    }
+
+    const newCount = subscription.monthly_uploads_used + 1;
+
+    try {
+      const { error } = await supabase
+        .from('user_subscriptions')
+        .update({
+          monthly_uploads_used: newCount,
           updated_at: new Date().toISOString(),
         })
         .eq('id', subscription.id);
@@ -106,10 +160,14 @@ export function useSubscription(): UseSubscriptionReturn {
 
       setSubscription({
         ...subscription,
-        ai_questions_used: subscription.ai_questions_used + 1,
+        monthly_uploads_used: newCount,
       });
     } catch (err) {
-      console.error('Error incrementing AI questions:', err);
+      console.error('Error incrementing monthly uploads:', err);
+      setSubscription({
+        ...subscription,
+        monthly_uploads_used: newCount,
+      });
     }
   };
 
@@ -136,17 +194,25 @@ export function useSubscription(): UseSubscriptionReturn {
     };
   }, []);
 
-  const canUploadDocument = loading
+  const withinStorageLimit = loading
     ? true
     : subscription
-    ? subscription.plan !== 'free' || documentCount < subscription.document_limit
-    : true;
+    ? documentCount < subscription.document_limit
+    : false;
+
+  const withinMonthlyQuota = loading
+    ? true
+    : subscription
+    ? subscription.monthly_uploads_used < subscription.monthly_upload_limit
+    : false;
+
+  const canUploadDocument = withinStorageLimit && withinMonthlyQuota;
 
   const canAskQuestion = loading
     ? true
     : subscription
-    ? subscription.plan === 'business' || subscription.ai_questions_used < subscription.ai_questions_limit
-    : true;
+    ? subscription.plan !== 'free' || subscription.ai_questions_used < subscription.ai_questions_limit
+    : false;
 
   return {
     subscription,
@@ -157,5 +223,6 @@ export function useSubscription(): UseSubscriptionReturn {
     documentCount,
     refreshSubscription: fetchSubscription,
     incrementAIQuestions,
+    incrementMonthlyUploads,
   };
 }

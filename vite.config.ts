@@ -12,10 +12,9 @@ export default defineConfig({
       '/api': {
         // ✅ The correct target for a bolt.new environment is the internal service name,
         // not localhost, as services run in isolated containers.
-        target: 'http://server:5000',
+        target: 'http://localhost:5000',
         changeOrigin: true,
         secure: false,
-        logLevel: 'debug',
       },
     },
   },

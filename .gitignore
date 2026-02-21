@@ -23,3 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.env.*
+!.env.example
+
+# Claude Code
+.claude/
+
+# Windows artifacts
+nul
+server/nul

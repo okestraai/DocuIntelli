@@ -10,12 +10,8 @@
   - Schedule calls to trigger_scheduled_embedding_processor function
 */
 
--- Enable pg_cron extension
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
-
--- Grant usage on cron schema to postgres role
-GRANT USAGE ON SCHEMA cron TO postgres;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres;
+-- pg_cron is pre-enabled on Supabase hosted projects.
+-- No need to CREATE EXTENSION or GRANT — it's already configured.
 
 -- Schedule the embedding processor to run every 1 minute
 -- This will call our trigger function which then calls the edge function

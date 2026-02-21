@@ -96,7 +96,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
       if (onUpgradeNeeded) {
         onUpgradeNeeded();
       } else {
-        feedback.showError('AI Question Limit Reached', `You've used all ${subscription?.ai_questions_limit || 10} AI questions this month. Upgrade to Pro for more questions.`);
+        feedback.showError('AI Question Limit Reached', `You've used all ${subscription?.ai_questions_limit || 5} AI questions this month. Upgrade to Pro for more questions.`);
       }
       return;
     }
@@ -114,35 +114,60 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
     setIsLoading(true);
 
     try {
-      const result = await chatWithDocument(document.id, currentQuestion);
+      // Stream tokens progressively into a new assistant message
+      let streamingId = '';
+
+      const result = await chatWithDocument(document.id, currentQuestion, (chunk) => {
+        if (!streamingId) {
+          // First chunk — create the assistant message
+          streamingId = (Date.now() + 1).toString();
+          setMessages(prev => [...prev, {
+            id: streamingId,
+            type: 'assistant' as const,
+            content: chunk,
+            timestamp: new Date(),
+          }]);
+        } else {
+          // Subsequent chunks — append to existing message
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingId ? { ...msg, content: msg.content + chunk } : msg
+          ));
+        }
+      });
 
       if (result.success) {
         await incrementAIQuestions();
 
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: result.answer,
-          timestamp: new Date(),
-          sources: result.sources,
-        };
+        // Update the streamed message with sources
+        if (streamingId && result.sources?.length > 0) {
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingId ? { ...msg, sources: result.sources } : msg
+          ));
+        }
 
-        setMessages(prev => [...prev, assistantMessage]);
+        // Fallback: if no chunks were streamed (e.g. non-streaming response)
+        if (!streamingId && result.answer) {
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 1).toString(),
+            type: 'assistant' as const,
+            content: result.answer,
+            timestamp: new Date(),
+            sources: result.sources,
+          }]);
+        }
       } else {
-        throw new Error(result.error || 'Failed to get response');
+        throw new Error('Failed to get response');
       }
     } catch (error) {
-      console.error('❌ Chat error:', error);
+      console.error('Chat error:', error);
       feedback.showError('Failed to get response', 'The AI assistant is temporarily unavailable. Please try again.');
 
-      const errorMessage: Message = {
+      setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
-        type: 'assistant',
+        type: 'assistant' as const,
         content: "I'm sorry, I'm having trouble processing your request right now. Please try again in a moment.",
         timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +179,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 h-screen flex flex-col">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 h-[calc(100dvh-7.5rem)] md:h-[calc(100dvh-5rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-center mb-4 sm:mb-6">
         <button
@@ -220,7 +245,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
               </div>
             ))}
 
-            {isLoading && (
+            {isLoading && messages[messages.length - 1]?.type === 'user' && (
               <div className="flex justify-start">
                 <div className="bg-slate-100 text-slate-900 px-3 sm:px-4 py-2 sm:py-3 rounded-2xl">
                   <div className="flex items-center gap-2">
@@ -264,8 +289,9 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
               ref={inputRef}
               type="text"
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => setInputValue(e.target.value.slice(0, 2000))}
               placeholder="Ask a question..."
+              maxLength={2000}
               className="flex-1 border border-slate-300 rounded-lg sm:rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm sm:text-base transition-all"
               disabled={isLoading}
             />
@@ -277,6 +303,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
               <Send className="h-5 w-5" strokeWidth={2} />
             </button>
           </form>
+          <p className="text-center text-xs text-slate-400 mt-2">Powered by Okestra AI Labs</p>
         </div>
       </div>
     </div>

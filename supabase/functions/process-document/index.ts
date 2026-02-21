@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get("ALLOWED_ORIGIN") || "http://localhost:5173",
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
@@ -100,19 +100,68 @@ class TextChunker {
   private static readonly CHUNK_SIZE = 1000
   private static readonly OVERLAP_SIZE = 100
 
+  static sanitizeText(text: string): string {
+    // Remove null bytes and other problematic characters
+    let sanitized = text
+      .replace(/\0/g, '') // Remove null bytes
+      .replace(/\\/g, '\\\\') // Escape backslashes
+      .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters except \t, \n, \r
+      .replace(/\uFFFD/g, '') // Remove replacement character
+      .replace(/[\uD800-\uDFFF]/g, ''); // Remove unpaired surrogates
+
+    // Normalize Unicode
+    try {
+      sanitized = sanitized.normalize('NFC');
+    } catch (e) {
+      console.warn('Unicode normalization failed, using original text');
+    }
+
+    return sanitized;
+  }
+
   static chunkText(text: string): string[] {
     if (!text || text.trim().length === 0) {
       return []
     }
 
+    // Sanitize text first to remove problematic Unicode
+    const sanitizedText = this.sanitizeText(text);
+
     const chunks: string[] = []
-    const sentences = this.splitIntoSentences(text)
+    const sentences = this.splitIntoSentences(sanitizedText)
     let currentChunk = ''
 
     for (const sentence of sentences) {
+      // If a single sentence exceeds CHUNK_SIZE, split it at word boundaries
+      if (sentence.length > this.CHUNK_SIZE) {
+        if (currentChunk.trim()) {
+          const cleanChunk = this.sanitizeText(currentChunk.trim());
+          if (cleanChunk.length > 50) {
+            chunks.push(cleanChunk);
+          }
+        }
+
+        const subChunks = this.splitAtWordBoundary(sentence);
+        for (const sub of subChunks) {
+          const cleanSub = this.sanitizeText(sub.trim());
+          if (cleanSub.length > 50) {
+            chunks.push(cleanSub);
+          }
+        }
+
+        const lastSub = subChunks[subChunks.length - 1] || '';
+        const words = lastSub.split(' ');
+        const overlapWords = words.slice(-Math.floor(this.OVERLAP_SIZE / 6));
+        currentChunk = overlapWords.join(' ');
+        continue;
+      }
+
       if (currentChunk.length + sentence.length > this.CHUNK_SIZE) {
         if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim())
+          const cleanChunk = this.sanitizeText(currentChunk.trim());
+          if (cleanChunk.length > 50) {
+            chunks.push(cleanChunk);
+          }
         }
         const words = currentChunk.split(' ')
         const overlapWords = words.slice(-Math.floor(this.OVERLAP_SIZE / 6))
@@ -123,15 +172,41 @@ class TextChunker {
     }
 
     if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim())
+      const cleanChunk = this.sanitizeText(currentChunk.trim());
+      if (cleanChunk.length > 50) {
+        chunks.push(cleanChunk);
+      }
     }
 
-    return chunks.filter(chunk => chunk.length > 50)
+    return chunks.filter(chunk => chunk && chunk.length > 50)
+  }
+
+  private static splitAtWordBoundary(text: string): string[] {
+    const words = text.split(' ');
+    const subChunks: string[] = [];
+    let current = '';
+
+    for (const word of words) {
+      if (current.length + word.length + 1 > this.CHUNK_SIZE) {
+        if (current.trim()) {
+          subChunks.push(current.trim());
+        }
+        current = word;
+      } else {
+        current += (current ? ' ' : '') + word;
+      }
+    }
+
+    if (current.trim()) {
+      subChunks.push(current.trim());
+    }
+
+    return subChunks;
   }
 
   private static splitIntoSentences(text: string): string[] {
     const cleanText = text.replace(/\s+/g, ' ').trim()
-    const sentences = cleanText.split(/(?<=[.!?])\s+(?=[A-Z])/)
+    const sentences = cleanText.split(/(?<=[.!?])\s+(?=[A-Z])|(?<=[;:])\s+(?=[A-Z])|(?<=[.!?])\s+(?=["'\u201C\u2018])/)
     return sentences.filter(sentence => sentence.trim().length > 0)
   }
 }
@@ -292,7 +367,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           'Authorization': `Bearer ${serviceRoleKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ document_id: document.id, limit: 10 }),
+        body: JSON.stringify({ document_id: document.id, limit: 3, continue_processing: true }),
       }).catch(err => console.error('Embedding trigger error:', err))
     } catch (embeddingError) {
       console.error('Error triggering embeddings:', embeddingError)

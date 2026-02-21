@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Information Security Policy - DocuIntelli AI</title>
+  <meta name="description" content="DocuIntelli AI Information Security Policy — framework for identifying, mitigating, and monitoring information security risks." />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50/30">
+    <div class="bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-50">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <a href="/" class="flex items-center gap-2 text-slate-700 hover:text-emerald-600 font-medium transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span>Back</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <h1 class="text-3xl sm:text-4xl font-bold text-slate-900 mb-2">Information Security Policy</h1>
+      <p class="text-slate-500 mb-10">Last updated: February 19, 2026</p>
+
+      <div class="prose prose-slate max-w-none space-y-8">
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">1. Purpose &amp; Scope</h2>
+          <p class="text-slate-600 leading-relaxed">This Information Security Policy establishes the framework for identifying, mitigating, and monitoring information security risks at DocuIntelli AI. It applies to all employees, contractors, and systems that create, access, process, store, or transmit company and customer data, including production infrastructure, development environments, and third-party integrations.</p>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">2. Information Security Governance</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">DocuIntelli AI maintains a security-first organizational culture with the following governance structure:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Security ownership:</strong> A designated security lead is responsible for maintaining this policy, coordinating risk assessments, and overseeing incident response.</li>
+            <li><strong>Policy review cadence:</strong> This policy is reviewed and updated at least annually, or whenever a material change occurs to infrastructure, services, or applicable regulations.</li>
+            <li><strong>Risk assessment:</strong> We conduct periodic risk assessments to identify threats to confidentiality, integrity, and availability of customer data. Findings are documented and tracked through remediation.</li>
+            <li><strong>Security awareness:</strong> All personnel with access to production systems receive security training upon onboarding and annually thereafter, covering phishing, credential hygiene, secure development practices, and incident reporting.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">3. Identity &amp; Access Management</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">Access to production assets, sensitive data, and critical systems is governed by the principle of least privilege:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Authentication:</strong> All internal access to production infrastructure (database dashboards, cloud consoles, CI/CD systems) requires multi-factor authentication (MFA).</li>
+            <li><strong>Unique accounts:</strong> Each team member uses individually assigned credentials. Shared accounts are prohibited for production systems.</li>
+            <li><strong>Role-based access:</strong> Access to infrastructure dashboards, cloud consoles, and deployment pipelines is granted on a role-based, need-to-know basis.</li>
+            <li><strong>Access reviews:</strong> Access rights are reviewed quarterly. Accounts for departed personnel are revoked within 24 hours of separation.</li>
+            <li><strong>Service keys:</strong> Backend privileged keys are stored exclusively in environment variables on production servers and are never committed to source control or exposed to client-side code.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">4. Consumer Authentication</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">Consumer-facing authentication for the DocuIntelli AI platform includes:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Email &amp; password:</strong> Accounts are created with email verification via one-time passcode (OTP). Passwords are hashed using industry-standard algorithms and are never stored in plaintext.</li>
+            <li><strong>Google OAuth:</strong> Secured OAuth 2.0 flow with PKCE for additional protection against authorization code interception.</li>
+            <li><strong>Session management:</strong> Token-based sessions with automatic refresh. Sessions are invalidated on sign-out.</li>
+            <li><strong>Rate limiting:</strong> Authentication endpoints are rate-limited per IP to mitigate brute-force and credential-stuffing attacks.</li>
+            <li><strong>Device management:</strong> Paid plans enforce per-account device limits with automatic soft-blocking of excess devices.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">5. Infrastructure &amp; Network Security</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">Our production infrastructure is designed with defense-in-depth principles:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Encryption in transit:</strong> All client-server communication is encrypted using TLS 1.2 or TLS 1.3 exclusively. Older protocols are disabled. Forward-secrecy cipher suites are enforced.</li>
+            <li><strong>Encryption at rest:</strong> All data stored in our database is encrypted at rest using AES-256. File storage is encrypted at rest at the infrastructure level.</li>
+            <li><strong>HSTS:</strong> HTTP Strict Transport Security is enforced with a long max-age, includeSubDomains, and preload directives.</li>
+            <li><strong>Security headers:</strong> Industry-standard security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and others) are applied to all responses.</li>
+            <li><strong>Network architecture:</strong> Production services are accessed exclusively through a secure tunnel. No ports are directly exposed to the public internet. Internal services communicate within an isolated private network.</li>
+            <li><strong>AI infrastructure:</strong> Document processing via our AI systems is protected by authenticated access controls. Document content is not retained by the AI system beyond the duration of the processing request.</li>
+            <li><strong>CORS:</strong> Whitelist-based Cross-Origin Resource Sharing restricts API access to authorized domains only.</li>
+            <li><strong>Rate limiting:</strong> Per-IP rate limits are enforced on all API endpoints, with stricter limits on authentication and upload endpoints to prevent abuse.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">6. Data Protection</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">Customer data is protected at every layer of the application:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Row-Level Security:</strong> Database-level security policies are enforced on all tables, ensuring users can only access their own documents, subscriptions, and settings — even at the query level.</li>
+            <li><strong>Client/server key separation:</strong> The frontend uses restricted API keys subject to row-level security. The backend uses privileged keys only for administrative operations, and these keys are never exposed to client-side code.</li>
+            <li><strong>Signed URLs:</strong> Document file access is controlled through time-limited, cryptographically signed URLs that expire after use.</li>
+            <li><strong>Payment data:</strong> All payment processing is handled by Stripe under PCI-DSS Level 1 compliance. DocuIntelli AI never stores, processes, or has access to full credit card numbers.</li>
+            <li><strong>No document content training:</strong> Customer document content is never used for training, fine-tuning, or improving AI models.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">7. Secure Development Practices</h2>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Version control:</strong> All code changes are tracked in Git with branch-based development workflows.</li>
+            <li><strong>Code review:</strong> Changes to production code are reviewed before merging.</li>
+            <li><strong>Dependency management:</strong> Third-party dependencies are monitored for known vulnerabilities using automated scanning and alerting tools.</li>
+            <li><strong>Secrets management:</strong> Secrets and API keys are stored in environment variables, never in source code. Build and deployment configurations prevent accidental inclusion of sensitive files.</li>
+            <li><strong>Input validation:</strong> User input is validated and sanitized at API boundaries. File uploads are restricted by type and size.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">8. Incident Response</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">DocuIntelli AI maintains an incident response procedure to detect, contain, and recover from security events:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Detection:</strong> Automated monitoring via health check endpoints, Cloudflare analytics, and application-level logging identifies anomalies and outages.</li>
+            <li><strong>Containment:</strong> Upon detection of a security incident, affected systems are isolated. Compromised credentials are immediately rotated.</li>
+            <li><strong>Notification:</strong> Affected users are notified within 72 hours of a confirmed data breach, in compliance with applicable privacy regulations (GDPR, state-level breach notification laws).</li>
+            <li><strong>Post-incident review:</strong> Every security incident is followed by a root-cause analysis and remediation to prevent recurrence.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">9. Third-Party Risk Management</h2>
+          <p class="text-slate-600 leading-relaxed mb-3">We carefully evaluate the security posture of all third-party services integrated with our platform:</p>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Supabase:</strong> SOC 2 Type II certified. Provides database hosting, authentication, and storage with built-in encryption and RLS.</li>
+            <li><strong>Stripe:</strong> PCI-DSS Level 1 certified. Handles all payment data processing.</li>
+            <li><strong>Cloudflare:</strong> SOC 2, ISO 27001 certified. Provides CDN, DDoS protection, SSL termination, and Zero Trust access to AI infrastructure.</li>
+            <li><strong>Mailjet:</strong> GDPR-compliant email delivery service for transactional notifications.</li>
+          </ul>
+          <p class="text-slate-600 leading-relaxed mt-3">Only the minimum data necessary is shared with each third-party service to fulfill its function. Data sharing agreements and processing terms are reviewed before integration.</p>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">10. Business Continuity</h2>
+          <ul class="list-disc pl-6 text-slate-600 space-y-2">
+            <li><strong>Data backups:</strong> Database backups are managed by our hosting provider with point-in-time recovery. Cache services use persistent storage for durability.</li>
+            <li><strong>Redundancy:</strong> Global CDN caching and DDoS protection ensure availability even under adverse network conditions.</li>
+            <li><strong>Containerized deployment:</strong> Production services run in isolated containers, enabling rapid recovery and consistent environments across restarts.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">11. Policy Compliance &amp; Enforcement</h2>
+          <p class="text-slate-600 leading-relaxed">Adherence to this policy is mandatory for all personnel with access to DocuIntelli AI systems. Violations may result in disciplinary action, up to and including termination of access and employment. Questions or concerns regarding this policy should be directed to <a href="mailto:security@docuintelli.com" class="text-emerald-600 hover:text-emerald-700 underline">security@docuintelli.com</a>.</p>
+        </section>
+
+        <section>
+          <h2 class="text-xl font-semibold text-slate-900 mb-3">12. Contact</h2>
+          <p class="text-slate-600 leading-relaxed">For security-related questions, vulnerability reports, or incident disclosures, contact us at <a href="mailto:security@docuintelli.com" class="text-emerald-600 hover:text-emerald-700 underline">security@docuintelli.com</a>.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

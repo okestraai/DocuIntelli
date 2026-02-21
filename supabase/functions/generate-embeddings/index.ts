@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "http://localhost:5173",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
@@ -20,6 +20,9 @@ interface DocumentChunk {
   document_id: string;
 }
 
+const BATCH_SIZE = 3;
+const TIME_BUDGET_MS = 120_000; // 120s — stay within edge function limits
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -29,6 +32,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const startTime = Date.now();
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -37,7 +41,6 @@ Deno.serve(async (req: Request) => {
     console.log("📊 Starting embedding generation...");
 
     let document_id: string | undefined;
-    let limit = 2; // Process 2 chunks at a time to avoid timeouts
     let continue_processing = false;
 
     if (req.method === "POST") {
@@ -45,145 +48,206 @@ Deno.serve(async (req: Request) => {
         const body: RequestBody = await req.json();
         document_id = body.document_id;
         continue_processing = body.continue_processing || false;
-        if (body.limit && body.limit > 0) {
-          limit = Math.min(body.limit, 3); // Max 3 at a time to stay within compute limits
-        }
       } catch {
         // No body or invalid JSON, use defaults
       }
     }
 
-    let query = supabase
-      .from("document_chunks")
-      .select("id, chunk_text, chunk_index, document_id")
-      .is("embedding", null)
-      .not("chunk_text", "eq", "")
-      .not("chunk_text", "is", null)
-      .order("created_at", { ascending: true })
-      .limit(limit);
+    // Get vLLM embedding service configuration
+    const vllmEmbedderUrl = Deno.env.get("VLLM_EMBEDDER_URL");
+    const cfAccessClientId = Deno.env.get("CF_ACCESS_CLIENT_ID");
+    const cfAccessClientSecret = Deno.env.get("CF_ACCESS_CLIENT_SECRET");
 
-    if (document_id) {
-      console.log(`🎯 Filtering for document: ${document_id}`);
-      query = query.eq("document_id", document_id);
+    if (!vllmEmbedderUrl) {
+      throw new Error("VLLM_EMBEDDER_URL not configured");
     }
 
-    const { data: chunks, error: fetchError } = await query;
-
-    if (fetchError) {
-      console.error("❌ Error fetching chunks:", fetchError);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to fetch chunks", details: fetchError.message }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    const embeddingHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (cfAccessClientId && cfAccessClientSecret) {
+      embeddingHeaders["CF-Access-Client-Id"] = cfAccessClientId;
+      embeddingHeaders["CF-Access-Client-Secret"] = cfAccessClientSecret;
     }
 
-    if (!chunks || chunks.length === 0) {
-      console.log("✅ No chunks need embedding generation");
-      return new Response(
-        JSON.stringify({ success: true, updated: 0, message: "No chunks to process" }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
+    let totalUpdated = 0;
+    let totalProcessed = 0;
+    const allErrors: Array<{ chunkId: string; error: string }> = [];
+    let tagTriggered = false;
 
-    console.log(`📝 Processing ${chunks.length} chunks...`);
+    // Process chunks in a loop until done or time budget exceeded
+    while (true) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        console.log("⏰ Time budget exceeded, stopping");
+        break;
+      }
 
-    let updatedCount = 0;
-    const errors: Array<{ chunkId: string; error: string }> = [];
+      // Fetch next batch
+      let query = supabase
+        .from("document_chunks")
+        .select("id, chunk_text, chunk_index, document_id")
+        .is("embedding", null)
+        .not("chunk_text", "eq", "")
+        .not("chunk_text", "is", null)
+        .order("created_at", { ascending: true })
+        .limit(BATCH_SIZE);
 
-    // Create embedding model session outside the loop
-    const session = new Supabase.ai.Session("gte-small");
+      if (document_id) {
+        query = query.eq("document_id", document_id);
+      }
 
-    for (const chunk of chunks as DocumentChunk[]) {
-      try {
-        console.log(`🔄 Chunk ${chunk.id} (${chunk.chunk_index}): text length = ${chunk.chunk_text.length}`);
+      const { data: chunks, error: fetchError } = await query;
 
-        // Generate embedding using Supabase AI
-        const embedding = await session.run(chunk.chunk_text, {
-          mean_pool: true,
-          normalize: true,
-        });
+      if (fetchError) {
+        console.error("❌ Error fetching chunks:", fetchError);
+        break;
+      }
 
-        console.log(`🧮 Embedding generated, type: ${typeof embedding}, isArray: ${Array.isArray(embedding)}`);
+      if (!chunks || chunks.length === 0) {
+        console.log("✅ No more chunks need embedding generation");
+        break;
+      }
 
-        if (!embedding) {
-          throw new Error("Embedding is null or undefined");
-        }
+      console.log(`📝 Processing batch of ${chunks.length} chunks...`);
 
-        // Convert to array if needed
-        let embeddingArray: number[];
-        if (Array.isArray(embedding)) {
-          embeddingArray = embedding;
-        } else if (typeof embedding === 'object' && 'data' in embedding) {
-          embeddingArray = (embedding as any).data;
-        } else {
-          throw new Error(`Invalid embedding format: ${typeof embedding}`);
-        }
-
-        if (!Array.isArray(embeddingArray) || embeddingArray.length === 0) {
-          throw new Error(`Invalid embedding array: length = ${embeddingArray?.length}`);
+      for (const chunk of chunks as DocumentChunk[]) {
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          console.log("⏰ Time budget exceeded mid-batch");
+          break;
         }
 
-        console.log(`📊 Embedding array length: ${embeddingArray.length}`);
+        try {
+          const embeddingResponse = await fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+            method: "POST",
+            headers: embeddingHeaders,
+            body: JSON.stringify({
+              input: chunk.chunk_text,
+              model: "intfloat/e5-mistral-7b-instruct",
+            }),
+          });
 
-        const { error: updateError } = await supabase
-          .from("document_chunks")
-          .update({ embedding: embeddingArray })
-          .eq("id", chunk.id);
+          if (!embeddingResponse.ok) {
+            const errorText = await embeddingResponse.text();
+            throw new Error(`vLLM API error: ${embeddingResponse.status} - ${errorText}`);
+          }
 
-        if (updateError) {
-          throw new Error(updateError.message);
+          const embeddingResult = await embeddingResponse.json();
+          const embeddingArray = embeddingResult.data?.[0]?.embedding;
+
+          if (!embeddingArray || !Array.isArray(embeddingArray) || embeddingArray.length === 0) {
+            throw new Error(`Invalid embedding: ${embeddingArray ? `length=${embeddingArray.length}` : "null"}`);
+          }
+
+          const { error: updateError } = await supabase
+            .from("document_chunks")
+            .update({ embedding: embeddingArray })
+            .eq("id", chunk.id);
+
+          if (updateError) {
+            throw new Error(updateError.message);
+          }
+
+          totalUpdated++;
+          console.log(`✅ Chunk ${chunk.chunk_index} done (${totalUpdated} total)`);
+        } catch (err: any) {
+          console.error(`❌ Error chunk ${chunk.id}:`, err.message);
+          allErrors.push({ chunkId: chunk.id, error: err.message });
         }
+        totalProcessed++;
+      }
 
-        updatedCount++;
-        console.log(`✅ Updated chunk ${chunk.id}`);
-      } catch (err: any) {
-        console.error(`❌ Error processing chunk ${chunk.id}:`, err.message);
-        errors.push({ chunkId: chunk.id, error: err.message });
+      // After each batch, check tag generation for document-specific processing
+      if (document_id && totalUpdated > 0 && !tagTriggered) {
+        try {
+          const { count: totalChunks } = await supabase
+            .from("document_chunks")
+            .select("id", { count: "exact", head: true })
+            .eq("document_id", document_id);
+
+          const { count: embeddedChunks } = await supabase
+            .from("document_chunks")
+            .select("id", { count: "exact", head: true })
+            .eq("document_id", document_id)
+            .not("embedding", "is", null);
+
+          if (totalChunks && embeddedChunks && totalChunks > 0) {
+            const progress = (embeddedChunks / totalChunks) * 100;
+            console.log(`📊 Progress: ${progress.toFixed(1)}% (${embeddedChunks}/${totalChunks})`);
+
+            if (progress >= 60) {
+              const { data: docData } = await supabase
+                .from("documents")
+                .select("tags, tag_generation_triggered")
+                .eq("id", document_id)
+                .single();
+
+              const hasTags = docData?.tags && Array.isArray(docData.tags) && docData.tags.length > 0;
+              const alreadyTriggered = docData?.tag_generation_triggered === true;
+
+              // Trigger at 60%, or retry at 100% if previous attempt failed
+              if (!hasTags && (!alreadyTriggered || progress >= 100)) {
+                console.log(`🏷️ Triggering tag generation at ${progress.toFixed(1)}%`);
+
+                await supabase
+                  .from("documents")
+                  .update({ tag_generation_triggered: true })
+                  .eq("id", document_id);
+
+                // Await the trigger to ensure it fires before isolate shuts down
+                try {
+                  const authHeader = req.headers.get("Authorization") || `Bearer ${supabaseServiceKey}`;
+                  await fetch(`${supabaseUrl}/functions/v1/generate-tags`, {
+                    method: "POST",
+                    headers: {
+                      "Authorization": authHeader,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ document_id }),
+                  });
+                } catch (tagErr) {
+                  console.error("Failed to trigger tag generation:", tagErr);
+                }
+
+                tagTriggered = true;
+              }
+            }
+          }
+        } catch (progressError: any) {
+          console.error("⚠️ Progress check error:", progressError.message);
+        }
+      }
+
+      // If not continue_processing, stop after first batch
+      if (!continue_processing) {
+        break;
       }
     }
 
-    // Check if there are more chunks to process
-    const { count: remainingCount } = await supabase
+    // Final remaining count
+    let finalQuery = supabase
       .from("document_chunks")
       .select("id", { count: "exact", head: true })
       .is("embedding", null)
       .not("chunk_text", "eq", "")
       .not("chunk_text", "is", null);
 
-    console.log(`🎉 Completed: ${updatedCount}/${chunks.length} chunks updated`);
-    console.log(`📊 Remaining chunks with null embeddings: ${remainingCount || 0}`);
-
-    // If continue_processing is true and there are more chunks, trigger another round
-    if (continue_processing && remainingCount && remainingCount > 0) {
-      console.log("🔄 Scheduling next batch...");
-      // Don't await - fire and forget
-      fetch(req.url, {
-        method: "POST",
-        headers: {
-          "Authorization": req.headers.get("Authorization") || "",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          document_id,
-          limit,
-          continue_processing: true,
-        }),
-      }).catch(err => console.error("Failed to schedule next batch:", err));
+    if (document_id) {
+      finalQuery = finalQuery.eq("document_id", document_id);
     }
+
+    const { count: remainingCount } = await finalQuery;
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    console.log(`🎉 Done in ${elapsed}s: ${totalUpdated}/${totalProcessed} updated, ${remainingCount || 0} remaining`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        updated: updatedCount,
-        total: chunks.length,
+        updated: totalUpdated,
+        total: totalProcessed,
         remaining: remainingCount || 0,
-        errors: errors.length > 0 ? errors : undefined,
+        elapsed_seconds: parseFloat(elapsed),
+        errors: allErrors.length > 0 ? allErrors : undefined,
       }),
       {
         status: 200,

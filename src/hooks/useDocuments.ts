@@ -3,6 +3,8 @@ import { getDocuments, SupabaseDocument, supabase } from '../lib/supabase';
 import { uploadDocumentWithMetadata, processURLContent, processManualContent, DocumentUploadRequest } from '../lib/api';
 import type { Document } from '../App';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 export type { DocumentUploadRequest } from '../lib/api';
 
 export function useDocuments(isAuthenticated: boolean) {
@@ -10,7 +12,7 @@ export function useDocuments(isAuthenticated: boolean) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const uploadDocuments = async (documentsData: DocumentUploadRequest[]): Promise<Document[]> => {
+  const uploadDocuments = async (documentsData: DocumentUploadRequest[]): Promise<string[]> => {
     try {
       setError(null);
       console.log(`📤 Starting processing of ${documentsData.length} item(s)`);
@@ -66,9 +68,7 @@ export function useDocuments(isAuthenticated: boolean) {
       // Refresh documents list to get the new uploads
       await refetchDocuments();
 
-      // Return the newly uploaded documents
-      const newDocuments = documents.filter(doc => uploadedDocIds.includes(doc.id));
-      return newDocuments;
+      return uploadedDocIds;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process content';
       console.error('❌ Processing failed:', errorMessage);
@@ -88,7 +88,7 @@ export function useDocuments(isAuthenticated: boolean) {
         throw new Error('User not authenticated');
       }
 
-      const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+      const response = await fetch(`${API_BASE}/api/documents/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
