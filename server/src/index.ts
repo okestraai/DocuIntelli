@@ -266,6 +266,7 @@ console.log("🔧 Environment Check:", {
   <script>
     var params = new URLSearchParams(window.location.search);
     var token = params.get('token');
+    var isMobile = params.get('mobile') === '1';
     if (!token) {
       showError('No link token provided');
     } else if (typeof Plaid === 'undefined') {
@@ -275,17 +276,25 @@ console.log("🔧 Environment Check:", {
         var handler = Plaid.create({
           token: token,
           onSuccess: function(publicToken, metadata) {
-            sendToOpener({
-              type: 'plaid-link-success',
-              publicToken: publicToken,
-              institutionName: metadata && metadata.institution ? metadata.institution.name : 'Unknown Bank'
-            });
+            var instName = metadata && metadata.institution ? metadata.institution.name : 'Unknown Bank';
+            if (isMobile) {
+              // Mobile WebView: navigate to plaidlink:// URL scheme for React Native to intercept
+              window.location.href = 'plaidlink://connected?public_token='
+                + encodeURIComponent(publicToken)
+                + '&institution_name=' + encodeURIComponent(instName);
+            } else {
+              // Web popup: use postMessage to parent window
+              try { if (window.opener) window.opener.postMessage({ type:'plaid-link-success', publicToken:publicToken, institutionName:instName }, '*'); } catch(e){}
+              setTimeout(function(){ window.close(); }, 300);
+            }
           },
           onExit: function(err, metadata) {
-            sendToOpener({
-              type: 'plaid-link-exit',
-              error: err || null
-            });
+            if (isMobile) {
+              window.location.href = 'plaidlink://exit';
+            } else {
+              try { if (window.opener) window.opener.postMessage({ type:'plaid-link-exit', error:err||null }, '*'); } catch(e){}
+              setTimeout(function(){ window.close(); }, 300);
+            }
           },
           onLoad: function() {
             document.getElementById('loadingState').style.display = 'none';
@@ -298,12 +307,6 @@ console.log("🔧 Environment Check:", {
       } catch (e) {
         showError(e.message || 'Failed to initialize');
       }
-    }
-    function sendToOpener(data) {
-      try {
-        if (window.opener) { window.opener.postMessage(data, '*'); }
-      } catch(e) {}
-      setTimeout(function(){ window.close(); }, 300);
     }
     function showError(msg) {
       document.getElementById('loadingState').style.display = 'none';
