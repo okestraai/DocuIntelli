@@ -1,22 +1,55 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Download, FileText, Image, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download, FileText, Image, AlertCircle, Loader2, PanelRightOpen, PanelRightClose, Crown, RefreshCw, MessageSquare } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { supabase } from '../lib/supabase';
+import { fetchDocumentRelationships } from '../lib/engagementApi';
+import { DocumentHealthPanel } from './DocumentHealthPanel';
 
 interface DocumentViewerProps {
   document: Document;
   onBack: () => void;
+  onChatWithDocument?: () => void;
+  currentPlan?: 'free' | 'starter' | 'pro';
+  onUpgrade?: () => void;
+  onUploadRenewal?: (doc: Document) => void;
+  onNavigateToDocument?: (documentId: string) => void;
 }
 
-export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
+export function DocumentViewer({ document, onBack, onChatWithDocument, currentPlan, onUpgrade, onUploadRenewal, onNavigateToDocument }: DocumentViewerProps) {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [isConvertedDoc, setIsConvertedDoc] = useState(false);
+  const isPro = currentPlan === 'pro';
+  const [showHealthPanel, setShowHealthPanel] = useState(isPro);
+  const [olderVersion, setOlderVersion] = useState<{ id: string; name: string } | null>(null);
+  const [newerVersion, setNewerVersion] = useState<{ id: string; name: string } | null>(null);
   const feedback = useFeedback();
+
+  // Fetch renewal chain relationships
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { outgoing, incoming } = await fetchDocumentRelationships(document.id);
+        if (cancelled) return;
+        // Outgoing supersedes = this doc replaced an older one
+        const older = outgoing?.find((r: any) => r.relationship_type === 'supersedes');
+        // Incoming supersedes = another doc replaced this one
+        const newer = incoming?.find((r: any) => r.relationship_type === 'supersedes');
+        setOlderVersion(older ? { id: older.related_document_id, name: older.documentName || 'Previous version' } : null);
+        setNewerVersion(newer ? { id: newer.source_document_id, name: newer.documentName || 'Newer version' } : null);
+      } catch {
+        // Non-critical — just don't show version nav
+        setOlderVersion(null);
+        setNewerVersion(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [document.id]);
 
   const loadDocument = useCallback(async () => {
     try {
@@ -111,11 +144,13 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
 
           const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-pdf`;
 
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
           const conversionResponse = await fetch(conversionUrl, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${session.access_token}`,
               'Content-Type': 'application/json',
+              'apikey': supabaseAnonKey,
             },
             body: JSON.stringify({ filePath }),
           });
@@ -316,18 +351,86 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
           </div>
         </div>
 
-        <button
-          onClick={handleDownload}
-          disabled={!blobUrl && !documentUrl}
-          className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
-        >
-          <Download className="h-4 w-4" />
-          <span>Download</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => isPro ? setShowHealthPanel(!showHealthPanel) : onUpgrade?.()}
+            className={`relative flex items-center space-x-2 px-3 py-2 rounded-lg font-medium text-sm transition-all border ${
+              showHealthPanel && isPro
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-200'
+            }`}
+            title={isPro ? (showHealthPanel ? 'Hide health panel' : 'Show health panel') : 'Upgrade to Pro to access Document Health'}
+          >
+            {showHealthPanel && isPro ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            <span className="hidden sm:inline">Health</span>
+            {!isPro && (
+              <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none shadow-sm">
+                <Crown className="h-2 w-2" />
+                PRO
+              </span>
+            )}
+          </button>
+          {onChatWithDocument && (
+            <button
+              onClick={onChatWithDocument}
+              className="flex items-center space-x-2 bg-white text-slate-700 border border-slate-200 hover:border-teal-300 hover:bg-teal-50 px-3 py-2 rounded-lg font-medium text-sm transition-all"
+              title="Chat with this document"
+            >
+              <MessageSquare className="h-4 w-4 text-teal-600" />
+              <span className="hidden sm:inline">Chat</span>
+            </button>
+          )}
+          <button
+            onClick={handleDownload}
+            disabled={!blobUrl && !documentUrl}
+            className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+          >
+            <Download className="h-4 w-4" />
+            <span>Download</span>
+          </button>
+        </div>
       </div>
 
-      {/* Document Viewer */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Newer Version Banner — prominent when viewing an outdated doc */}
+      {newerVersion && onNavigateToDocument && (
+        <div className="mb-4 bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex-shrink-0 w-9 h-9 bg-emerald-100 rounded-lg flex items-center justify-center">
+                <RefreshCw className="h-4.5 w-4.5 text-emerald-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-emerald-900">A newer version is available</p>
+                <p className="text-xs text-emerald-700 truncate">{newerVersion.name}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigateToDocument(newerVersion.id)}
+              className="flex-shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-sm"
+            >
+              View Latest
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Previous Version Link — subtle when viewing the latest doc */}
+      {olderVersion && onNavigateToDocument && (
+        <div className="mb-4 flex items-center gap-2 px-1">
+          <button
+            onClick={() => onNavigateToDocument(olderVersion.id)}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-600 font-medium transition-colors"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Previous version: <span className="truncate max-w-[200px]">{olderVersion.name}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Document Viewer + Health Panel */}
+      <div className={`flex-1 flex gap-4 overflow-hidden ${showHealthPanel ? '' : ''}`}>
+      <div className={`${showHealthPanel ? 'flex-1 min-w-0' : 'w-full'} bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden`}>
         {(isLoading || isConverting) && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -451,6 +554,7 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
                 src={blobUrl}
                 className="w-full h-full border-0 bg-white p-4"
                 title={document.name}
+                sandbox="allow-same-origin"
                 onLoad={() => console.log('Text file loaded successfully from blob URL')}
                 onError={(e) => {
                   console.error('Text file load error:', e);
@@ -482,6 +586,21 @@ export function DocumentViewer({ document, onBack }: DocumentViewerProps) {
             )}
           </div>
         )}
+      </div>
+
+      {/* Health Panel Sidebar — Pro only */}
+      {showHealthPanel && isPro && (
+        <div className="w-80 flex-shrink-0 overflow-y-auto hidden lg:block">
+          <DocumentHealthPanel
+            documentId={document.id}
+            documentName={document.name}
+            documentCategory={document.category}
+            documentStatus={document.status}
+            onChatWithDocument={onChatWithDocument}
+            onUploadRenewal={() => onUploadRenewal?.(document)}
+          />
+        </div>
+      )}
       </div>
     </div>
   );

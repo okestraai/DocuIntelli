@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "DocuIntelli AI",
+    "slug": "docuintelli",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#059669"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.docuintelli.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "DocuIntelli needs camera access to scan documents",
+        "NSFaceIDUsageDescription": "Use Face ID to quickly unlock DocuIntelli"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#059669"
+      },
+      "package": "com.docuintelli.app",
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "scheme": "docuintelli",
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      "expo-document-picker",
+      "expo-local-authentication",
+      "expo-notifications",
+      "expo-sqlite",
+      "expo-asset"
+    ],
+    "extra": {
+      "supabaseUrl": "https://caygpjhiakabaxtklnlw.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNheWdwamhpYWthYmF4dGtsbmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYwNzMzMTQsImV4cCI6MjA3MTY0OTMxNH0.UYaF1hW_j2HGcFP5W1FMV_G7ODGJuz8qieyf9Qe4Z90",
+      "apiBase": "https://app.docuintelli.com",
+      "stripeStarterPriceId": "price_1SzmJJC1d2bwLolG6IatDmAT",
+      "stripeProPriceId": "price_1SzmGgC1d2bwLolGhBHMtuFZ",
+      "eas": {
+        "projectId": "0ad81a6e-b653-42f6-98c0-c1ed7fbb8b47"
+      },
+      "router": {}
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "owner": "okestraai"
+  }
+}

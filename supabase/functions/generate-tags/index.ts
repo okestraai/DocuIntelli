@@ -1,9 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import OpenAI from "npm:openai@4.67.3";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "http://localhost:5173",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
@@ -23,14 +22,15 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    const vllmChatUrl = Deno.env.get("VLLM_CHAT_URL") || "https://chat.affinityecho.com";
+    const cfAccessClientId = Deno.env.get("CF_ACCESS_CLIENT_ID");
+    const cfAccessClientSecret = Deno.env.get("CF_ACCESS_CLIENT_SECRET");
 
-    if (!openaiApiKey) {
-      throw new Error("OPENAI_API_KEY environment variable is not set");
+    if (!cfAccessClientId || !cfAccessClientSecret) {
+      throw new Error("Cloudflare Access credentials not configured");
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const openai = new OpenAI({ apiKey: openaiApiKey });
 
     const { document_id }: RequestBody = await req.json();
 
@@ -114,24 +114,38 @@ Deno.serve(async (req: Request) => {
 
     const sampleText = sampleChunks.map(c => c.chunk_text).join("\n\n");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert at analyzing legal and financial documents. Generate exactly 5 relevant tags that describe the document's content, purpose, and key topics. Tags should be short (1-3 words), specific, and useful for categorization. Return only a JSON array of 5 strings."
-        },
-        {
-          role: "user",
-          content: `Document name: ${document.name}\nCategory: ${document.category}\n\nSample content:\n${sampleText}\n\nGenerate exactly 5 relevant tags as a JSON array.`
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 150,
+    const chatResponse = await fetch(`${vllmChatUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "CF-Access-Client-Id": cfAccessClientId,
+        "CF-Access-Client-Secret": cfAccessClientSecret,
+      },
+      body: JSON.stringify({
+        model: "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert at analyzing legal and financial documents. Generate exactly 5 relevant tags that describe the document's content, purpose, and key topics. Tags should be short (1-3 words), specific, and useful for categorization. Return only a JSON array of 5 strings."
+          },
+          {
+            role: "user",
+            content: `Document name: ${document.name}\nCategory: ${document.category}\n\nSample content:\n${sampleText}\n\nGenerate exactly 5 relevant tags as a JSON array.`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 150,
+      }),
     });
 
-    const responseText = completion.choices[0]?.message?.content?.trim() || "[]";
-    console.log("🤖 OpenAI response:", responseText);
+    if (!chatResponse.ok) {
+      const errorText = await chatResponse.text();
+      throw new Error(`vLLM Chat API error: ${chatResponse.status} - ${errorText}`);
+    }
+
+    const chatData = await chatResponse.json();
+    const responseText = chatData.choices[0]?.message?.content?.trim() || "[]";
+    console.log("🤖 vLLM response:", responseText);
 
     let tags: string[] = [];
     try {

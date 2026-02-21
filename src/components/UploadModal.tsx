@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, FileText, Trash2, Link, FileEdit } from 'lucide-react';
+import { X, Upload, FileText, Trash2, Link, RefreshCw } from 'lucide-react';
 import { DocumentUploadRequest } from '../lib/api';
 import { useSubscription } from '../hooks/useSubscription';
 
@@ -7,10 +7,11 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpload: (documentsData: DocumentUploadRequest[]) => Promise<void>;
-  onUpgradeNeeded?: () => void;
+  onUpgradeNeeded?: (reason?: 'documents' | 'monthly-uploads') => void;
+  renewalOf?: { documentId: string; name: string; category: string } | null;
 }
 
-type TabType = 'file' | 'url' | 'manual';
+type TabType = 'file' | 'url';
 
 interface FileDocumentData {
   file: File;
@@ -19,7 +20,7 @@ interface FileDocumentData {
   expirationDate: string;
 }
 
-export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: UploadModalProps) {
+export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded, renewalOf }: UploadModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('file');
   const [documents, setDocuments] = useState<FileDocumentData[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -29,13 +30,6 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
 
   const [urlData, setUrlData] = useState({
     url: '',
-    name: '',
-    category: '',
-    expirationDate: ''
-  });
-
-  const [manualData, setManualData] = useState({
-    content: '',
     name: '',
     category: '',
     expirationDate: ''
@@ -81,7 +75,7 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
     const newDocuments = files.map(file => ({
       file,
       name: '',
-      category: '',
+      category: renewalOf?.category || '',
       expirationDate: ''
     }));
     setDocuments(prev => [...prev, ...newDocuments]);
@@ -113,14 +107,13 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
     return urlData.url.trim() && urlData.name.trim() && urlData.category;
   };
 
-  const isManualFormValid = () => {
-    return manualData.content.trim().length >= 50 && manualData.name.trim() && manualData.category;
-  };
-
   const handleSubmit = async () => {
     if (!loading && subscription && !canUploadDocument) {
       if (onUpgradeNeeded) {
-        onUpgradeNeeded();
+        // Determine which limit is blocking
+        const atMonthlyQuota = subscription.monthly_uploads_used >= subscription.monthly_upload_limit;
+        const atStorageLimit = documentCount >= subscription.document_limit;
+        onUpgradeNeeded(atMonthlyQuota ? 'monthly-uploads' : atStorageLimit ? 'documents' : 'documents');
       }
       return;
     }
@@ -138,7 +131,7 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
           file: doc.file,
           expirationDate: doc.expirationDate || undefined
         }));
-      } else if (activeTab === 'url') {
+      } else {
         if (!isUrlFormValid()) return;
         uploadData = [{
           type: 'url',
@@ -147,22 +140,12 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
           url: urlData.url.trim(),
           expirationDate: urlData.expirationDate || undefined
         }];
-      } else {
-        if (!isManualFormValid()) return;
-        uploadData = [{
-          type: 'manual',
-          name: manualData.name.trim(),
-          category: manualData.category,
-          content: manualData.content.trim(),
-          expirationDate: manualData.expirationDate || undefined
-        }];
       }
 
       await onUpload(uploadData);
 
       setDocuments([]);
       setUrlData({ url: '', name: '', category: '', expirationDate: '' });
-      setManualData({ content: '', name: '', category: '', expirationDate: '' });
       onClose();
     } catch (error) {
       console.error('Upload failed:', error);
@@ -175,22 +158,22 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
     if (!isUploading) {
       setDocuments([]);
       setUrlData({ url: '', name: '', category: '', expirationDate: '' });
-      setManualData({ content: '', name: '', category: '', expirationDate: '' });
       onClose();
     }
   };
 
   const isFormValid = () => {
     if (activeTab === 'file') return isFileFormValid();
-    if (activeTab === 'url') return isUrlFormValid();
-    return isManualFormValid();
+    return isUrlFormValid();
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900">Add Content</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {renewalOf ? 'Upload Renewal' : 'Add Content'}
+          </h2>
           <button
             onClick={handleClose}
             disabled={isUploading}
@@ -199,6 +182,31 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
             <X className="h-6 w-6" />
           </button>
         </div>
+
+        {renewalOf && (
+          <div className="px-6 py-3 bg-emerald-50 border-b border-emerald-200 flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+            <p className="text-sm text-emerald-800">
+              Uploading renewal for <span className="font-semibold">{renewalOf.name}</span>
+            </p>
+          </div>
+        )}
+
+        {!loading && subscription && subscription.monthly_uploads_used >= subscription.monthly_upload_limit && (
+          <div className="px-6 py-3 bg-red-50 border-b border-red-200">
+            <p className="text-sm text-red-800">
+              You've used all <span className="font-semibold">{subscription.monthly_upload_limit}</span> uploads this month. Upgrade your plan for more.
+            </p>
+          </div>
+        )}
+
+        {!loading && subscription && subscription.monthly_uploads_used < subscription.monthly_upload_limit && subscription.monthly_uploads_used >= subscription.monthly_upload_limit * 0.8 && (
+          <div className="px-6 py-3 bg-yellow-50 border-b border-yellow-200">
+            <p className="text-sm text-yellow-800">
+              <span className="font-semibold">{subscription.monthly_upload_limit - subscription.monthly_uploads_used}</span> uploads remaining this month ({subscription.monthly_uploads_used}/{subscription.monthly_upload_limit} used)
+            </p>
+          </div>
+        )}
 
         <div className="border-b border-gray-200">
           <div className="flex">
@@ -223,17 +231,6 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
             >
               <Link className="h-4 w-4" />
               <span>Add URL</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('manual')}
-              className={`flex-1 px-6 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                activeTab === 'manual'
-                  ? 'text-emerald-600 border-b-2 border-emerald-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <FileEdit className="h-4 w-4" />
-              <span>Paste Content</span>
             </button>
           </div>
         </div>
@@ -436,73 +433,6 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
             </div>
           )}
 
-          {activeTab === 'manual' && (
-            <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <p className="text-sm text-amber-800">
-                  Paste the content you want to analyze. Minimum 50 characters required.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Content * (minimum 50 characters)
-                </label>
-                <textarea
-                  value={manualData.content}
-                  onChange={(e) => setManualData({ ...manualData, content: e.target.value })}
-                  placeholder="Paste your content here..."
-                  rows={10}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono text-sm"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {manualData.content.length} characters {manualData.content.length < 50 && `(${50 - manualData.content.length} more needed)`}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Document Name *
-                </label>
-                <input
-                  type="text"
-                  value={manualData.name}
-                  onChange={(e) => setManualData({ ...manualData, name: e.target.value })}
-                  placeholder="e.g., Privacy Policy Notes"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Category *
-                  </label>
-                  <select
-                    value={manualData.category}
-                    onChange={(e) => setManualData({ ...manualData, category: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat.value} value={cat.value}>{cat.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Expiration Date (optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={manualData.expirationDate}
-                    onChange={(e) => setManualData({ ...manualData, expirationDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex items-center justify-between p-6 border-t border-gray-200">
@@ -528,7 +458,6 @@ export function UploadModal({ isOpen, onClose, onUpload, onUpgradeNeeded }: Uplo
               <span>
                 {activeTab === 'file' && `Upload ${documents.length} Document${documents.length !== 1 ? 's' : ''}`}
                 {activeTab === 'url' && 'Add URL'}
-                {activeTab === 'manual' && 'Add Content'}
               </span>
             )}
           </button>

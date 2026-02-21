@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, Lock, Settings, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
-import { supabase, getCurrentUser, updateUserProfile, changePassword, resetPassword, getUserProfile, UserProfile } from '../lib/supabase';
+import { X, User, Lock, Settings, Eye, EyeOff, AlertCircle, CheckCircle, CreditCard } from 'lucide-react';
+import { supabase, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/supabase';
 import { useFeedback } from '../hooks/useFeedback';
 import { formatUTCDate } from '../lib/dateUtils';
+import { BillingPage } from './BillingPage';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -19,7 +20,7 @@ interface UserProfile {
   bio?: string;
 }
 
-type TabType = 'profile' | 'security' | 'preferences';
+type TabType = 'profile' | 'security' | 'preferences' | 'billing';
 
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('profile');
@@ -48,7 +49,8 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const tabs = [
     { id: 'profile' as TabType, label: 'Profile', icon: User },
     { id: 'security' as TabType, label: 'Security', icon: Lock },
-    { id: 'preferences' as TabType, label: 'Preferences', icon: Settings }
+    { id: 'preferences' as TabType, label: 'Preferences', icon: Settings },
+    { id: 'billing' as TabType, label: 'Billing', icon: CreditCard }
   ];
 
   const loadUserProfile = useCallback(async () => {
@@ -150,20 +152,6 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     }
   };
 
-  const handleResetPassword = async () => {
-    if (!userProfile?.email) return;
-
-    setIsUpdating(true);
-    try {
-      await resetPassword(userProfile.email);
-
-      feedback.showSuccess('Reset email sent', 'Check your email for password reset instructions');
-    } catch (error) {
-      feedback.showError('Reset failed', error instanceof Error ? error.message : 'Failed to send reset email');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
 
   const handleUpdatePreferences = async () => {
     setIsUpdating(true);
@@ -469,13 +457,6 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                           )}
                         </button>
 
-                        <button
-                          onClick={handleResetPassword}
-                          disabled={isUpdating}
-                          className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-                        >
-                          Send Reset Email
-                        </button>
                       </div>
                     </div>
 
@@ -572,6 +553,9 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                     </div>
                   </div>
                 )}
+
+                {/* Billing Tab */}
+                {activeTab === 'billing' && <BillingPage onClose={onClose} />}
               </>
             )}
           </div>

@@ -8,7 +8,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'pkce',
+    detectSessionInUrl: true,
+    autoRefreshToken: true,
+    persistSession: true,
+  },
+})
 
 // Database types
 export interface SupabaseDocument {
@@ -33,12 +40,29 @@ export interface UserProfile {
   id: string
   display_name?: string
   bio?: string
+  full_name?: string
+  date_of_birth?: string
+  phone?: string
+  // Legacy preference columns (kept for backwards compat)
   email_notifications: boolean
   document_reminders: boolean
   security_alerts: boolean
+  // Granular notification preference groups
+  billing_alerts: boolean
+  document_alerts: boolean
+  engagement_digests: boolean
+  life_event_alerts: boolean
+  activity_alerts: boolean
   created_at: string
   updated_at: string
 }
+
+export const isOnboardingComplete = (profile: UserProfile | null): boolean => {
+  if (!profile) return false
+  return !!(profile.full_name && profile.date_of_birth && profile.phone)
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 // Document operations
 export const getDocuments = async (): Promise<SupabaseDocument[]> => {
@@ -68,7 +92,7 @@ export const deleteDocument = async (id: string) => {
   console.log(`🗑️ Deleting document: ${id}`);
 
   // Use backend API for deletion (handles both IBM COS and database)
-  const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+  const response = await fetch(`${API_BASE}/api/documents/${id}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
@@ -97,6 +121,44 @@ export const updateDocumentStatus = async (id: string, status: 'active' | 'expir
 }
 
 // Auth helper functions
+
+// Custom OTP signup — sends a 6-digit code, does NOT create the user yet
+export const sendSignupOTP = async (email: string, password: string) => {
+  const res = await fetch(`${supabaseUrl}/functions/v1/signup-send-otp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    },
+    body: JSON.stringify({ email, password }),
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to send verification code')
+  }
+  return data
+}
+
+// Custom OTP verify — verifies code and creates the user account
+export const verifySignupOTP = async (email: string, otp: string): Promise<{ success: boolean; token_hash: string | null; message: string }> => {
+  const res = await fetch(`${supabaseUrl}/functions/v1/signup-verify-otp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    },
+    body: JSON.stringify({ email, otp }),
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error || 'Verification failed')
+  }
+  return data
+}
+
+// Legacy signUp (kept for reference — no longer used in main signup flow)
 export const signUp = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -105,7 +167,7 @@ export const signUp = async (email: string, password: string) => {
       emailRedirectTo: `${window.location.origin}/auth/callback`
     }
   })
-  
+
   if (error) throw error
   return data
 }
@@ -115,7 +177,23 @@ export const signIn = async (email: string, password: string) => {
     email,
     password,
   })
-  
+
+  if (error) throw error
+  return data
+}
+
+export const signInWithGoogle = async () => {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  })
+
   if (error) throw error
   return data
 }
@@ -139,12 +217,22 @@ export const resetPassword = async (email: string) => {
   if (error) throw error
 }
 
-// Password reset function with OTP
+// Password reset function with OTP — uses custom edge function for Mailjet delivery
 export const resetPasswordWithOTP = async (email: string) => {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`
+  const res = await fetch(`${supabaseUrl}/functions/v1/password-reset-otp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    },
+    body: JSON.stringify({ email }),
   })
-  if (error) throw error
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to send reset code')
+  }
+  return data
 }
 
 // Verify OTP code
@@ -171,10 +259,8 @@ export const resendOTP = async (email: string, type: 'signup' | 'recovery') => {
     })
     if (error) throw error
   } else {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`
-    })
-    if (error) throw error
+    // Use custom edge function for recovery resend (Mailjet delivery)
+    await resetPasswordWithOTP(email)
   }
 }
 
@@ -182,20 +268,30 @@ export const resendOTP = async (email: string, type: 'signup' | 'recovery') => {
 export const updateUserProfile = async (updates: {
   display_name?: string;
   bio?: string;
+  full_name?: string;
+  date_of_birth?: string;
+  phone?: string;
   email_notifications?: boolean;
   document_reminders?: boolean;
   security_alerts?: boolean;
+  billing_alerts?: boolean;
+  document_alerts?: boolean;
+  engagement_digests?: boolean;
+  life_event_alerts?: boolean;
+  activity_alerts?: boolean;
 }) => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('User not authenticated')
 
-  // Update auth metadata for display_name and bio
-  if (updates.display_name !== undefined || updates.bio !== undefined) {
+  // Update auth metadata for display_name, bio, full_name, phone
+  if (updates.display_name !== undefined || updates.bio !== undefined || updates.full_name !== undefined || updates.phone !== undefined) {
+    const metadataUpdate: Record<string, string | undefined> = {}
+    if (updates.display_name !== undefined) metadataUpdate.display_name = updates.display_name
+    if (updates.bio !== undefined) metadataUpdate.bio = updates.bio
+    if (updates.full_name !== undefined) metadataUpdate.full_name = updates.full_name
+    if (updates.phone !== undefined) metadataUpdate.phone = updates.phone
     const { error: authError } = await supabase.auth.updateUser({
-      data: {
-        display_name: updates.display_name,
-        bio: updates.bio
-      }
+      data: metadataUpdate
     })
     if (authError) throw authError
   }

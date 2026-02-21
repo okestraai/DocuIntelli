@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, FileText, Calendar, LayoutDashboard, LogOut, User, Bell } from 'lucide-react';
+import { ShieldCheck, FileText, LayoutDashboard, LogOut, User, Bell, ClipboardCheck, Compass, Crown, Landmark } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -9,29 +9,43 @@ interface HeaderProps {
   onOpenProfile: () => void;
   onOpenNotifications: () => void;
   notificationCount?: number;
+  currentPlan?: 'free' | 'starter' | 'pro';
 }
 
-export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOpenNotifications, notificationCount }: HeaderProps) {
+const PRO_ONLY_PAGES: Page[] = ['life-events'];
+const STARTER_PAGES: Page[] = ['audit', 'financial-insights'];
+
+export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOpenNotifications, notificationCount, currentPlan }: HeaderProps) {
+  const goToDashboard = () => onNavigate('dashboard');
   const navItems = [
     { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vault' as Page, label: 'Vault', icon: FileText },
-    { id: 'tracker' as Page, label: 'Tracker', icon: Calendar }
+    { id: 'audit' as Page, label: 'Audit', icon: ClipboardCheck },
+    { id: 'life-events' as Page, label: 'Life Events', icon: Compass },
+    { id: 'financial-insights' as Page, label: 'Financial', icon: Landmark }
   ];
+
+  const getBadgeLabel = (page: Page): string | null => {
+    if (!currentPlan) return null; // Don't flash badges while subscription is loading
+    if (PRO_ONLY_PAGES.includes(page) && currentPlan !== 'pro') return 'PRO';
+    if (STARTER_PAGES.includes(page) && currentPlan === 'free') return 'STARTER';
+    return null;
+  };
 
   return (
     <>
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
           <div className="flex items-center justify-between h-14 md:h-20">
-            <div className="flex items-center gap-2 md:gap-4 min-w-0">
+            <button onClick={goToDashboard} className="flex items-center gap-2 md:gap-4 min-w-0 hover:opacity-80 transition-opacity cursor-pointer">
               <div className="flex-shrink-0 bg-gradient-to-br from-emerald-600 to-teal-600 p-2 md:p-3 rounded-xl shadow-md">
                 <ShieldCheck className="h-5 w-5 md:h-8 md:w-8 text-white" strokeWidth={2.5} />
               </div>
               <span className="text-lg md:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight truncate">DocuIntelli AI</span>
-            </div>
+            </button>
 
             <div className="flex items-center gap-1 md:gap-2">
-              <nav className="hidden md:flex items-center gap-1.5">
+              <nav className="hidden md:flex items-center gap-3">
                 {navItems.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
@@ -43,8 +57,17 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                     }`}
                   >
                     <Icon className="h-6 w-6" strokeWidth={2} />
+                    {getBadgeLabel(id) && (
+                      <span className={`absolute -top-1 -right-1 flex items-center justify-center h-4 w-4 rounded-full shadow-sm ${
+                        getBadgeLabel(id) === 'PRO'
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500'
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+                      }`}>
+                        <Crown className="h-2.5 w-2.5 text-white" />
+                      </span>
+                    )}
                     <span className="absolute top-full mt-2 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                      {label}
+                      {label}{getBadgeLabel(id) && ` (${getBadgeLabel(id)})`}
                     </span>
                   </button>
                 ))}
@@ -97,7 +120,7 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
             <button
               key={id}
               onClick={() => onNavigate(id)}
-              className={`flex flex-col items-center justify-center flex-1 py-2 px-1 rounded-lg transition-all duration-200 ${
+              className={`relative flex flex-col items-center justify-center flex-1 py-2 px-1 rounded-lg transition-all duration-200 ${
                 currentPage === id
                   ? 'text-emerald-600'
                   : 'text-slate-500'
@@ -105,6 +128,15 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
             >
               <Icon className={`h-5 w-5 mb-0.5 ${currentPage === id ? 'stroke-[2.5]' : 'stroke-2'}`} />
               <span className={`text-xs ${currentPage === id ? 'font-semibold' : 'font-medium'}`}>{label}</span>
+              {getBadgeLabel(id) && (
+                <span className={`absolute top-0.5 right-1 flex items-center justify-center h-3.5 w-3.5 rounded-full shadow-sm ${
+                  getBadgeLabel(id) === 'PRO'
+                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+                }`}>
+                  <Crown className="h-2 w-2 text-white" />
+                </span>
+              )}
             </button>
           ))}
           <button
@@ -116,8 +148,6 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
           </button>
         </div>
       </nav>
-
-      <div className="md:hidden h-16"></div>
     </>
   );
 }

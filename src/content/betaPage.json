@@ -1,0 +1,239 @@
+{
+  "banner": {
+    "badge": "Closed Beta",
+    "tagline": "You've been invited!"
+  },
+  "hero": {
+    "heading": "Welcome to the DocuIntelli AI Closed Beta",
+    "subheading": "You're one of a small group of people getting early access before we launch publicly. We built this for people like you — and we need your honest feedback to make it great."
+  },
+  "productOverview": {
+    "heading": "What is DocuIntelli AI?",
+    "description": "Your intelligent document companion. Store, understand, and manage all your important legal and financial documents — warranties, insurance policies, leases, employment contracts, and more — in one secure, AI-powered vault.",
+    "features": [
+      {
+        "icon": "FileText",
+        "title": "Secure Document Vault",
+        "description": "Upload PDFs, Word docs, images, and URLs. Everything encrypted and organized by category.",
+        "gradient": "from-emerald-50 to-teal-50",
+        "iconColor": "text-emerald-600"
+      },
+      {
+        "icon": "MessageSquare",
+        "title": "AI-Powered Chat",
+        "description": "Ask questions about your documents in plain English. \"What's my deductible?\" — instant answers.",
+        "gradient": "from-teal-50 to-cyan-50",
+        "iconColor": "text-teal-600"
+      },
+      {
+        "icon": "Bell",
+        "title": "Smart Reminders",
+        "description": "Never miss an expiration date. Get alerts before warranties and policies lapse.",
+        "gradient": "from-amber-50 to-orange-50",
+        "iconColor": "text-amber-600"
+      }
+    ]
+  },
+  "gettingStarted": {
+    "heading": "Getting Started in 3 Minutes",
+    "subheading": "Follow these steps to explore DocuIntelli AI.",
+    "ctaButton": "Get Started — Create Your Beta Account",
+    "steps": [
+      {
+        "step": 1,
+        "icon": "UserPlus",
+        "title": "Create Your Account",
+        "description": "Click \"Get Started\" below to create a free account. You can sign up with your email or Google account."
+      },
+      {
+        "step": 2,
+        "icon": "Upload",
+        "title": "Upload a Document",
+        "description": "Try uploading a real document — a warranty, insurance card, lease, or any PDF/image you have handy. The AI will process it automatically."
+      },
+      {
+        "step": 3,
+        "icon": "MessageSquare",
+        "title": "Chat With Your Document",
+        "description": "Once processed, open the document and ask a question. Try: \"Summarize this document\" or \"When does this expire?\""
+      },
+      {
+        "step": 4,
+        "icon": "CreditCard",
+        "title": "Test a Paid Plan (Optional)",
+        "description": "Want to test Starter ($7/mo) or Pro ($19/mo) features? Use the test credit card info below — you will NOT be charged real money."
+      }
+    ]
+  },
+  "testPayment": {
+    "heading": "Test Credit Card — No Real Charges",
+    "warning": {
+      "title": "This is a test environment",
+      "description": "No real money will be charged. Use the card details below to test paid plan features. All transactions are in Stripe test mode."
+    },
+    "primaryCard": {
+      "number": "4242 4242 4242 4242",
+      "expiration": "12/34",
+      "cvc": "123",
+      "zip": "12345"
+    },
+    "additionalCards": [
+      {
+        "scenario": "Successful payment",
+        "number": "4242 4242 4242 4242",
+        "result": "Payment succeeds"
+      },
+      {
+        "scenario": "Card declined",
+        "number": "4000 0000 0000 0002",
+        "result": "Payment is declined"
+      },
+      {
+        "scenario": "Requires authentication",
+        "number": "4000 0025 0000 3155",
+        "result": "3D Secure popup appears"
+      }
+    ],
+    "footnote": "After subscribing with a test card, you can test upgrading, downgrading, and canceling from the Billing page — all without any real charges."
+  },
+  "testingChecklist": {
+    "heading": "What to Test",
+    "subheading": "Here's what we'd love for you to try. You don't need to test everything — even trying 2–3 things is incredibly helpful.",
+    "categories": [
+      {
+        "title": "Core Features (Everyone)",
+        "color": "emerald",
+        "items": [
+          { "label": "Sign up", "detail": "Create an account with email or Google" },
+          { "label": "Upload a document", "detail": "Try a PDF, Word doc, or image" },
+          { "label": "Chat with a document", "detail": "Ask it a question after processing" },
+          { "label": "Set an expiration date", "detail": "Edit a document and add one" },
+          { "label": "Search & filter", "detail": "Try searching by name, category, or tags" },
+          { "label": "View on mobile", "detail": "Open the app on your phone and try navigating" }
+        ]
+      },
+      {
+        "title": "Paid Features (Use test card)",
+        "color": "teal",
+        "items": [
+          { "label": "Upgrade to Starter or Pro", "detail": "Use the test card below" },
+          { "label": "Upload a URL", "detail": "Paste a web page URL to ingest (Starter+)" },
+          { "label": "Check auto-generated tags", "detail": "Upload a doc and see if tags appear (Starter+)" },
+          { "label": "Weekly Audit page", "detail": "View your document audit summary (Starter+)" },
+          { "label": "Life Events planner", "detail": "Plan a life event and see readiness (Pro)" },
+          { "label": "Document Health panel", "detail": "Check your dashboard health panel (Pro)" },
+          { "label": "Downgrade / Cancel", "detail": "Try downgrading or canceling from Billing page" }
+        ]
+      },
+      {
+        "title": "Billing & Account",
+        "color": "slate",
+        "items": [
+          { "label": "View Billing page", "detail": "Check subscription details" },
+          { "label": "Update profile", "detail": "Change display name or notification preferences" },
+          { "label": "Account Settings", "detail": "Explore notification and email preferences" }
+        ]
+      }
+    ]
+  },
+  "feedbackExpectations": {
+    "heading": "Your Feedback Matters",
+    "subheading": "We're not looking for polished reviews. We want raw, honest reactions.",
+    "categories": [
+      {
+        "icon": "Bug",
+        "title": "Bugs & Broken Things",
+        "description": "Did something crash? Did a button not work? Did the AI give a weird answer? Tell us exactly what happened.",
+        "iconColor": "text-red-500",
+        "gradient": "from-red-50 to-orange-50"
+      },
+      {
+        "icon": "Lightbulb",
+        "title": "Confusing Moments",
+        "description": "Was anything unclear? Did you get lost? Did you expect something to work differently? These \"huh?\" moments are gold.",
+        "iconColor": "text-amber-500",
+        "gradient": "from-amber-50 to-yellow-50"
+      },
+      {
+        "icon": "Heart",
+        "title": "What You Loved",
+        "description": "What felt good? What was surprisingly useful? What would make you come back? Positive feedback helps us double down.",
+        "iconColor": "text-pink-500",
+        "gradient": "from-pink-50 to-rose-50"
+      }
+    ]
+  },
+  "knownLimitations": {
+    "heading": "Known Limitations (Beta)",
+    "items": [
+      {
+        "label": "Processing time",
+        "detail": "Document processing (AI analysis) may take 30–60 seconds. This will be faster at launch."
+      },
+      {
+        "label": "Mobile layout",
+        "detail": "Some screens may not be fully optimized for small screens yet. We're working on it."
+      },
+      {
+        "label": "Email notifications",
+        "detail": "Notification emails may land in spam. Check your spam folder or whitelist noreply@docuintelli.com."
+      },
+      {
+        "label": "Occasional AI hiccups",
+        "detail": "The AI may occasionally give incomplete or slightly off answers. That's part of what we're testing."
+      },
+      {
+        "label": "Test environment",
+        "detail": "Data in this environment may be reset periodically. Don't store anything critical here."
+      }
+    ]
+  },
+  "feedbackChannels": {
+    "heading": "How to Share Your Feedback",
+    "subheading": "No feedback is too small. Even \"this color looks weird\" or \"I don't understand what this button does\" is useful.",
+    "channels": [
+      {
+        "icon": "ExternalLink",
+        "title": "Feedback Form",
+        "description": "Quick structured feedback — takes 2 minutes.",
+        "action": "Open Form",
+        "href": "#",
+        "iconColor": "text-emerald-600",
+        "bg": "bg-emerald-50"
+      },
+      {
+        "icon": "MessageCircle",
+        "title": "WhatsApp",
+        "description": "Text me directly — voice notes welcome too!",
+        "action": "+1 (737) 274-2791",
+        "href": "https://wa.me/17372742791?text=Hey%20Tunde!%20Beta%20feedback%3A%20",
+        "iconColor": "text-green-600",
+        "bg": "bg-green-50"
+      },
+      {
+        "icon": "Mail",
+        "title": "Email",
+        "description": "Send detailed feedback or attach screenshots.",
+        "action": "tunde@docuintelli.com",
+        "href": "mailto:tunde@docuintelli.com?subject=DocuIntelli%20Beta%20Feedback",
+        "iconColor": "text-blue-600",
+        "bg": "bg-blue-50"
+      },
+      {
+        "icon": "Camera",
+        "title": "Screenshots & Recordings",
+        "description": "A screenshot or quick screen recording tells us more than words.",
+        "action": "Send via any channel",
+        "href": null,
+        "iconColor": "text-violet-600",
+        "bg": "bg-violet-50"
+      }
+    ]
+  },
+  "footerCta": {
+    "heading": "Ready to explore?",
+    "subheading": "Create your account and start testing DocuIntelli AI today.",
+    "ctaButton": "Get Started",
+    "thankYou": "Thank you for helping us build something great."
+  }
+}

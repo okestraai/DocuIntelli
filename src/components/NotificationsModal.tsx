@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Bell, Calendar, AlertTriangle, Mail, CheckCircle } from 'lucide-react';
+import React from 'react';
+import { X, Bell, Calendar, AlertTriangle, CheckCircle } from 'lucide-react';
 import type { Document } from '../App';
 import { formatUTCDate } from '../lib/dateUtils';
 
@@ -7,29 +7,12 @@ interface NotificationsModalProps {
   isOpen: boolean;
   onClose: () => void;
   expiringDocuments: Document[];
-  onSendNotifications?: () => Promise<void>;
+  seenIds?: Set<string>;
+  onNotificationRead?: (id: string) => void;
 }
 
-export function NotificationsModal({ isOpen, onClose, expiringDocuments, onSendNotifications }: NotificationsModalProps) {
-  const [isSending, setIsSending] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
-
+export function NotificationsModal({ isOpen, onClose, expiringDocuments, seenIds, onNotificationRead }: NotificationsModalProps) {
   if (!isOpen) return null;
-
-  const handleSendEmail = async () => {
-    if (!onSendNotifications) return;
-
-    setIsSending(true);
-    try {
-      await onSendNotifications();
-      setEmailSent(true);
-      setTimeout(() => setEmailSent(false), 3000);
-    } catch (error) {
-      console.error('Failed to send notifications:', error);
-    } finally {
-      setIsSending(false);
-    }
-  };
 
   const getDaysUntilExpiration = (expirationDate: string) => {
     const today = new Date();
@@ -89,11 +72,17 @@ export function NotificationsModal({ isOpen, onClose, expiringDocuments, onSendN
               {expiringDocuments.map((doc) => {
                 const daysUntil = doc.expirationDate ? getDaysUntilExpiration(doc.expirationDate) : 0;
                 const statusColor = getStatusColor(daysUntil);
+                const isRead = seenIds?.has(doc.id) ?? false;
 
                 return (
                   <div
                     key={doc.id}
-                    className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-gray-300 transition-colors"
+                    onClick={() => onNotificationRead?.(doc.id)}
+                    className={`rounded-lg p-4 border transition-colors cursor-pointer ${
+                      isRead
+                        ? 'bg-white border-gray-100 opacity-60'
+                        : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                    }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-start space-x-3 flex-1">
@@ -132,42 +121,6 @@ export function NotificationsModal({ isOpen, onClose, expiringDocuments, onSendN
           )}
         </div>
 
-        {expiringDocuments.length > 0 && (
-          <div className="p-6 border-t border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                <p className="font-medium">Get notified via email</p>
-                <p>Receive a summary of expiring documents in your inbox</p>
-              </div>
-              <button
-                onClick={handleSendEmail}
-                disabled={isSending || emailSent}
-                className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg font-medium transition-all shadow-md ${
-                  emailSent
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none'
-                }`}
-              >
-                {isSending ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    <span>Sending...</span>
-                  </>
-                ) : emailSent ? (
-                  <>
-                    <CheckCircle className="h-4 w-4" />
-                    <span>Email Sent!</span>
-                  </>
-                ) : (
-                  <>
-                    <Mail className="h-4 w-4" />
-                    <span>Send Email</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

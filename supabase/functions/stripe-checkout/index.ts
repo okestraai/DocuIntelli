@@ -14,9 +14,9 @@ const stripe = new Stripe(stripeSecret, {
 // Helper function to create responses with CORS headers
 function corsResponse(body: string | object | null, status = 200) {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get("ALLOWED_ORIGIN") || "http://localhost:5173",
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
   };
 
   // For 204 No Content, don't include Content-Type or body
@@ -177,7 +177,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // create Checkout Session
+    // create Checkout Session with enhanced features per Stripe best practices
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
@@ -188,11 +188,28 @@ Deno.serve(async (req) => {
         },
       ],
       mode,
-      success_url,
+      success_url: `${success_url}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url,
+      billing_address_collection: 'auto', // Automatically collect billing address
+      // automatic_tax: { enabled: true }, // Disabled - requires head office address in Stripe settings
+      allow_promotion_codes: true, // Allow users to enter promo codes
+      customer_update: {
+        address: 'auto', // Update customer address from checkout
+      },
+      ...(mode === 'subscription' && {
+        subscription_data: {
+          metadata: {
+            user_id: user.id,
+          },
+        },
+      }),
+      metadata: {
+        user_id: user.id,
+        user_email: user.email!,
+      },
     });
 
-    console.log(`Created checkout session ${session.id} for customer ${customerId}`);
+    console.log(`Created checkout session ${session.id} for customer ${customerId} (mode: ${mode})`);
 
     return corsResponse({ sessionId: session.id, url: session.url });
   } catch (error: any) {

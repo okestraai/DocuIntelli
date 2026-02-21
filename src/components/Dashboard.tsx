@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2, Crown, Zap } from 'lucide-react';
+import { FileText, Calendar, AlertTriangle, TrendingUp, Upload, MessageSquare, Trash2, Crown, Zap, Shield, FolderOpen, ArrowRight, Sparkles, LayoutDashboard } from 'lucide-react';
 import type { Document, Page } from '../App';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useSubscription } from '../hooks/useSubscription';
+import { PLAN_LIMITS, type PlanId } from '../lib/planLimits';
+import { TodayFeed } from './TodayFeed';
 
 interface DashboardProps {
   documents?: Document[];
@@ -10,11 +12,14 @@ interface DashboardProps {
   onAddDocument: () => void;
   onDocumentDelete?: (documentId: string) => Promise<void>;
   onUpgrade?: () => void;
+  onManageSubscription?: () => void;
+  onViewDocument?: (documentId: string) => void;
 }
 
-export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete, onUpgrade }: DashboardProps) {
+export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDelete, onUpgrade, onManageSubscription, onViewDocument }: DashboardProps) {
   const safeDocuments = documents ?? [];
   const { subscription, documentCount } = useSubscription();
+  const planDocLimit: number = subscription ? (PLAN_LIMITS[subscription.plan as PlanId]?.documents ?? subscription.document_limit) : 3;
 
   const totalDocuments = safeDocuments.length;
   const expiringDocuments = safeDocuments.filter(doc => doc?.status === 'expiring').length;
@@ -43,11 +48,162 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
     return <DashboardSkeleton />;
   }
 
+  // Empty state when user has zero documents
+  if (totalDocuments === 0) {
+    return (
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+        <div className="mb-6 sm:mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-2.5 rounded-xl shadow-md">
+              <LayoutDashboard className="h-6 w-6 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
+              <p className="text-sm sm:text-base text-slate-600">Welcome! Let's get your document vault set up.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Welcome Hero */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-2xl sm:rounded-3xl p-8 sm:p-12 mb-8 text-white">
+          {/* Decorative circles */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/3 -translate-x-1/4" />
+
+          <div className="relative z-10 max-w-2xl">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="h-5 w-5 text-emerald-200" />
+              <span className="text-emerald-100 text-sm font-medium">Get Started</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Your intelligent document vault awaits</h2>
+            <p className="text-emerald-100 text-sm sm:text-base mb-6 max-w-lg leading-relaxed">
+              Upload your important documents and let AI help you organize, track expirations, and find answers instantly. It all starts with your first upload.
+            </p>
+            <button
+              onClick={onAddDocument}
+              className="inline-flex items-center gap-2 bg-white text-emerald-700 hover:bg-emerald-50 font-semibold px-6 py-3 rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              <Upload className="h-5 w-5" />
+              Upload Your First Document
+            </button>
+          </div>
+        </div>
+
+        {/* What You Can Do - Feature Cards */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">What you can do with DocuIntelli</h3>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-emerald-200 transition-all group">
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <FolderOpen className="h-5 w-5 text-emerald-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Organize Documents</h4>
+              <p className="text-sm text-slate-500 leading-relaxed">Categorize warranties, insurance, leases, and more with automatic tagging.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-amber-200 transition-all group">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Calendar className="h-5 w-5 text-amber-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Track Expirations</h4>
+              <p className="text-sm text-slate-500 leading-relaxed">Never miss a renewal. Get alerts before your documents expire.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-teal-200 transition-all group">
+              <div className="bg-gradient-to-br from-teal-50 to-cyan-50 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <MessageSquare className="h-5 w-5 text-teal-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Chat with AI</h4>
+              <p className="text-sm text-slate-500 leading-relaxed">Ask questions about any document and get instant, accurate answers.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-violet-200 transition-all group">
+              <div className="bg-gradient-to-br from-violet-50 to-purple-50 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Shield className="h-5 w-5 text-violet-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Life Event Prep</h4>
+              <p className="text-sm text-slate-500 leading-relaxed">Prepare for moving, travel, or new jobs with guided document checklists.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-blue-200 transition-all group">
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Vault Health</h4>
+              <p className="text-sm text-slate-500 leading-relaxed">Weekly audits keep your document vault complete and up to date.</p>
+            </div>
+
+            <button
+              onClick={onAddDocument}
+              className="bg-gradient-to-br from-slate-50 to-white rounded-xl border-2 border-dashed border-slate-300 p-5 hover:border-emerald-400 hover:bg-emerald-50/50 transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
+            >
+              <div className="bg-emerald-100 w-11 h-11 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Upload className="h-5 w-5 text-emerald-600" />
+              </div>
+              <h4 className="font-semibold text-slate-900 mb-1">Start Now</h4>
+              <p className="text-sm text-slate-500">Upload your first document</p>
+            </button>
+          </div>
+        </div>
+
+        {/* Subscription Card */}
+        {subscription && (
+          <div className="mb-6 sm:mb-8">
+            <div className="bg-gradient-to-br from-slate-50 to-white border-2 border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-xl ${
+                    subscription.plan === 'pro' ? 'bg-gradient-to-br from-emerald-100 to-teal-100' :
+                    subscription.plan === 'starter' ? 'bg-gradient-to-br from-blue-100 to-cyan-100' :
+                    'bg-slate-100'
+                  }`}>
+                    {subscription.plan === 'pro' ? (
+                      <Crown className="h-6 w-6 text-emerald-600" strokeWidth={2} />
+                    ) : subscription.plan === 'starter' ? (
+                      <Zap className="h-6 w-6 text-blue-600" strokeWidth={2} />
+                    ) : (
+                      <FileText className="h-6 w-6 text-slate-600" strokeWidth={2} />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900 capitalize">
+                      {subscription.plan} Plan
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      {subscription.plan === 'free' ? `Upload up to ${planDocLimit} documents to get started` :
+                       subscription.plan === 'pro' ? `${planDocLimit} documents · Unlimited AI · All features` :
+                       `${planDocLimit} documents · Unlimited AI chats`}
+                    </p>
+                  </div>
+                </div>
+                {subscription.plan === 'free' && onUpgrade && (
+                  <button
+                    onClick={onUpgrade}
+                    className="flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-sm"
+                  >
+                    Upgrade
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
       <div className="mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2 tracking-tight">Dashboard</h1>
-        <p className="text-sm sm:text-base text-slate-600">Welcome back! Here's an overview of your documents and important dates.</p>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-2.5 rounded-xl shadow-md">
+            <LayoutDashboard className="h-6 w-6 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
+            <p className="text-sm sm:text-base text-slate-600">Welcome back! Here's an overview of your documents and important dates.</p>
+          </div>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -101,92 +257,8 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
         </div>
       </div>
 
-      {/* Subscription Card */}
-      {subscription && (
-        <div className="mb-6 sm:mb-8">
-          <div className="bg-gradient-to-br from-slate-50 to-white border-2 border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-xl ${
-                  subscription.plan === 'business' ? 'bg-gradient-to-br from-slate-100 to-slate-200' :
-                  subscription.plan === 'pro' ? 'bg-gradient-to-br from-emerald-100 to-teal-100' :
-                  'bg-slate-100'
-                }`}>
-                  {subscription.plan === 'business' ? (
-                    <Zap className="h-6 w-6 text-slate-700" strokeWidth={2} />
-                  ) : subscription.plan === 'pro' ? (
-                    <Crown className="h-6 w-6 text-emerald-600" strokeWidth={2} />
-                  ) : (
-                    <FileText className="h-6 w-6 text-slate-600" strokeWidth={2} />
-                  )}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 capitalize">
-                    {subscription.plan} Plan
-                  </h3>
-                  <p className="text-sm text-slate-600">
-                    {subscription.plan === 'free' ? 'Limited features' :
-                     subscription.plan === 'pro' ? 'Full features' :
-                     'Unlimited features'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 w-full sm:w-auto">
-                <div className="flex-1 sm:flex-none">
-                  <div className="text-sm text-slate-600 mb-1">Documents</div>
-                  <div className="text-lg font-bold text-slate-900">
-                    {documentCount} / {subscription.plan === 'free' ? subscription.document_limit : '∞'}
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
-                    <div
-                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
-                      style={{
-                        width: subscription.plan === 'free'
-                          ? `${Math.min((documentCount / subscription.document_limit) * 100, 100)}%`
-                          : '100%'
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="flex-1 sm:flex-none">
-                  <div className="text-sm text-slate-600 mb-1">AI Questions</div>
-                  <div className="text-lg font-bold text-slate-900">
-                    {subscription.ai_questions_used} / {subscription.plan === 'business' ? '∞' : subscription.ai_questions_limit}
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
-                    <div
-                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
-                      style={{
-                        width: subscription.plan === 'business'
-                          ? '100%'
-                          : `${Math.min((subscription.ai_questions_used / subscription.ai_questions_limit) * 100, 100)}%`
-                      }}
-                    />
-                  </div>
-                </div>
-                {subscription.plan === 'free' && onUpgrade && (
-                  <button
-                    onClick={onUpgrade}
-                    className="flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-sm"
-                  >
-                    Upgrade
-                  </button>
-                )}
-                {subscription.plan !== 'free' && (
-                  <button
-                    onClick={() => onNavigate('pricing' as Page)}
-                    className="flex-shrink-0 text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors"
-                  >
-                    Manage Plan
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
+      {/* Recent Documents & Quick Actions — primary content */}
+      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8 mb-6 sm:mb-8">
         {/* Recent Documents */}
         <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200">
           <div className="p-4 sm:p-6 border-b border-slate-200">
@@ -202,7 +274,11 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
           </div>
           <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
             {recentDocuments.map((doc) => (
-              <div key={doc?.id || Math.random()} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-slate-50 rounded-lg sm:rounded-xl transition-colors group">
+              <div
+                key={doc?.id || Math.random()}
+                className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-slate-50 rounded-lg sm:rounded-xl transition-colors group cursor-pointer"
+                onClick={() => doc?.id && onViewDocument?.(doc.id)}
+              >
                 <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${
                   doc.category === 'insurance' ? 'bg-gradient-to-br from-blue-50 to-cyan-50' :
                   doc.category === 'warranty' ? 'bg-gradient-to-br from-green-50 to-emerald-50' :
@@ -244,7 +320,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                     {doc.status}
                   </div>
                   <button
-                    onClick={() => doc?.id && setShowDeleteConfirm(doc.id)}
+                    onClick={(e) => { e.stopPropagation(); doc?.id && setShowDeleteConfirm(doc.id); }}
                     disabled={deletingDocId === doc.id}
                     className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all disabled:opacity-50"
                     title="Delete document"
@@ -290,7 +366,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
               </button>
 
               <button
-                onClick={() => onNavigate('tracker')}
+                onClick={() => onNavigate('vault')}
                 className="w-full flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 rounded-lg sm:rounded-xl transition-all text-left group"
               >
                 <div className="bg-gradient-to-br from-amber-600 to-orange-600 p-2 rounded-lg group-hover:scale-110 transition-transform">
@@ -330,7 +406,7 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
                 You have {expiringDocuments} document{expiringDocuments !== 1 ? 's' : ''} expiring soon.
               </p>
               <button
-                onClick={() => onNavigate('tracker')}
+                onClick={() => onNavigate('vault')}
                 className="text-amber-700 hover:text-amber-800 font-medium text-sm inline-flex items-center gap-1 hover:gap-2 transition-all"
               >
                 Review expiring documents
@@ -340,19 +416,130 @@ export function Dashboard({ documents, onNavigate, onAddDocument, onDocumentDele
           )}
         </div>
 
-        {/* Delete Confirmation Dialog */}
-        <ConfirmDialog
-          isOpen={!!showDeleteConfirm}
-          title="Delete Document"
-          message={`Are you sure you want to delete "${safeDocuments.find(d => d.id === showDeleteConfirm)?.name}"? This action cannot be undone.`}
-          confirmText="Delete"
-          cancelText="Cancel"
-          confirmVariant="danger"
-          isLoading={deletingDocId === showDeleteConfirm}
-          onConfirm={() => showDeleteConfirm && handleDeleteDocument(showDeleteConfirm)}
-          onCancel={() => setShowDeleteConfirm(null)}
+      </div>
+
+      {/* Today Feed - Engagement Engine */}
+      <div className="mb-6 sm:mb-8">
+        <TodayFeed
+          onNavigateToDocument={(docId) => onViewDocument?.(docId)}
+          onNavigateToAudit={() => onNavigate('audit')}
+          onAddDocument={onAddDocument}
         />
       </div>
+
+      {/* Subscription Card */}
+      {subscription && (
+        <div className="mb-6 sm:mb-8">
+          <div className="bg-gradient-to-br from-slate-50 to-white border-2 border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${
+                  subscription.plan === 'pro' ? 'bg-gradient-to-br from-emerald-100 to-teal-100' :
+                  subscription.plan === 'starter' ? 'bg-gradient-to-br from-blue-100 to-cyan-100' :
+                  'bg-slate-100'
+                }`}>
+                  {subscription.plan === 'pro' ? (
+                    <Crown className="h-6 w-6 text-emerald-600" strokeWidth={2} />
+                  ) : subscription.plan === 'starter' ? (
+                    <Zap className="h-6 w-6 text-blue-600" strokeWidth={2} />
+                  ) : (
+                    <FileText className="h-6 w-6 text-slate-600" strokeWidth={2} />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 capitalize">
+                    {subscription.plan} Plan
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    {subscription.plan === 'free' ? 'Limited features' :
+                     subscription.plan === 'pro' ? `${planDocLimit} documents · Unlimited AI · All features` :
+                     `${planDocLimit} documents · Unlimited AI chats`}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full sm:w-auto sm:flex sm:items-center">
+                <div className="flex-1 sm:flex-none">
+                  <div className="text-xs sm:text-sm text-slate-600 mb-1">Documents</div>
+                  <div className="text-sm sm:text-lg font-bold text-slate-900">
+                    {documentCount} / {planDocLimit}
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div
+                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
+                      style={{
+                        width: `${Math.min((documentCount / planDocLimit) * 100, 100)}%`
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 sm:flex-none">
+                  <div className="text-xs sm:text-sm text-slate-600 mb-1">Uploads</div>
+                  <div className="text-sm sm:text-lg font-bold text-slate-900">
+                    {subscription.monthly_uploads_used ?? 0} / {subscription.monthly_upload_limit ?? 3}
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${
+                        ((subscription.monthly_uploads_used ?? 0) / (subscription.monthly_upload_limit ?? 3)) >= 0.9
+                          ? 'bg-gradient-to-r from-red-500 to-orange-500'
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+                      }`}
+                      style={{
+                        width: `${Math.min(((subscription.monthly_uploads_used ?? 0) / (subscription.monthly_upload_limit ?? 3)) * 100, 100)}%`
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 sm:flex-none">
+                  <div className="text-xs sm:text-sm text-slate-600 mb-1">AI Questions</div>
+                  <div className="text-sm sm:text-lg font-bold text-slate-900">
+                    {subscription.ai_questions_used} / {subscription.plan !== 'free' ? '∞' : subscription.ai_questions_limit}
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div
+                      className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
+                      style={{
+                        width: subscription.plan !== 'free'
+                          ? '100%'
+                          : `${Math.min((subscription.ai_questions_used / subscription.ai_questions_limit) * 100, 100)}%`
+                      }}
+                    />
+                  </div>
+                </div>
+                {subscription.plan === 'free' && onUpgrade && (
+                  <button
+                    onClick={onUpgrade}
+                    className="flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-sm"
+                  >
+                    Upgrade
+                  </button>
+                )}
+                {subscription.plan !== 'free' && onManageSubscription && (
+                  <button
+                    onClick={onManageSubscription}
+                    className="flex-shrink-0 text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors"
+                  >
+                    Manage Plan
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!showDeleteConfirm}
+        title="Delete Document"
+        message={`Are you sure you want to delete "${safeDocuments.find(d => d.id === showDeleteConfirm)?.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmVariant="danger"
+        isLoading={deletingDocId === showDeleteConfirm}
+        onConfirm={() => showDeleteConfirm && handleDeleteDocument(showDeleteConfirm)}
+        onCancel={() => setShowDeleteConfirm(null)}
+      />
     </div>
   );
 }
