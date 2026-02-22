@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Landmark, TrendingDown, AlertTriangle } from 'lucide-react-native';
-import PlaidLinkModal from '../src/components/financial/PlaidLinkModal';
+import InAppBrowser from '../src/components/ui/InAppBrowser';
 import { useAuth } from '../src/hooks/useAuth';
 import { useSubscription } from '../src/hooks/useSubscription';
 import { usePlaidLinkFlow } from '../src/hooks/usePlaidLinkFlow';
@@ -64,13 +64,23 @@ export default function FinancialInsightsScreen() {
         setSummary(summaryData.value);
       }
       if (accountsData.status === 'fulfilled') {
-        setConnectedAccounts(accountsData.value);
+        // Only show items that have their sub-accounts fully loaded.
+        // This prevents briefly flashing an institution name with no accounts
+        // if the webhook exchange is still writing plaid_accounts rows.
+        const fullyLoaded = accountsData.value.filter(
+          (item: any) => item.accounts && item.accounts.length > 0,
+        );
+        setConnectedAccounts(fullyLoaded);
 
-        // Load analyzed loans (non-blocking) when accounts exist
-        if (accountsData.value.length > 0) {
+        if (fullyLoaded.length > 0) {
+          // Refresh analyzed loans
           getAnalyzedLoans()
             .then((loans) => setAnalyzedLoans(loans))
-            .catch(() => {});
+            .catch(() => setAnalyzedLoans([]));
+        } else {
+          // All accounts disconnected — clear stale data
+          setSummary(null);
+          setAnalyzedLoans([]);
         }
       }
 
@@ -93,10 +103,16 @@ export default function FinancialInsightsScreen() {
   };
 
   // ── Plaid Link (hook must be called before any conditional returns) ──
-  const plaid = usePlaidLinkFlow(() => {
-    showToast('Bank connected successfully!', 'success');
-    loadData();
-  });
+  const plaid = usePlaidLinkFlow(
+    () => {
+      showToast('Bank connected successfully!', 'success');
+      loadData();
+    },
+    () => {
+      // User cancelled or closed the Plaid flow without completing
+      showToast('Bank connection was not completed', 'info');
+    },
+  );
 
   useEffect(() => {
     if (isAuthenticated && isStarterOrAbove) loadData();
@@ -165,6 +181,16 @@ export default function FinancialInsightsScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* Loading overlay while webhook polling is in progress */}
+      {plaid.loading && (
+        <View style={styles.pollingOverlay}>
+          <View style={styles.pollingCard}>
+            <LoadingSpinner />
+            <Text style={styles.pollingText}>Connecting your bank account...</Text>
+            <Text style={styles.pollingSubtext}>This may take a few seconds</Text>
+          </View>
+        </View>
+      )}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -300,16 +326,19 @@ export default function FinancialInsightsScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Native Plaid Link WebView Modal */}
-      {Platform.OS !== 'web' && plaid.nativeModal && (
-        <PlaidLinkModal
-          visible={plaid.nativeModal.visible}
-          linkToken={plaid.nativeModal.linkToken}
-          onSuccess={plaid.nativeModal.onSuccess}
-          onClose={() => {
-            plaid.nativeModal.onClose();
-            loadData();
-          }}
+      {/* Plaid Hosted Link — InAppBrowser
+          Three detection layers for completion:
+          1. interceptSchemes: catches HTTPS redirect to /plaid-callback (onNavigationStateChange)
+          2. successTextPatterns: injected JS detects "Bank Connected" text on page (auto-closes)
+          3. handleClose: user taps X after seeing success page → starts webhook polling */}
+      {Platform.OS !== 'web' && (
+        <InAppBrowser
+          url={plaid.browserUrl}
+          onClose={plaid.handleClose}
+          title="Connect Your Bank"
+          onRedirect={(url) => plaid.handleBrowserRedirect(url)}
+          interceptSchemes={['https://app.docuintelli.com/plaid-callback']}
+          successTextPatterns={['Bank Connected', 'bank connected']}
         />
       )}
     </View>
@@ -391,5 +420,35 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 80, // space for tab bar
+  },
+  pollingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  pollingCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  pollingText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.slate[800],
+    marginTop: spacing.sm,
+  },
+  pollingSubtext: {
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[500],
   },
 });

@@ -69,7 +69,24 @@ export default function PlaidLinkModal({
     onClose();
   }, [onSuccess, onClose]);
 
-  // Intercept plaidlink:// URL redirects from the popup page
+  // PRIMARY: Handle messages from WebView via ReactNativeWebView.postMessage
+  const handleWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'plaid-link-success') {
+        processSuccess(data.publicToken || '', data.institutionName || 'Unknown Bank');
+      } else if (data.type === 'plaid-link-exit') {
+        if (!handledRef.current) {
+          handledRef.current = true;
+          onClose();
+        }
+      }
+    } catch (e) {
+      // Ignore non-JSON messages
+    }
+  }, [processSuccess, onClose]);
+
+  // FALLBACK: Intercept plaidlink:// URL redirects from the popup page
   const handleShouldStartLoad = useCallback((event: { url: string }): boolean => {
     const { url } = event;
 
@@ -105,6 +122,15 @@ export default function PlaidLinkModal({
 
     return false; // Block all plaidlink:// navigation
   }, [processSuccess, onClose]);
+
+  // Fallback for Android: onShouldStartLoadWithRequest doesn't fire for
+  // custom URL schemes on Android. Use onNavigationStateChange instead.
+  const handleNavigationStateChange = useCallback((navState: { url: string }) => {
+    const { url } = navState;
+    if (url && url.startsWith('plaidlink://')) {
+      handleShouldStartLoad({ url });
+    }
+  }, [handleShouldStartLoad]);
 
   if (!linkToken) return null;
 
@@ -156,7 +182,9 @@ export default function PlaidLinkModal({
             source={{ uri }}
             style={styles.webView}
             onLoadEnd={() => setLoadingWeb(false)}
+            onMessage={handleWebViewMessage}
             onShouldStartLoadWithRequest={handleShouldStartLoad}
+            onNavigationStateChange={handleNavigationStateChange}
             originWhitelist={['https://*', 'http://*', 'plaidlink://*']}
             javaScriptEnabled
             domStorageEnabled

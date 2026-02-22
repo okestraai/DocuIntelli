@@ -31,18 +31,51 @@ interface InAppBrowserProps {
   onRedirect?: (url: string) => void;
   /** Custom scheme(s) to intercept. Defaults to ['docuintelli://']. */
   interceptSchemes?: string[];
+  /** Text patterns on the page that indicate completion (e.g. 'Bank Connected').
+   *  When detected, the browser auto-closes and onRedirect is called. */
+  successTextPatterns?: string[];
 }
 
 export default function InAppBrowser({
-  url, onClose, title, isPdf, onRedirect, interceptSchemes,
+  url, onClose, title, isPdf, onRedirect, interceptSchemes, successTextPatterns,
 }: InAppBrowserProps) {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef<any>(null);
   const [iframeKey, setIframeKey] = useState(0);
+  const didFireSuccessRef = useRef(false);
 
   const schemes = interceptSchemes || ['docuintelli://'];
 
-  if (!url) return null;
+  // Build injected JS that monitors for success text on the page
+  const successDetectionJs = successTextPatterns && successTextPatterns.length > 0
+    ? `
+      (function() {
+        var patterns = ${JSON.stringify(successTextPatterns)};
+        var check = function() {
+          var text = document.body ? document.body.innerText : '';
+          for (var i = 0; i < patterns.length; i++) {
+            if (text.indexOf(patterns[i]) !== -1) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'success-text-detected',
+                pattern: patterns[i],
+                url: window.location.href
+              }));
+              return;
+            }
+          }
+          setTimeout(check, 1000);
+        };
+        setTimeout(check, 2000);
+      })();
+      true;
+    `
+    : undefined;
+
+  // Reset success detection when URL changes
+  if (!url) {
+    didFireSuccessRef.current = false;
+    return null;
+  }
 
   // Android WebView can't render PDFs natively — use Google Docs viewer
   const displayUrl =
@@ -114,6 +147,22 @@ export default function InAppBrowser({
             scalesPageToFit
             allowsInlineMediaPlayback
             startInLoadingState
+            {...(successDetectionJs ? { injectedJavaScript: successDetectionJs } : {})}
+            onMessage={(event: any) => {
+              try {
+                const data = JSON.parse(event.nativeEvent.data);
+                if (data.type === 'success-text-detected' && !didFireSuccessRef.current) {
+                  didFireSuccessRef.current = true;
+                  console.log('[InAppBrowser] Success text detected:', data.pattern);
+                  // Signal completion via onRedirect so the hook knows this is a
+                  // success close (not a user cancel). Then close the browser.
+                  onRedirect?.('plaid-success://completed');
+                  onClose();
+                }
+              } catch {
+                // ignore non-JSON messages
+              }
+            }}
             onShouldStartLoadWithRequest={(request: any) => {
               const navUrl: string = request.url || '';
               if (onRedirect && schemes.some((s) => navUrl.startsWith(s))) {

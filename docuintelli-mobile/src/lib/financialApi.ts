@@ -2,6 +2,7 @@
  * Financial Insights API helpers — ported from web (src/lib/financialApi.ts)
  * Reuses all existing backend endpoints at /api/financial/*
  */
+import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
@@ -137,13 +138,14 @@ export interface LoanAnalysis {
 
 // ── API Functions ───────────────────────────────────────────────
 
-/** Create a Plaid Link token */
-export async function createLinkToken(): Promise<string> {
+/** Create a Plaid Link token (always requests Hosted Link + DB-backed mapping) */
+export async function createLinkToken(): Promise<{ link_token: string; hosted_link_url?: string }> {
   const session = await getSession();
   const headers = await backendHeaders(session.access_token);
   const res = await fetch(`${API_BASE}/api/financial/link-token`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({ platform: 'mobile' }),
   });
 
   if (!res.ok) {
@@ -152,7 +154,7 @@ export async function createLinkToken(): Promise<string> {
   }
 
   const data = await res.json();
-  return data.link_token;
+  return { link_token: data.link_token, hosted_link_url: data.hosted_link_url };
 }
 
 /** Exchange Plaid public token */

@@ -57,20 +57,28 @@ function PlaidLinkButton({ onSuccess, onLoading }: {
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: async (publicToken, metadata) => {
+      console.log('[PlaidLink] onSuccess fired, institution:', metadata.institution?.name);
+      console.log('[PlaidLink] publicToken:', publicToken?.substring(0, 20) + '...');
       onLoading(true);
       try {
-        await exchangePublicToken(
+        console.log('[PlaidLink] Calling exchangePublicToken...');
+        const result = await exchangePublicToken(
           publicToken,
           metadata.institution?.name || 'Unknown Bank'
         );
+        console.log('[PlaidLink] Exchange succeeded:', result);
+        console.log('[PlaidLink] Calling onSuccess (loadData)...');
         onSuccess();
       } catch (err) {
+        console.error('[PlaidLink] Exchange FAILED:', err);
         setError(err instanceof Error ? err.message : 'Failed to connect');
       } finally {
         onLoading(false);
       }
     },
-    onExit: () => {},
+    onExit: (err) => {
+      console.log('[PlaidLink] onExit fired, error:', err);
+    },
   });
 
   if (error) {
@@ -127,10 +135,14 @@ export function FinancialInsightsPage() {
         const data = await getFinancialSummary();
         setSummary(data);
 
-        // Load analyzed loans (non-blocking)
+        // Refresh analyzed loans
         getAnalyzedLoans()
           .then(loans => setAnalyzedLoans(loans))
-          .catch(() => {});
+          .catch(() => setAnalyzedLoans([]));
+      } else {
+        // All accounts disconnected — clear stale data
+        setSummary(null);
+        setAnalyzedLoans([]);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load data';

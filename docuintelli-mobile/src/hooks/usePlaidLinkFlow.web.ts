@@ -1,84 +1,65 @@
 /**
- * Plaid Link flow — WEB implementation
- * Opens Plaid Link in a browser popup (same pattern as Stripe Manage Billing).
- * The popup loads /plaid-link-popup on the Express server, which runs the
- * Plaid Drop-in SDK. Results are sent back via window.postMessage.
+ * Plaid Link flow — WEB (Expo Web) via Hosted Link + webhook + DB polling
+ *
+ * Same flow as native (usePlaidLinkFlow.ts):
+ * 1. Fetch hosted_link_url from server (platform='mobile' → DB-backed link token)
+ * 2. Open Hosted Link in a popup window
+ * 3. User completes Plaid flow → Plaid sends LINK/ITEM_ADD_RESULT webhook
+ * 4. Server exchanges token, stores accounts
+ * 5. Popup closes → poll getConnectedAccounts() to detect new accounts
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createLinkToken, exchangePublicToken } from '../lib/financialApi';
-import { API_BASE } from '../lib/config';
+import { createLinkToken, getConnectedAccounts } from '../lib/financialApi';
 
 interface PlaidLinkFlowResult {
   open: () => void;
   ready: boolean;
   loading: boolean;
   error: string | null;
-  /** Native-only — unused on web */
-  nativeModal?: undefined;
+  browserUrl: string | null;
+  handleBrowserRedirect: (url?: string) => void;
+  handleClose: () => void;
 }
 
 export function usePlaidLinkFlow(
   onSuccess: () => void,
+  onCancel?: () => void,
 ): PlaidLinkFlowResult {
-  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [hostedUrl, setHostedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const popupCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialCountRef = useRef<number>(-1);
 
-  // Create the Plaid link token on mount
+  // Fetch Hosted Link URL on mount
   useEffect(() => {
     createLinkToken()
-      .then((token) => {
-        console.log('[PlaidLink] Link token created');
-        setLinkToken(token);
+      .then((result) => {
+        if (result.hosted_link_url) {
+          console.log('[PlaidLink:web] Hosted Link URL ready');
+          setHostedUrl(result.hosted_link_url);
+        } else {
+          setError('Hosted Link not available');
+        }
       })
       .catch((err) => {
-        console.error('[PlaidLink] Token creation failed:', err);
+        console.error('[PlaidLink:web] Token creation failed:', err);
         setError(err?.message || 'Failed to create link token');
       });
   }, []);
 
-  // Listen for postMessage from the popup
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-
-      if (data.type === 'plaid-link-success') {
-        cleanup();
-        setLoading(true);
-        setError(null);
-        try {
-          await exchangePublicToken(
-            data.publicToken,
-            data.institutionName || 'Unknown Bank',
-          );
-          onSuccess();
-        } catch (err: any) {
-          setError(err?.message || 'Failed to connect bank');
-        } finally {
-          setLoading(false);
-        }
-      } else if (data.type === 'plaid-link-exit') {
-        cleanup();
-        if (data.error) {
-          const err = data.error;
-          setError(
-            err.display_message || err.error_message || 'Bank connection closed'
-          );
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onSuccess]);
-
+  // ── Cleanup ─────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
+    }
+    if (popupCheckRef.current) {
+      clearInterval(popupCheckRef.current);
+      popupCheckRef.current = null;
     }
     if (popupRef.current && !popupRef.current.closed) {
       popupRef.current.close();
@@ -89,26 +70,67 @@ export function usePlaidLinkFlow(
   // Clean up on unmount
   useEffect(() => cleanup, [cleanup]);
 
-  const handleOpen = useCallback(() => {
-    if (!linkToken) {
-      setError('Still loading... please try again in a moment');
-      return;
-    }
+  // ── Core polling logic (same as native) ─────────────────────────
+  const startPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
 
+    console.log('[PlaidLink:web] Starting webhook polling (initial accounts:', initialCountRef.current, ')');
+    setLoading(true);
     setError(null);
 
-    // Open popup (same sizing as Stripe popup in billing.tsx)
+    let attempts = 0;
+    const maxAttempts = 8; // poll up to ~12s (shorter than native since we can't distinguish cancel from success in popup)
+
+    pollRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const items = await getConnectedAccounts();
+        // Wait until a NEW item appears AND has sub-accounts populated.
+        const hasNewFullItem =
+          items.length > initialCountRef.current &&
+          items.every((item: any) => item.accounts && item.accounts.length > 0);
+
+        if (hasNewFullItem) {
+          // ✅ Success — new account detected
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setLoading(false);
+          console.log('[PlaidLink:web] New account with details detected — webhook exchange succeeded');
+          onSuccess();
+        } else if (attempts >= maxAttempts) {
+          // ⏱ Timeout — no new account found, user likely cancelled
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setLoading(false);
+          console.log('[PlaidLink:web] Polling timed out — no new account detected (user likely cancelled)');
+          onCancel?.();
+        }
+      } catch {
+        // network error during poll — keep trying
+      }
+    }, 1500);
+  }, [onSuccess, onCancel]);
+
+  // ── Open Hosted Link in popup ───────────────────────────────────
+  const open = useCallback(() => {
+    if (!hostedUrl) return;
+    setError(null);
+
+    // Snapshot account count before opening
+    getConnectedAccounts()
+      .then((accts) => { initialCountRef.current = accts.length; })
+      .catch(() => { initialCountRef.current = 0; });
+
+    // Open popup (same sizing as Stripe popup)
     const w = 520, h = 700;
     const left = typeof window !== 'undefined'
       ? window.screenX + (window.outerWidth - w) / 2 : 100;
     const top = typeof window !== 'undefined'
       ? window.screenY + (window.outerHeight - h) / 2 : 100;
 
-    const popupUrl = `${API_BASE}/plaid-link-popup?token=${encodeURIComponent(linkToken)}`;
-
     const popup = window.open(
-      popupUrl,
-      'plaid_link_popup',
+      hostedUrl,
+      'plaid_hosted_link',
       `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`,
     );
 
@@ -119,19 +141,37 @@ export function usePlaidLinkFlow(
 
     popupRef.current = popup;
 
-    // Poll for popup closure (user closed without completing)
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
+    // Poll for popup closure — when user closes popup, start webhook polling
+    if (popupCheckRef.current) clearInterval(popupCheckRef.current);
+    popupCheckRef.current = setInterval(() => {
       if (!popup || popup.closed) {
-        cleanup();
+        if (popupCheckRef.current) {
+          clearInterval(popupCheckRef.current);
+          popupCheckRef.current = null;
+        }
+        popupRef.current = null;
+        // User closed the popup — they may have completed the flow
+        if (!pollRef.current) {
+          console.log('[PlaidLink:web] Popup closed — checking if webhook completed');
+          startPolling();
+        }
       }
     }, 500);
-  }, [linkToken, cleanup]);
+  }, [hostedUrl, startPolling]);
+
+  // Stub handlers for interface compatibility (unused on web)
+  const handleBrowserRedirect = useCallback(() => {}, []);
+  const handleClose = useCallback(() => {
+    cleanup();
+  }, [cleanup]);
 
   return {
-    open: handleOpen,
-    ready: !!linkToken,
+    open,
+    ready: !!hostedUrl,
     loading,
     error,
+    browserUrl: null,
+    handleBrowserRedirect,
+    handleClose,
   };
 }

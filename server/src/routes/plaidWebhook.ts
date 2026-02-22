@@ -5,7 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-import { syncTransactions } from '../services/plaidService';
+import { syncTransactions, exchangePublicToken, getUserIdForLinkToken, markLinkTokenUsed } from '../services/plaidService';
+import { invalidateInsightsCache } from '../services/financialAnalyzer';
 
 const router = Router();
 
@@ -36,6 +37,46 @@ router.post('/', async (req: Request, res: Response) => {
 
     console.log(`📩 Plaid webhook: ${webhook_type}/${webhook_code} for item ${item_id}`);
 
+    // ── LINK webhooks (Hosted Link flow) ─────────────────────────
+    // Handle BEFORE item_id lookup — the item doesn't exist yet at this point.
+    if (webhook_type === 'LINK') {
+      if (webhook_code === 'ITEM_ADD_RESULT') {
+        console.log(`🔗 LINK/ITEM_ADD_RESULT full body:`, JSON.stringify(req.body, null, 2));
+        const { public_token, link_token, status, institution_name } = req.body;
+        console.log(`🔗 LINK/ITEM_ADD_RESULT: status=${status}, public_token=${public_token ? 'present' : 'missing'}, link_token=${link_token ? 'present' : 'missing'}`);
+
+        // Accept if we have a public_token + link_token, regardless of status field
+        // (Plaid sandbox may omit or nest the status differently)
+        if (public_token && link_token) {
+          const userId = await getUserIdForLinkToken(link_token);
+          if (!userId) {
+            console.error('LINK webhook: no user_id found for link_token — mapping may have been lost');
+            res.json({ received: true });
+            return;
+          }
+
+          try {
+            const result = await exchangePublicToken(
+              userId,
+              public_token,
+              institution_name || 'Connected Bank',
+            );
+            console.log(`✅ Hosted Link exchange complete: item=${result.itemId}, accounts=${result.accounts.length}`);
+            await markLinkTokenUsed(link_token);
+            invalidateInsightsCache(userId);
+          } catch (exchangeErr) {
+            console.error('Failed to exchange Hosted Link public_token:', exchangeErr);
+          }
+        }
+      } else {
+        console.log(`Unhandled LINK webhook code: ${webhook_code}`);
+      }
+
+      res.json({ received: true });
+      return;
+    }
+
+    // ── All other webhooks need the item lookup ──────────────────
     // Look up which user owns this item
     const { data: item } = await supabase
       .from('plaid_items')
