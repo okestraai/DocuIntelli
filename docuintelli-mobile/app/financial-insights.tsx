@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, RefreshControl, Platform,
+  View, Text, ScrollView, StyleSheet, RefreshControl, Platform, TouchableOpacity,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Landmark, TrendingDown, AlertTriangle } from 'lucide-react-native';
-import PlaidLinkModal from '../src/components/financial/PlaidLinkModal';
+import InAppBrowser from '../src/components/ui/InAppBrowser';
 import { useAuth } from '../src/hooks/useAuth';
 import { useSubscription } from '../src/hooks/useSubscription';
 import { usePlaidLinkFlow } from '../src/hooks/usePlaidLinkFlow';
@@ -14,6 +14,10 @@ import LoadingSpinner from '../src/components/ui/LoadingSpinner';
 import GradientIcon from '../src/components/ui/GradientIcon';
 import Badge from '../src/components/ui/Badge';
 import ConnectBankCard from '../src/components/financial/ConnectBankCard';
+import AccountSelectionModal, {
+  type ExistingAccount,
+  type NewAccount,
+} from '../src/components/financial/AccountSelectionModal';
 import FinancialSummaryCards from '../src/components/financial/FinancialSummaryCards';
 import ConnectedAccountsList from '../src/components/financial/ConnectedAccountsList';
 import SpendingBreakdown from '../src/components/financial/SpendingBreakdown';
@@ -31,6 +35,8 @@ import {
   getAnalyzedLoans,
   syncTransactions,
   disconnectBankAccount,
+  commitAccountSelection,
+  cancelConnection,
   type FinancialSummary,
   type AnalyzedLoan,
 } from '../src/lib/financialApi';
@@ -41,7 +47,7 @@ import { router } from 'expo-router';
 
 export default function FinancialInsightsScreen() {
   const { isAuthenticated } = useAuth();
-  const { isStarterOrAbove, loading: subLoading } = useSubscription();
+  const { subscription, isStarterOrAbove, bankAccountLimit, loading: subLoading } = useSubscription();
   const { showToast } = useToast();
 
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
@@ -52,32 +58,46 @@ export default function FinancialInsightsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Account selection modal state
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [newItemId, setNewItemId] = useState<string | null>(null);
+  const [newInstitutionName, setNewInstitutionName] = useState('');
+  const [newAccounts, setNewAccounts] = useState<NewAccount[]>([]);
+  const [cancelBanner, setCancelBanner] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
   const loadData = async () => {
     try {
       setError(null);
-      const [summaryData, accountsData] = await Promise.allSettled([
+      // Fire all 3 API calls in parallel for fastest load
+      const [summaryData, accountsData, loansData] = await Promise.allSettled([
         getFinancialSummary(),
         getConnectedAccounts(),
+        getAnalyzedLoans(),
       ]);
 
       if (summaryData.status === 'fulfilled') {
         setSummary(summaryData.value);
       }
       if (accountsData.status === 'fulfilled') {
-        setConnectedAccounts(accountsData.value);
+        const fullyLoaded = accountsData.value.filter(
+          (item: any) => item.accounts && item.accounts.length > 0,
+        );
+        setConnectedAccounts(fullyLoaded);
 
-        // Load analyzed loans (non-blocking) when accounts exist
-        if (accountsData.value.length > 0) {
-          getAnalyzedLoans()
-            .then((loans) => setAnalyzedLoans(loans))
-            .catch(() => {});
+        if (fullyLoaded.length === 0) {
+          setSummary(null);
+          setAnalyzedLoans([]);
         }
       }
+      if (loansData.status === 'fulfilled') {
+        setAnalyzedLoans(loansData.value);
+      } else {
+        setAnalyzedLoans([]);
+      }
 
-      // If both failed, show error
       if (summaryData.status === 'rejected' && accountsData.status === 'rejected') {
         const msg = summaryData.reason?.message || 'Failed to load financial data';
-        // "No connected accounts" is expected for new users
         if (!msg.includes('No connected accounts')) {
           setError(msg);
         }
@@ -93,10 +113,57 @@ export default function FinancialInsightsScreen() {
   };
 
   // ── Plaid Link (hook must be called before any conditional returns) ──
-  const plaid = usePlaidLinkFlow(() => {
-    showToast('Bank connected successfully!', 'success');
-    loadData();
-  });
+  const plaid = usePlaidLinkFlow(
+    (newItem) => {
+      // Webhook has already exchanged the token and saved accounts to DB.
+      // Pull ALL accounts fresh from DB so the modal has up-to-date data.
+      setCancelBanner(false);
+      setNewItemId(newItem.item_id);
+      setNewInstitutionName(newItem.institution_name);
+
+      getConnectedAccounts()
+        .then((items) => {
+          const fullyLoaded = items.filter((i: any) => i.accounts?.length > 0);
+          setConnectedAccounts(fullyLoaded);
+
+          // Extract new accounts from the DB response (matches the new item_id)
+          const newItemFromDb = fullyLoaded.find((i: any) => i.item_id === newItem.item_id);
+          const dbNewAccounts = (newItemFromDb?.accounts || newItem.accounts || []);
+          setNewAccounts(
+            dbNewAccounts.map((a: any) => ({
+              account_id: a.account_id,
+              name: a.name,
+              official_name: a.official_name || null,
+              mask: a.mask,
+              type: a.type,
+              subtype: a.subtype,
+              current_balance: a.initial_balance ?? a.current_balance ?? null,
+              available_balance: a.available_balance ?? null,
+            })),
+          );
+          setShowAccountModal(true);
+        })
+        .catch(() => {
+          // Fallback: use accounts from polling response if DB refresh fails
+          setNewAccounts(
+            (newItem.accounts || []).map((a: any) => ({
+              account_id: a.account_id,
+              name: a.name,
+              official_name: a.official_name || null,
+              mask: a.mask,
+              type: a.type,
+              subtype: a.subtype,
+              current_balance: a.initial_balance ?? a.current_balance ?? null,
+              available_balance: a.available_balance ?? null,
+            })),
+          );
+          setShowAccountModal(true);
+        });
+    },
+    () => {
+      showToast('Bank connection was not completed', 'info');
+    },
+  );
 
   useEffect(() => {
     if (isAuthenticated && isStarterOrAbove) loadData();
@@ -106,6 +173,64 @@ export default function FinancialInsightsScreen() {
     setRefreshing(true);
     loadData();
   }, []);
+
+  // Flatten existing accounts for the modal (exclude the newly added item)
+  const flatExistingAccounts: ExistingAccount[] = useMemo(
+    () =>
+      connectedAccounts
+        .filter((item: any) => item.item_id !== newItemId)
+        .flatMap((item: any) =>
+          (item.accounts || []).map((a: any) => ({
+            account_id: a.account_id,
+            name: a.name,
+            mask: a.mask,
+            type: a.type,
+            subtype: a.subtype,
+            initial_balance: a.initial_balance,
+            item_id: item.item_id,
+            institution_name: item.institution_name,
+          })),
+        ),
+    [connectedAccounts, newItemId],
+  );
+
+  // ── Account Selection Modal handlers ────────────────────────────
+  const handleAccountSelectionSubmit = async (selectedAccountIds: string[]) => {
+    // Close modal first, then show the connecting spinner while committing
+    setShowAccountModal(false);
+    setCommitting(true);
+    try {
+      await commitAccountSelection(selectedAccountIds);
+      setCommitting(false);
+      setNewItemId(null);
+      showToast('Accounts updated successfully!', 'success');
+      // Reload the page with fresh financial data
+      setLoading(true);
+      await loadData();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save accounts', 'error');
+      setCommitting(false);
+      setNewItemId(null);
+    }
+  };
+
+  const handleAccountSelectionCancel = async (itemId: string) => {
+    setShowAccountModal(false);
+    setCommitting(true);
+    try {
+      await cancelConnection(itemId);
+      setCommitting(false);
+      setNewItemId(null);
+      setCancelBanner(true);
+      // Reload the page with fresh financial data
+      setLoading(true);
+      await loadData();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to cancel connection', 'error');
+      setCommitting(false);
+      setNewItemId(null);
+    }
+  };
 
   // Wait for subscription data before showing gate
   if (subLoading) {
@@ -124,7 +249,19 @@ export default function FinancialInsightsScreen() {
     );
   }
 
+  // Count individual accounts (not items) for limit enforcement
+  const bankCount = connectedAccounts.reduce(
+    (sum: number, item: any) => sum + (item.accounts?.length || 0),
+    0,
+  );
+  const bankLimitReached = bankCount >= bankAccountLimit;
+
   const handleConnectBank = () => {
+    if (bankAccountLimit === 0) {
+      showToast('Upgrade to connect bank accounts', 'error');
+      return;
+    }
+    // Paid users at limit can still connect — account selection modal enforces limits
     if (plaid.error) {
       showToast(plaid.error, 'error');
       return;
@@ -165,6 +302,18 @@ export default function FinancialInsightsScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* Loading overlay — during webhook polling or account commit */}
+      {(plaid.loading || committing) && (
+        <View style={styles.pollingOverlay}>
+          <View style={styles.pollingCard}>
+            <LoadingSpinner />
+            <Text style={styles.pollingText}>
+              {committing ? 'Adding your accounts...' : 'Connecting your bank account...'}
+            </Text>
+            <Text style={styles.pollingSubtext}>This may take a few seconds</Text>
+          </View>
+        </View>
+      )}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -201,9 +350,21 @@ export default function FinancialInsightsScreen() {
 
           {/* Add another bank button (if already connected) */}
           {hasAccounts && (
-            <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} compact />
+            <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} compact bankCount={bankCount} bankLimit={bankAccountLimit} />
           )}
         </LinearGradient>
+
+        {/* Cancel banner */}
+        {cancelBanner && (
+          <View style={styles.cancelBanner}>
+            <Text style={styles.cancelBannerText}>
+              No accounts were added. You can connect a bank account anytime from Settings.
+            </Text>
+            <TouchableOpacity onPress={() => setCancelBanner(false)} hitSlop={8}>
+              <Text style={styles.cancelBannerDismiss}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Error state */}
         {error && (
@@ -214,7 +375,7 @@ export default function FinancialInsightsScreen() {
 
         {/* No accounts: show connect CTA */}
         {!hasAccounts && (
-          <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} />
+          <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} bankCount={bankCount} bankLimit={bankAccountLimit} />
         )}
 
         {/* Financial Dashboard Content */}
@@ -300,18 +461,35 @@ export default function FinancialInsightsScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Native Plaid Link WebView Modal */}
-      {Platform.OS !== 'web' && plaid.nativeModal && (
-        <PlaidLinkModal
-          visible={plaid.nativeModal.visible}
-          linkToken={plaid.nativeModal.linkToken}
-          onSuccess={plaid.nativeModal.onSuccess}
-          onClose={() => {
-            plaid.nativeModal.onClose();
-            loadData();
-          }}
+      {/* Plaid Hosted Link — InAppBrowser
+          Three detection layers for completion:
+          1. interceptSchemes: catches HTTPS redirect to /plaid-callback (onNavigationStateChange)
+          2. successTextPatterns: injected JS detects "Bank Connected" text on page (auto-closes)
+          3. handleClose: user taps X after seeing success page → starts webhook polling */}
+      {Platform.OS !== 'web' && (
+        <InAppBrowser
+          url={plaid.browserUrl}
+          onClose={plaid.handleClose}
+          title="Connect Your Bank"
+          onRedirect={(url) => plaid.handleBrowserRedirect(url)}
+          interceptSchemes={['https://app.docuintelli.com/plaid-callback']}
+          successTextPatterns={['Bank Connected', 'bank connected']}
         />
       )}
+
+      {/* Account Selection Modal — enforces bank account limits */}
+      <AccountSelectionModal
+        visible={showAccountModal}
+        existingAccounts={flatExistingAccounts}
+        newAccounts={newAccounts}
+        newItemId={newItemId || ''}
+        newInstitutionName={newInstitutionName}
+        bankAccountLimit={bankAccountLimit}
+        currentPlan={subscription?.plan || 'free'}
+        onSubmit={handleAccountSelectionSubmit}
+        onCancel={handleAccountSelectionCancel}
+        onUpgrade={() => router.push('/billing')}
+      />
     </View>
   );
 }
@@ -391,5 +569,58 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 80, // space for tab bar
+  },
+  cancelBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.info[50],
+    borderWidth: 1,
+    borderColor: colors.info[200],
+    borderRadius: borderRadius.lg,
+  },
+  cancelBannerText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.info[700],
+    lineHeight: 20,
+  },
+  cancelBannerDismiss: {
+    fontSize: typography.fontSize.base,
+    color: colors.info[500],
+    paddingHorizontal: spacing.xs,
+  },
+  pollingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  pollingCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  pollingText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.slate[800],
+    marginTop: spacing.sm,
+  },
+  pollingSubtext: {
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[500],
   },
 });

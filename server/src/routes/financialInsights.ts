@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { loadSubscription } from '../middleware/subscriptionGuard';
+import { loadSubscription, checkBankAccountLimit } from '../middleware/subscriptionGuard';
 import {
   createLinkToken,
   exchangePublicToken,
@@ -12,11 +12,16 @@ import {
   getConnectedAccounts,
   disconnectAccount,
   syncTransactions,
+  removeAccountsAndCleanup,
 } from '../services/plaidService';
 import { generateAIInsights, invalidateInsightsCache } from '../services/financialAnalyzer';
 import { detectLoanPayments } from '../services/loanDetector';
 import { analyzeLoanDocument } from '../services/loanAnalyzer';
+import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { createClient } from '@supabase/supabase-js';
+
+const SUMMARY_CACHE_TTL = 1800;  // 30 minutes
+const ACCOUNTS_CACHE_TTL = 600;  // 10 minutes
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -25,6 +30,14 @@ const supabase = createClient(
 
 const router = Router();
 
+/** Invalidate all financial Redis caches + Supabase AI insights cache for a user */
+async function invalidateAllFinancialCaches(userId: string): Promise<void> {
+  await Promise.all([
+    cacheDel(`fin_summary:${userId}`, `fin_accounts:${userId}`),
+    invalidateInsightsCache(userId),
+  ]);
+}
+
 // All routes require authentication
 router.use(loadSubscription);
 
@@ -32,11 +45,17 @@ router.use(loadSubscription);
  * POST /api/financial/link-token
  * Create a Plaid Link token for the client
  */
-router.post('/link-token', async (req: Request, res: Response) => {
+router.post('/link-token', checkBankAccountLimit, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
-    const linkToken = await createLinkToken(userId);
-    res.json({ success: true, link_token: linkToken });
+    const platform = req.body?.platform || 'web';
+    console.log(`[link-token] userId=${userId}, platform=${platform}, body=`, req.body);
+    const result = await createLinkToken(userId, platform);
+    res.json({
+      success: true,
+      link_token: result.link_token,
+      ...(result.hosted_link_url && { hosted_link_url: result.hosted_link_url }),
+    });
   } catch (error) {
     console.error('Error creating link token:', error);
     res.status(500).json({
@@ -67,7 +86,7 @@ router.post('/exchange-token', async (req: Request, res: Response) => {
     );
 
     // Invalidate cached AI insights so next summary reflects the new account
-    await invalidateInsightsCache(userId);
+    await invalidateAllFinancialCaches(userId);
 
     res.json({
       success: true,
@@ -90,9 +109,19 @@ router.post('/exchange-token', async (req: Request, res: Response) => {
 router.get('/summary', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
+    const cacheKey = `fin_summary:${userId}`;
+
+    // Try Redis cache first — instant response
+    const cached = await cacheGet<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
+    // Cache miss — build summary from DB
     const summary = await getFinancialSummary(userId);
 
-    // Enhance with AI-powered analysis (uses vLLM, falls back to rule-based)
+    // Try AI enrichment (has its own 24h Supabase cache, so usually fast)
     try {
       const aiResult = await generateAIInsights(userId, summary);
       if (aiResult.insights.length > 0) {
@@ -101,14 +130,18 @@ router.get('/summary', async (req: Request, res: Response) => {
       if (aiResult.action_plan.length > 0) {
         summary.action_plan = aiResult.action_plan;
       }
-      // Attach AI recommendation text and account-level analysis
       (summary as any).ai_recommendations = aiResult.ai_recommendations;
       (summary as any).account_analysis = aiResult.account_analysis;
     } catch (aiErr) {
       console.error('AI analysis failed (using rule-based):', aiErr);
     }
 
-    res.json({ success: true, ...summary });
+    const response = { success: true, ...summary };
+
+    // Cache the full response in Redis
+    await cacheSet(cacheKey, response, SUMMARY_CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
     console.error('Error generating financial summary:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -124,8 +157,30 @@ router.get('/summary', async (req: Request, res: Response) => {
 router.get('/accounts', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
-    const accounts = await getConnectedAccounts(userId);
-    res.json({ success: true, accounts });
+    const bankLimit = req.subscription?.bank_account_limit ?? 0;
+    const cacheKey = `fin_accounts:${userId}`;
+
+    // Try Redis cache first
+    const cached = await cacheGet<any>(cacheKey);
+    if (cached) {
+      // bank_limit comes from subscription (already cached), so merge it fresh
+      res.json({ ...cached, bank_limit: bankLimit });
+      return;
+    }
+
+    // Fetch accounts and count in parallel
+    const [accounts, { count: bankCount }] = await Promise.all([
+      getConnectedAccounts(userId),
+      supabase
+        .from('plaid_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId),
+    ]);
+
+    const response = { success: true, accounts, bank_limit: bankLimit, bank_count: bankCount || 0 };
+    await cacheSet(cacheKey, response, ACCOUNTS_CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
     console.error('Error fetching accounts:', error);
     res.status(500).json({
@@ -150,6 +205,8 @@ router.post('/sync', async (req: Request, res: Response) => {
     }
 
     const result = await syncTransactions(userId, item_id);
+    // New transactions change the summary — invalidate caches
+    await invalidateAllFinancialCaches(userId);
     res.json({ success: true, ...result });
   } catch (error) {
     console.error('Error syncing transactions:', error);
@@ -170,11 +227,128 @@ router.delete('/disconnect/:itemId', async (req: Request, res: Response) => {
     const { itemId } = req.params;
 
     await disconnectAccount(userId, itemId);
+    // Clear cached AI insights so the next summary call regenerates
+    // without the disconnected account's data
+    await invalidateAllFinancialCaches(userId);
     res.json({ success: true, message: 'Account disconnected' });
   } catch (error) {
     console.error('Error disconnecting account:', error);
     res.status(500).json({
       error: 'Failed to disconnect account',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ── Account Selection (post-Plaid-Link modal) ──────────────────
+
+/**
+ * POST /api/financial/commit-account-selection
+ * Finalize which accounts to keep after Plaid Link + modal selection.
+ * Deletes unchecked accounts and orphaned items.
+ */
+router.post('/commit-account-selection', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const subscription = req.subscription!;
+    const { selected_account_ids } = req.body;
+
+    if (!Array.isArray(selected_account_ids)) {
+      res.status(400).json({ error: 'selected_account_ids must be an array' });
+      return;
+    }
+
+    const bankLimit = subscription.bank_account_limit ?? 0;
+
+    // Backend validation: total selected cannot exceed plan limit
+    if (selected_account_ids.length > bankLimit) {
+      res.status(400).json({
+        error: 'Selected accounts exceed your plan limit',
+        code: 'EXCEEDS_ACCOUNT_LIMIT',
+        limit: bankLimit,
+        selected: selected_account_ids.length,
+      });
+      return;
+    }
+
+    // Fetch all current accounts for this user
+    const { data: allAccounts } = await supabase
+      .from('plaid_accounts')
+      .select('account_id')
+      .eq('user_id', userId);
+
+    if (!allAccounts) {
+      res.status(500).json({ error: 'Failed to fetch accounts' });
+      return;
+    }
+
+    const selectedSet = new Set(selected_account_ids);
+    const accountIdsToRemove = allAccounts
+      .filter(a => !selectedSet.has(a.account_id))
+      .map(a => a.account_id);
+
+    const result = await removeAccountsAndCleanup(userId, accountIdsToRemove);
+    await invalidateAllFinancialCaches(userId);
+
+    res.json({
+      success: true,
+      kept: selected_account_ids.length,
+      removed: result.removed,
+    });
+  } catch (error) {
+    console.error('Error committing account selection:', error);
+    res.status(500).json({
+      error: 'Failed to commit account selection',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/financial/cancel-connection
+ * Cancel a newly created Plaid connection (remove item + accounts).
+ * Safety: only allows cancellation of items created within the last hour.
+ */
+router.post('/cancel-connection', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { item_id } = req.body;
+
+    if (!item_id) {
+      res.status(400).json({ error: 'item_id is required' });
+      return;
+    }
+
+    // Safety: only allow cancellation of recently created items
+    const { data: item } = await supabase
+      .from('plaid_items')
+      .select('item_id, connected_at')
+      .eq('user_id', userId)
+      .eq('item_id', item_id)
+      .single();
+
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    const connectedAt = new Date(item.connected_at);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    if (connectedAt < oneHourAgo) {
+      res.status(400).json({
+        error: 'Cannot cancel a connection older than 1 hour. Use disconnect instead.',
+      });
+      return;
+    }
+
+    await disconnectAccount(userId, item_id);
+    await invalidateAllFinancialCaches(userId);
+
+    res.json({ success: true, message: 'Connection cancelled' });
+  } catch (error) {
+    console.error('Error cancelling connection:', error);
+    res.status(500).json({
+      error: 'Failed to cancel connection',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

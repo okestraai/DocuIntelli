@@ -716,14 +716,14 @@ function App() {
                 onUpgrade={() => handleUpgradeNeeded('features')}
                 requiredPlan="starter"
               >
-                <FinancialInsightsPage />
+                <FinancialInsightsPage onUpgrade={() => handleUpgradeNeeded('features')} />
               </ProFeatureGate>
             </ErrorBoundary>
           );
         }
         return (
           <ErrorBoundary>
-            <FinancialInsightsPage />
+            <FinancialInsightsPage onUpgrade={() => handleUpgradeNeeded('features')} />
           </ErrorBoundary>
         );
       default:

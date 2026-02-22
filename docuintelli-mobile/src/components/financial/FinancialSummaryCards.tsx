@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { DollarSign, TrendingUp, TrendingDown, PiggyBank } from 'lucide-react-native';
+import { Wallet, TrendingUp, TrendingDown, PiggyBank } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, borderRadius } from '../../theme/spacing';
@@ -31,9 +31,9 @@ export default function FinancialSummaryCards({
 }: FinancialSummaryCardsProps) {
   const cards: KPIConfig[] = [
     {
-      label: 'Total Balance',
+      label: 'Net Worth',
       value: formatCurrency(totalBalance),
-      icon: <DollarSign size={18} color={colors.primary[600]} strokeWidth={2} />,
+      icon: <Wallet size={18} color={colors.primary[600]} strokeWidth={2} />,
       bg: colors.primary[50],
       iconBg: colors.primary[100],
     },

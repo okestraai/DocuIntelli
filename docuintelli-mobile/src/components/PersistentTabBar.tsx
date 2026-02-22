@@ -52,7 +52,7 @@ const HIDDEN_ON = ['/', '/index', '/login', '/signup', '/forgot-password'];
 export default function PersistentTabBar() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { isPro, isStarterOrAbove } = useSubscription();
+  const { isPro, isStarterOrAbove, loading: subLoading } = useSubscription();
 
   // Hide on auth / splash screens
   const shouldHide = HIDDEN_ON.some(
@@ -67,6 +67,7 @@ export default function PersistentTabBar() {
 
   const isLocked = (requiredPlan: null | 'starter' | 'pro') => {
     if (!requiredPlan) return false;
+    if (subLoading) return false; // Don't show lock badges while subscription is loading
     if (requiredPlan === 'starter') return !isStarterOrAbove;
     return !isPro;
   };

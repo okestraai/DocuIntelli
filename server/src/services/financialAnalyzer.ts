@@ -68,6 +68,9 @@ export async function generateAIInsights(
   try {
     const prompt = buildAnalysisPrompt(summary);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
     const chatResponse = await fetch(`${vllmChatUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -85,7 +88,9 @@ export async function generateAIInsights(
         max_tokens: 1200,
         stream: false,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!chatResponse.ok) {
       console.error('vLLM chat error:', chatResponse.status, await chatResponse.text());

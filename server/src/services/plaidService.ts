@@ -36,20 +36,105 @@ const plaidClient = getPlaidClient();
 
 // ── Link Token ──────────────────────────────────────────────────
 
-export async function createLinkToken(userId: string): Promise<string> {
+// Persisted mapping of link_token → user_id for Hosted Link webhook flow.
+// When using Hosted Link, the public_token arrives via webhook (not redirect URL),
+// so we need to know which user the link_token belongs to.
+// Stored in DB (plaid_link_tokens table) so it survives server restarts.
+
+export async function getUserIdForLinkToken(linkToken: string): Promise<string | undefined> {
+  const { data } = await supabase
+    .from('plaid_link_tokens')
+    .select('user_id')
+    .eq('link_token', linkToken)
+    .is('used_at', null)
+    .single();
+  return data?.user_id;
+}
+
+async function storeLinkTokenMapping(linkToken: string, userId: string): Promise<void> {
+  console.log(`[Plaid] Storing link_token mapping: token=${linkToken.substring(0, 20)}..., userId=${userId}`);
+  const { data, error } = await supabase
+    .from('plaid_link_tokens')
+    .upsert({ link_token: linkToken, user_id: userId }, { onConflict: 'link_token' })
+    .select();
+  if (error) {
+    console.error('[Plaid] Failed to store link_token mapping:', error);
+  } else {
+    console.log('[Plaid] link_token mapping stored successfully:', data);
+  }
+}
+
+export async function markLinkTokenUsed(linkToken: string): Promise<void> {
+  await supabase
+    .from('plaid_link_tokens')
+    .update({ used_at: new Date().toISOString() })
+    .eq('link_token', linkToken);
+}
+
+export async function createLinkToken(
+  userId: string,
+  platform?: 'web' | 'mobile',
+): Promise<{ link_token: string; hosted_link_url?: string }> {
   const webhookUrl = process.env.APP_URL
     ? `${process.env.APP_URL}/api/plaid-webhook`
     : undefined;
 
-  const response = await plaidClient.linkTokenCreate({
+  const isMobile = platform === 'mobile';
+
+  const linkRequest: any = {
     user: { client_user_id: userId },
     client_name: 'DocuIntelli AI',
     products: [Products.Transactions],
     country_codes: [CountryCode.Us],
     language: 'en',
     ...(webhookUrl && { webhook: webhookUrl }),
-  });
-  return response.data.link_token;
+  };
+
+  if (isMobile) {
+    // redirect_uri MUST exactly match what's registered in the Plaid Dashboard (HTTPS).
+    const appUrl = (process.env.APP_URL || 'https://app.docuintelli.com').replace(/\/+$/, '');
+    const redirectUri = `${appUrl}/plaid-callback`;
+    linkRequest.redirect_uri = redirectUri;
+
+    // Hosted Link config for mobile:
+    // - completion_redirect_uri: same HTTPS URL — the InAppBrowser detects completion
+    //   via page content ("Bank Connected" text) rather than URL scheme interception,
+    //   since Expo doesn't register a custom URL scheme.
+    // - is_mobile_app: required for Hosted Link on native apps
+    linkRequest.hosted_link = {
+      completion_redirect_uri: redirectUri,
+      is_mobile_app: true,
+    };
+  }
+
+  console.log('[Plaid] linkTokenCreate request:', JSON.stringify(linkRequest, null, 2));
+
+  try {
+    const response = await plaidClient.linkTokenCreate(linkRequest);
+    const data = response.data as any;
+
+    console.log('[Plaid] linkTokenCreate response keys:', Object.keys(data));
+    console.log('[Plaid] hosted_link_url:', data.hosted_link_url);
+
+    // Persist link_token → user_id mapping ONLY for Hosted Link (mobile) flows.
+    // On web, the client exchanges the token via postMessage — no webhook needed.
+    console.log(`[Plaid] isMobile=${isMobile}, platform=${platform} — ${isMobile ? 'WILL' : 'SKIP'} store link_token mapping`);
+    if (isMobile) {
+      await storeLinkTokenMapping(data.link_token, userId);
+    }
+
+    return {
+      link_token: data.link_token,
+      hosted_link_url: data.hosted_link_url || undefined,
+    };
+  } catch (err: any) {
+    console.error('[Plaid] linkTokenCreate FAILED:', {
+      status: err.response?.status,
+      data: err.response?.data,
+      message: err.message,
+    });
+    throw err;
+  }
 }
 
 // ── Token Exchange & Account Storage ────────────────────────────
@@ -67,23 +152,27 @@ export async function exchangePublicToken(
   const accessToken = exchangeResponse.data.access_token;
   const itemId = exchangeResponse.data.item_id;
 
-  // Store the access token securely
-  const { error: upsertError } = await supabase
-    .from('plaid_items')
-    .upsert({
-      user_id: userId,
-      item_id: itemId,
-      access_token: accessToken,
-      institution_name: institutionName,
-      connected_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,item_id' });
-
-  if (upsertError) {
-    console.error('Error storing Plaid item:', upsertError);
-    throw new Error('Failed to store bank connection');
+  // Resolve institution name — webhook doesn't include it, so fetch from Plaid API
+  let resolvedName = institutionName;
+  if (!resolvedName || resolvedName === 'Connected Bank') {
+    try {
+      const itemResponse = await plaidClient.itemGet({ access_token: accessToken });
+      const institutionId = itemResponse.data.item.institution_id;
+      if (institutionId) {
+        const instResponse = await plaidClient.institutionsGetById({
+          institution_id: institutionId,
+          country_codes: [CountryCode.Us],
+        });
+        resolvedName = instResponse.data.institution.name || resolvedName;
+        console.log(`[Plaid] Resolved institution name: ${resolvedName} (id=${institutionId})`);
+      }
+    } catch (nameErr) {
+      console.warn('[Plaid] Could not resolve institution name:', nameErr);
+    }
   }
 
-  // Fetch initial account balances
+  // Fetch account balances from Plaid BEFORE storing anything in our DB.
+  // This ensures the item + accounts appear atomically to polling clients.
   const balanceResponse = await plaidClient.accountsBalanceGet({
     access_token: accessToken,
   });
@@ -100,7 +189,9 @@ export async function exchangePublicToken(
     currency: acct.balances.iso_currency_code || 'USD',
   }));
 
-  // Store accounts with initial balances
+  // Store accounts FIRST (before the item) so that when getConnectedAccounts()
+  // sees the new plaid_items row, the plaid_accounts rows already exist.
+  // This prevents the UI from briefly showing the institution with no accounts.
   for (const account of accounts) {
     await supabase.from('plaid_accounts').upsert({
       user_id: userId,
@@ -117,8 +208,27 @@ export async function exchangePublicToken(
     }, { onConflict: 'user_id,account_id' });
   }
 
-  // Trigger initial transaction sync
-  await syncTransactions(userId, itemId, accessToken);
+  // Now store the item — polling detects new items via plaid_items,
+  // so accounts are guaranteed to exist by the time the item appears.
+  const { error: upsertError } = await supabase
+    .from('plaid_items')
+    .upsert({
+      user_id: userId,
+      item_id: itemId,
+      access_token: accessToken,
+      institution_name: resolvedName,
+      connected_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,item_id' });
+
+  if (upsertError) {
+    console.error('Error storing Plaid item:', upsertError);
+    throw new Error('Failed to store bank connection');
+  }
+
+  // Trigger initial transaction sync (non-blocking for the UI)
+  syncTransactions(userId, itemId, accessToken).catch(err =>
+    console.error('[Plaid] Background transaction sync failed:', err)
+  );
 
   return { itemId, accounts };
 }
@@ -237,6 +347,7 @@ interface RecurringBill {
   name: string;
   merchant: string | null;
   amount: number;
+  monthly_amount: number;
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   category: string;
   last_date: string;
@@ -246,6 +357,7 @@ interface RecurringBill {
 interface IncomeStream {
   source: string;
   average_amount: number;
+  monthly_amount: number;
   frequency: 'weekly' | 'biweekly' | 'monthly';
   is_salary: boolean;
   last_date: string;
@@ -266,34 +378,48 @@ interface ActionItem {
 }
 
 export async function getFinancialSummary(userId: string): Promise<FinancialSummary> {
-  // Fetch all user accounts
-  const { data: accounts } = await supabase
-    .from('plaid_accounts')
-    .select('*')
-    .eq('user_id', userId);
+  // Only fetch transactions from the last 12 months for summary calculations
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+  const cutoffDate = twelveMonthsAgo.toISOString().split('T')[0];
+
+  // Fetch accounts and transactions in parallel
+  const [{ data: accounts }, { data: transactions }] = await Promise.all([
+    supabase
+      .from('plaid_accounts')
+      .select('*')
+      .eq('user_id', userId),
+    supabase
+      .from('plaid_transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('pending', false)
+      .gte('date', cutoffDate)
+      .order('date', { ascending: false }),
+  ]);
 
   if (!accounts || accounts.length === 0) {
     throw new Error('No connected accounts found. Please connect a bank account first.');
   }
 
-  // Fetch all transactions (last 6 months)
-  const { data: transactions } = await supabase
-    .from('plaid_transactions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('pending', false)
-    .order('date', { ascending: false });
-
   if (!transactions) {
     throw new Error('Failed to load transactions');
   }
+
+  // Account types where the balance represents money OWED (liabilities)
+  const liabilityTypes = new Set(['credit', 'loan']);
 
   // Build account summaries — calculate current balance from initial + transactions
   const accountSummaries: AccountSummary[] = accounts.map(acct => {
     const acctTxns = transactions.filter(t => t.account_id === acct.account_id);
     // Plaid amounts: positive = money out, negative = money in
     const txnSum = acctTxns.reduce((sum, t) => sum + t.amount, 0);
-    const currentBalance = (acct.initial_balance || 0) - txnSum;
+    const rawBalance = (acct.initial_balance || 0) - txnSum;
+
+    // For credit/loan accounts, Plaid reports balance as amount owed (positive).
+    // Negate it so it contributes correctly to net worth.
+    const isLiability = liabilityTypes.has(acct.type);
+    const currentBalance = isLiability ? -Math.abs(rawBalance) : rawBalance;
 
     return {
       account_id: acct.account_id,
@@ -306,6 +432,7 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
     };
   });
 
+  // Total balance = net worth (assets minus liabilities)
   const totalBalance = accountSummaries.reduce((sum, a) => sum + a.current_balance, 0);
 
   // Separate income vs expenses (Plaid: positive = debit/expense, negative = credit/income)
@@ -461,10 +588,19 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
       case 'yearly': nextExpected.setFullYear(nextExpected.getFullYear() + 1); break;
     }
 
+    // Normalize to monthly amount based on frequency
+    const billMultiplier =
+      frequency === 'weekly' ? 4.33 :
+      frequency === 'biweekly' ? 2.17 :
+      frequency === 'monthly' ? 1 :
+      frequency === 'quarterly' ? 1 / 3 :
+      1 / 12; // yearly
+
     bills.push({
       name: txns[0].name || key,
       merchant: txns[0].merchant_name || null,
       amount: Math.round(avgAmount * 100) / 100,
+      monthly_amount: Math.round(avgAmount * billMultiplier * 100) / 100,
       frequency,
       category: formatCategoryName(txns[0].category || 'OTHER'),
       last_date: lastTxn.date,
@@ -472,7 +608,7 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
     });
   }
 
-  return bills.sort((a, b) => b.amount - a.amount);
+  return bills.sort((a, b) => b.monthly_amount - a.monthly_amount);
 }
 
 function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
@@ -510,19 +646,24 @@ function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
     else if (avgGap <= 20) frequency = 'biweekly';
     else frequency = 'monthly';
 
+    // Normalize to monthly amount based on frequency
+    const frequencyMultiplier = frequency === 'weekly' ? 4.33 : frequency === 'biweekly' ? 2.17 : 1;
+    const monthlyAmount = avgAmount * frequencyMultiplier;
+
     // Salary detection: regular, large, biweekly/monthly payments
     const isSalary = avgAmount > 1000 && (frequency === 'biweekly' || frequency === 'monthly');
 
     streams.push({
       source: txns[0].name || txns[0].merchant_name || 'Unknown',
       average_amount: Math.round(avgAmount * 100) / 100,
+      monthly_amount: Math.round(monthlyAmount * 100) / 100,
       frequency,
       is_salary: isSalary,
       last_date: txns[txns.length - 1].date,
     });
   }
 
-  return streams.sort((a, b) => b.average_amount - a.average_amount);
+  return streams.sort((a, b) => b.monthly_amount - a.monthly_amount);
 }
 
 function calculateMonthlyAverages(transactions: any[]): MonthlyAverage[] {
@@ -689,17 +830,19 @@ function generate30DayPlan(data: {
 // ── Connection Management ───────────────────────────────────────
 
 export async function getConnectedAccounts(userId: string) {
-  const { data: items } = await supabase
-    .from('plaid_items')
-    .select('item_id, institution_name, connected_at, last_synced_at')
-    .eq('user_id', userId);
+  // Fetch items and accounts in parallel
+  const [{ data: items }, { data: accounts }] = await Promise.all([
+    supabase
+      .from('plaid_items')
+      .select('item_id, institution_name, connected_at, last_synced_at')
+      .eq('user_id', userId),
+    supabase
+      .from('plaid_accounts')
+      .select('*')
+      .eq('user_id', userId),
+  ]);
 
   if (!items || items.length === 0) return [];
-
-  const { data: accounts } = await supabase
-    .from('plaid_accounts')
-    .select('*')
-    .eq('user_id', userId);
 
   return items.map(item => ({
     ...item,
@@ -728,4 +871,54 @@ export async function disconnectAccount(userId: string, itemId: string): Promise
   await supabase.from('plaid_transactions').delete().eq('user_id', userId).eq('item_id', itemId);
   await supabase.from('plaid_accounts').delete().eq('user_id', userId).eq('item_id', itemId);
   await supabase.from('plaid_items').delete().eq('user_id', userId).eq('item_id', itemId);
+}
+
+/**
+ * Remove specific accounts by account_id, then clean up any orphaned plaid_items
+ * (items that have zero remaining accounts after removal).
+ */
+export async function removeAccountsAndCleanup(
+  userId: string,
+  accountIdsToRemove: string[]
+): Promise<{ removed: number }> {
+  if (accountIdsToRemove.length === 0) return { removed: 0 };
+
+  // Delete transactions and accounts for each removed account
+  for (const accountId of accountIdsToRemove) {
+    await supabase.from('plaid_transactions').delete()
+      .eq('user_id', userId).eq('account_id', accountId);
+    await supabase.from('plaid_accounts').delete()
+      .eq('user_id', userId).eq('account_id', accountId);
+  }
+
+  // Find and clean up orphaned plaid_items (items with 0 remaining accounts)
+  const { data: items } = await supabase
+    .from('plaid_items')
+    .select('item_id, access_token')
+    .eq('user_id', userId);
+
+  for (const item of (items || [])) {
+    const { count } = await supabase
+      .from('plaid_accounts')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('item_id', item.item_id);
+
+    if (count === 0) {
+      // Revoke Plaid access for orphaned item
+      if (item.access_token) {
+        try {
+          await plaidClient.itemRemove({ access_token: item.access_token });
+        } catch (e) {
+          console.error('[Plaid] itemRemove for orphan failed:', e);
+        }
+      }
+      await supabase.from('plaid_transactions').delete()
+        .eq('user_id', userId).eq('item_id', item.item_id);
+      await supabase.from('plaid_items').delete()
+        .eq('user_id', userId).eq('item_id', item.item_id);
+    }
+  }
+
+  return { removed: accountIdsToRemove.length };
 }

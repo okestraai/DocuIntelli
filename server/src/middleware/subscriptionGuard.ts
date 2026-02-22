@@ -45,6 +45,7 @@ export interface SubscriptionInfo {
   ai_questions_limit: number;
   ai_questions_used: number;
   monthly_upload_limit: number;
+  bank_account_limit: number;
   monthly_uploads_used: number;
   monthly_upload_reset_date: string;
   feature_flags: FeatureFlags;
@@ -292,6 +293,51 @@ export async function checkDocumentLimit(
   } catch (error) {
     console.error('Document limit check error:', error);
     res.status(500).json({ error: 'Failed to check document limit' });
+  }
+}
+
+/**
+ * Middleware to check if user has reached their bank account connection limit.
+ * Free = 0, Starter = 2, Pro = 5.
+ */
+export async function checkBankAccountLimit(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const userId = req.userId;
+    const subscription = req.subscription;
+
+    if (!subscription || !userId) {
+      res.status(403).json({ error: 'Subscription not loaded' });
+      return;
+    }
+
+    const bankLimit = subscription.bank_account_limit ?? 0;
+
+    // Free plan: hard block — no bank connections allowed
+    if (bankLimit === 0) {
+      await logLimitViolation(userId, 'bank_account', 0, bankLimit);
+
+      res.status(403).json({
+        error: 'Bank account limit reached',
+        code: 'BANK_ACCOUNT_LIMIT_EXCEEDED',
+        limit: bankLimit,
+        current: 0,
+        plan: subscription.plan,
+        upgrade_required: true,
+        message: 'Upgrade to Starter or Pro to connect bank accounts.',
+      });
+      return;
+    }
+
+    // Paid plans: allow link token creation — the account selection modal
+    // enforces the per-account limit after Plaid Link completes
+    next();
+  } catch (error) {
+    console.error('Bank account limit check error:', error);
+    res.status(500).json({ error: 'Failed to check bank account limit' });
   }
 }
 
@@ -729,7 +775,7 @@ async function logFeatureUsage(
  */
 async function logLimitViolation(
   userId: string,
-  limitType: 'document' | 'ai_question' | 'monthly_upload' | 'device',
+  limitType: 'document' | 'ai_question' | 'monthly_upload' | 'device' | 'bank_account',
   currentValue: number,
   limitValue: number
 ): Promise<void> {

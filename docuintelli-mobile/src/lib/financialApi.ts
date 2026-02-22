@@ -2,6 +2,7 @@
  * Financial Insights API helpers — ported from web (src/lib/financialApi.ts)
  * Reuses all existing backend endpoints at /api/financial/*
  */
+import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
@@ -47,6 +48,7 @@ export interface RecurringBill {
   name: string;
   merchant: string | null;
   amount: number;
+  monthly_amount: number;
   frequency: string;
   category: string;
   last_date: string;
@@ -56,6 +58,7 @@ export interface RecurringBill {
 export interface IncomeStream {
   source: string;
   average_amount: number;
+  monthly_amount: number;
   frequency: string;
   is_salary: boolean;
   last_date: string;
@@ -137,13 +140,14 @@ export interface LoanAnalysis {
 
 // ── API Functions ───────────────────────────────────────────────
 
-/** Create a Plaid Link token */
-export async function createLinkToken(): Promise<string> {
+/** Create a Plaid Link token (always requests Hosted Link + DB-backed mapping) */
+export async function createLinkToken(): Promise<{ link_token: string; hosted_link_url?: string }> {
   const session = await getSession();
   const headers = await backendHeaders(session.access_token);
   const res = await fetch(`${API_BASE}/api/financial/link-token`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({ platform: 'mobile' }),
   });
 
   if (!res.ok) {
@@ -152,7 +156,7 @@ export async function createLinkToken(): Promise<string> {
   }
 
   const data = await res.json();
-  return data.link_token;
+  return { link_token: data.link_token, hosted_link_url: data.hosted_link_url };
 }
 
 /** Exchange Plaid public token */
@@ -325,4 +329,40 @@ export async function getLoanAnalysis(detectedLoanId: string): Promise<LoanAnaly
 
   const data = await res.json();
   return data.analysis || null;
+}
+
+/** Commit account selection after Plaid Link + modal */
+export async function commitAccountSelection(
+  selectedAccountIds: string[],
+): Promise<{ kept: number; removed: number }> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(`${API_BASE}/api/financial/commit-account-selection`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ selected_account_ids: selectedAccountIds }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to save account selection' }));
+    throw new Error(err.error || err.message);
+  }
+
+  return res.json();
+}
+
+/** Cancel a recently created Plaid connection (removes item + accounts) */
+export async function cancelConnection(itemId: string): Promise<void> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(`${API_BASE}/api/financial/cancel-connection`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ item_id: itemId }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to cancel connection' }));
+    throw new Error(err.error || err.message);
+  }
 }

@@ -33,10 +33,10 @@ const PRICE_IDS: Record<string, string> = {
   pro: stripeProPriceId || '',
 };
 
-const PLAN_DB_LIMITS: Record<string, { document_limit: number; ai_questions_limit: number; monthly_upload_limit: number }> = {
-  free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3 },
-  starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30 },
-  pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150 },
+const PLAN_DB_LIMITS: Record<string, { document_limit: number; ai_questions_limit: number; monthly_upload_limit: number; bank_account_limit: number }> = {
+  free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3, bank_account_limit: 0 },
+  starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30, bank_account_limit: 2 },
+  pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150, bank_account_limit: 5 },
 };
 
 /**
@@ -386,6 +386,7 @@ router.post('/upgrade', async (req: Request, res: Response): Promise<void> => {
         document_limit: limits.document_limit,
         ai_questions_limit: limits.ai_questions_limit,
         monthly_upload_limit: limits.monthly_upload_limit,
+        bank_account_limit: limits.bank_account_limit,
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', userId);

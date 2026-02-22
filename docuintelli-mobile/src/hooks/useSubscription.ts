@@ -11,6 +11,7 @@ interface UseSubscriptionReturn {
   isPro: boolean;
   isStarterOrAbove: boolean;
   documentCount: number;
+  bankAccountLimit: number;
   refreshSubscription: () => Promise<void>;
   incrementAIQuestions: () => Promise<void>;
   incrementMonthlyUploads: () => Promise<void>;
@@ -135,6 +136,7 @@ export function useSubscription(): UseSubscriptionReturn {
   const plan = subscription?.plan;
   const isPro = plan === 'pro';
   const isStarterOrAbove = plan === 'starter' || plan === 'pro';
+  const bankAccountLimit = subscription?.bank_account_limit ?? 0;
 
   return {
     subscription,
@@ -145,6 +147,7 @@ export function useSubscription(): UseSubscriptionReturn {
     isPro,
     isStarterOrAbove,
     documentCount,
+    bankAccountLimit,
     refreshSubscription: fetchSubscription,
     incrementAIQuestions,
     incrementMonthlyUploads,

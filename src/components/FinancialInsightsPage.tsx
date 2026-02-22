@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Landmark,
   TrendingUp,
@@ -19,6 +19,7 @@ import {
   Building2,
   ChevronDown,
   ChevronUp,
+  X,
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import {
@@ -28,6 +29,8 @@ import {
   getConnectedAccounts,
   syncTransactions,
   disconnectBankAccount,
+  commitAccountSelection,
+  cancelConnection,
   FinancialSummary,
   CategoryBreakdown,
   RecurringBill,
@@ -38,39 +41,53 @@ import {
 import { SmartDocumentPrompts } from './SmartDocumentPrompts';
 import { LoanAnalysisPanel } from './LoanAnalysisPanel';
 import { getAnalyzedLoans, AnalyzedLoan } from '../lib/financialApi';
+import { useSubscription } from '../hooks/useSubscription';
+import { AccountSelectionModal, ExistingAccount, NewAccount } from './AccountSelectionModal';
 
 // ── Plaid Link Button ─────────────────────────────────────────
 
-function PlaidLinkButton({ onSuccess, onLoading }: {
-  onSuccess: () => void;
+function PlaidLinkButton({ onExchangeComplete, onLoading, bankCount, bankLimit }: {
+  onExchangeComplete: (result: { item_id: string; accounts: any[]; institution_name: string }) => void;
   onLoading: (loading: boolean) => void;
+  bankCount: number;
+  bankLimit: number;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Free plan (limit === 0): hard block. Paid plans always allow — modal enforces.
+  const blocked = bankLimit === 0;
+
   useEffect(() => {
+    if (blocked) return;
     createLinkToken()
       .then(token => setLinkToken(token))
       .catch(err => setError(err.message));
-  }, []);
+  }, [blocked]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: async (publicToken, metadata) => {
       onLoading(true);
       try {
-        await exchangePublicToken(
+        const result = await exchangePublicToken(
           publicToken,
           metadata.institution?.name || 'Unknown Bank'
         );
-        onSuccess();
+        onExchangeComplete({
+          item_id: result.item_id,
+          accounts: result.accounts,
+          institution_name: metadata.institution?.name || 'Unknown Bank',
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to connect');
       } finally {
         onLoading(false);
       }
     },
-    onExit: () => {},
+    onExit: (err) => {
+      if (err) console.log('[PlaidLink] onExit error:', err);
+    },
   });
 
   if (error) {
@@ -82,21 +99,44 @@ function PlaidLinkButton({ onSuccess, onLoading }: {
     );
   }
 
+  if (blocked) {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-amber-600 font-medium">
+          Upgrade to connect banks
+        </span>
+        <button
+          disabled
+          className="inline-flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-500 font-semibold rounded-xl cursor-not-allowed"
+        >
+          <Landmark className="h-5 w-5" />
+          Upgrade Required
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <button
-      onClick={() => open()}
-      disabled={!ready || !linkToken}
-      className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:from-emerald-700 hover:to-teal-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      <Landmark className="h-5 w-5" />
-      Connect Bank Account
-    </button>
+    <div className="flex items-center gap-3">
+      {bankLimit > 0 && (
+        <span className="text-xs text-slate-400">{bankCount}/{bankLimit}</span>
+      )}
+      <button
+        onClick={() => open()}
+        disabled={!ready || !linkToken}
+        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:from-emerald-700 hover:to-teal-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Landmark className="h-5 w-5" />
+        Connect Bank Account
+      </button>
+    </div>
   );
 }
 
 // ── Main Component ──────────────────────────────────────────────
 
-export function FinancialInsightsPage() {
+export function FinancialInsightsPage({ onUpgrade }: { onUpgrade?: () => void } = {}) {
+  const { bankAccountLimit, subscription } = useSubscription();
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
   const [connectedAccounts, setConnectedAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,21 +156,32 @@ export function FinancialInsightsPage() {
     actionPlan: true,
   });
 
+  // Account selection modal state
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [newItemId, setNewItemId] = useState<string | null>(null);
+  const [newInstitutionName, setNewInstitutionName] = useState('');
+  const [newAccounts, setNewAccounts] = useState<NewAccount[]>([]);
+  const [cancelBanner, setCancelBanner] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const accounts = await getConnectedAccounts();
+      // Fire all three requests in parallel for faster load
+      const [accounts, summaryResult, loansResult] = await Promise.all([
+        getConnectedAccounts(),
+        getFinancialSummary().catch(() => null),
+        getAnalyzedLoans().catch(() => [] as AnalyzedLoan[]),
+      ]);
+
       setConnectedAccounts(accounts);
+      setAnalyzedLoans(loansResult);
 
-      if (accounts.length > 0) {
-        const data = await getFinancialSummary();
-        setSummary(data);
-
-        // Load analyzed loans (non-blocking)
-        getAnalyzedLoans()
-          .then(loans => setAnalyzedLoans(loans))
-          .catch(() => {});
+      if (accounts.length > 0 && summaryResult) {
+        setSummary(summaryResult);
+      } else {
+        setSummary(null);
+        if (accounts.length === 0) setAnalyzedLoans([]);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load data';
@@ -145,6 +196,72 @@ export function FinancialInsightsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Flatten connected accounts for the modal (existing accounts with institution_name)
+  const flatExistingAccounts: ExistingAccount[] = useMemo(() => {
+    return connectedAccounts.flatMap((item: any) =>
+      (item.accounts || [])
+        .filter((acct: any) => !newItemId || acct.item_id !== newItemId)
+        .map((acct: any) => ({
+          ...acct,
+          institution_name: item.institution_name,
+        }))
+    );
+  }, [connectedAccounts, newItemId]);
+
+  // Total individual account count (for display in PlaidLinkButton)
+  const totalAccountCount = useMemo(() => {
+    return connectedAccounts.reduce(
+      (sum: number, item: any) => sum + (item.accounts?.length || 0), 0
+    );
+  }, [connectedAccounts]);
+
+  // After Plaid Link exchange completes → show modal immediately
+  const handleExchangeComplete = useCallback(async (result: {
+    item_id: string;
+    accounts: any[];
+    institution_name: string;
+  }) => {
+    setNewItemId(result.item_id);
+    setNewInstitutionName(result.institution_name);
+    setNewAccounts(result.accounts.map(a => ({
+      account_id: a.account_id,
+      name: a.name,
+      official_name: a.official_name || null,
+      mask: a.mask || null,
+      type: a.type,
+      subtype: a.subtype || null,
+      current_balance: a.current_balance ?? null,
+      available_balance: a.available_balance ?? null,
+    })));
+    setCancelBanner(null);
+    setShowAccountModal(true);
+
+    // Refresh connected accounts in background so existing list is fresh
+    getConnectedAccounts()
+      .then(fresh => setConnectedAccounts(fresh))
+      .catch(() => {});
+  }, []);
+
+  // Modal: user confirmed their account selection
+  const handleAccountSelectionSubmit = useCallback(async (selectedAccountIds: string[]) => {
+    await commitAccountSelection(selectedAccountIds);
+    setShowAccountModal(false);
+    setNewItemId(null);
+    setNewAccounts([]);
+    await loadData();
+  }, [loadData]);
+
+  // Modal: user cancelled → remove the new item, show banner
+  const handleAccountSelectionCancel = useCallback(async (itemId: string) => {
+    await cancelConnection(itemId);
+    setShowAccountModal(false);
+    const instName = newInstitutionName;
+    setNewItemId(null);
+    setNewAccounts([]);
+    setCancelBanner('No accounts were added. You can connect a new bank account later.');
+    await loadData();
+  }, [loadData, newInstitutionName]);
 
   const handleSync = async (itemId: string) => {
     setSyncing(true);
@@ -195,74 +312,126 @@ export function FinancialInsightsPage() {
     );
   }
 
-  // No accounts connected — show onboarding
-  if (connectedAccounts.length === 0) {
-    return (
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Financial Insights</h1>
-          <p className="text-slate-500 mt-1">AI-powered analysis of your financial health</p>
+  // Full-screen loading overlay while exchanging Plaid token
+  const exchangeLoadingOverlay = linkLoading && !showAccountModal && (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
+        <div className="mx-auto w-14 h-14 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-2xl flex items-center justify-center mb-4">
+          <RefreshCw className="h-7 w-7 text-emerald-600 animate-spin" />
         </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 sm:p-12 text-center max-w-2xl mx-auto">
-          <div className="mx-auto w-20 h-20 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-2xl flex items-center justify-center mb-6">
-            <Landmark className="h-10 w-10 text-emerald-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-3">Connect Your Bank Account</h2>
-          <p className="text-slate-600 mb-8 max-w-md mx-auto">
-            Securely link your bank account to get AI-powered insights into your spending, savings, and financial health. We use Plaid for bank-level security.
-          </p>
-
-          <div className="mb-8">
-            {linkLoading ? (
-              <div className="flex items-center justify-center gap-3 text-emerald-600">
-                <RefreshCw className="h-5 w-5 animate-spin" />
-                <span className="font-medium">Connecting your account...</span>
-              </div>
-            ) : (
-              <PlaidLinkButton onSuccess={loadData} onLoading={setLinkLoading} />
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
-            {[
-              { icon: BarChart3, title: 'Spending Analysis', desc: 'See where your money goes with auto-categorized spending breakdowns' },
-              { icon: CreditCard, title: 'Recurring Bills', desc: 'Detect subscriptions and recurring charges automatically' },
-              { icon: Lightbulb, title: 'AI Recommendations', desc: 'Get personalized tips to save more and spend wisely' },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="flex gap-3 p-4 rounded-xl bg-slate-50">
-                <Icon className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-slate-900 text-sm">{title}</p>
-                  <p className="text-slate-500 text-xs mt-0.5">{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-8 flex items-center justify-center gap-2 text-xs text-slate-400">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>256-bit encryption &bull; Read-only access &bull; Powered by Plaid</span>
-          </div>
-        </div>
-
-        {/* Financial Disclaimer */}
-        <div className="mt-8 max-w-2xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <div className="flex gap-3">
-            <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-800 leading-relaxed">
-              <strong>Disclaimer:</strong> DocuIntelli AI provides financial insights for informational purposes only and does not replace the role of a certified financial advisor, planner, or any licensed financial professional. Users are solely responsible for any financial decisions made based on the information provided. We do not guarantee the accuracy of AI-generated analysis. Please consult a qualified financial professional before making significant financial decisions.
-            </p>
-          </div>
-        </div>
+        <h3 className="text-lg font-bold text-slate-900 mb-1">Setting up your accounts</h3>
+        <p className="text-sm text-slate-500">Securely connecting to your bank...</p>
       </div>
+    </div>
+  );
+
+  // Shared modal + banner (rendered in both onboarding and dashboard views)
+  const accountModalElement = (
+    <>
+      {exchangeLoadingOverlay}
+      {showAccountModal && newItemId && (
+        <AccountSelectionModal
+          isOpen={showAccountModal}
+          existingAccounts={flatExistingAccounts}
+          newAccounts={newAccounts}
+          newItemId={newItemId}
+          newInstitutionName={newInstitutionName}
+          bankAccountLimit={bankAccountLimit}
+          currentPlan={subscription?.plan || 'free'}
+          onSubmit={handleAccountSelectionSubmit}
+          onCancel={handleAccountSelectionCancel}
+          onUpgrade={onUpgrade || (() => {})}
+        />
+      )}
+    </>
+  );
+
+  const cancelBannerElement = cancelBanner && (
+    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+        <span className="text-sm text-amber-800">{cancelBanner}</span>
+      </div>
+      <button
+        onClick={() => setCancelBanner(null)}
+        className="p-1 text-amber-400 hover:text-amber-600 rounded-lg hover:bg-amber-100 transition-colors"
+        title="Dismiss"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  // No accounts connected — show onboarding
+  if (connectedAccounts.length === 0 && !showAccountModal) {
+    return (
+      <>
+        {accountModalElement}
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+          {cancelBannerElement}
+
+          <div className="mb-6 sm:mb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Financial Insights</h1>
+            <p className="text-slate-500 mt-1">AI-powered analysis of your financial health</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 sm:p-12 text-center max-w-2xl mx-auto">
+            <div className="mx-auto w-20 h-20 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-2xl flex items-center justify-center mb-6">
+              <Landmark className="h-10 w-10 text-emerald-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">Connect Your Bank Account</h2>
+            <p className="text-slate-600 mb-8 max-w-md mx-auto">
+              Securely link your bank account to get AI-powered insights into your spending, savings, and financial health. We use Plaid for bank-level security.
+            </p>
+
+            <div className="mb-8">
+              <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
+              {[
+                { icon: BarChart3, title: 'Spending Analysis', desc: 'See where your money goes with auto-categorized spending breakdowns' },
+                { icon: CreditCard, title: 'Recurring Bills', desc: 'Detect subscriptions and recurring charges automatically' },
+                { icon: Lightbulb, title: 'AI Recommendations', desc: 'Get personalized tips to save more and spend wisely' },
+              ].map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="flex gap-3 p-4 rounded-xl bg-slate-50">
+                  <Icon className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-slate-900 text-sm">{title}</p>
+                    <p className="text-slate-500 text-xs mt-0.5">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex items-center justify-center gap-2 text-xs text-slate-400">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>256-bit encryption &bull; Read-only access &bull; Powered by Plaid</span>
+            </div>
+          </div>
+
+          {/* Financial Disclaimer */}
+          <div className="mt-8 max-w-2xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <div className="flex gap-3">
+              <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800 leading-relaxed">
+                <strong>Disclaimer:</strong> DocuIntelli AI provides financial insights for informational purposes only and does not replace the role of a certified financial advisor, planner, or any licensed financial professional. Users are solely responsible for any financial decisions made based on the information provided. We do not guarantee the accuracy of AI-generated analysis. Please consult a qualified financial professional before making significant financial decisions.
+              </p>
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 
   // ── Dashboard with data ──────────────────────────────────
 
   return (
+    <>
+    {accountModalElement}
     <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+      {cancelBannerElement}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
@@ -270,7 +439,7 @@ export function FinancialInsightsPage() {
           <p className="text-slate-500 mt-1">AI-powered analysis of your financial health</p>
         </div>
         <div className="flex items-center gap-2">
-          <PlaidLinkButton onSuccess={loadData} onLoading={setLinkLoading} />
+          <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} />
         </div>
       </div>
 
@@ -290,9 +459,9 @@ export function FinancialInsightsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <KPICard
               icon={Wallet}
-              label="Total Balance"
+              label="Net Worth"
               value={formatCurrency(summary.total_balance)}
-              color="emerald"
+              color={summary.total_balance >= 0 ? 'emerald' : 'red'}
             />
             <KPICard
               icon={Banknote}
@@ -345,16 +514,22 @@ export function FinancialInsightsPage() {
                       </button>
                     </div>
                   </div>
-                  {item.accounts?.map((acct: any) => (
-                    <div key={acct.account_id} className="flex items-center justify-between py-1.5 text-sm">
-                      <span className="text-slate-600">
-                        {acct.name} {acct.mask && `••${acct.mask}`}
-                      </span>
-                      <span className="font-medium text-slate-900">
-                        {formatCurrency(acct.initial_balance || 0)}
-                      </span>
-                    </div>
-                  ))}
+                  {item.accounts?.map((acct: any) => {
+                    const isLiability = acct.type === 'credit' || acct.type === 'loan';
+                    const displayBalance = isLiability
+                      ? -(Math.abs(acct.initial_balance || 0))
+                      : (acct.initial_balance || 0);
+                    return (
+                      <div key={acct.account_id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="text-slate-600">
+                          {acct.name} {acct.mask && `••${acct.mask}`}
+                        </span>
+                        <span className={`font-medium ${isLiability ? 'text-red-600' : 'text-slate-900'}`}>
+                          {formatCurrency(displayBalance)}
+                        </span>
+                      </div>
+                    );
+                  })}
                   {item.last_synced_at && (
                     <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
                       <Clock className="h-3 w-3" />
@@ -509,6 +684,7 @@ export function FinancialInsightsPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
@@ -627,9 +803,9 @@ function RecurringBillsList({ bills }: { bills: RecurringBill[] }) {
             </div>
           </div>
           <div className="text-right">
-            <p className="font-semibold text-slate-900 text-sm">{formatCurrency(bill.amount)}</p>
+            <p className="font-semibold text-slate-900 text-sm">{formatCurrency(bill.monthly_amount ?? bill.amount)}/mo</p>
             <p className="text-xs text-slate-400">
-              Next: {new Date(bill.next_expected).toLocaleDateString()}
+              {formatCurrency(bill.amount)} × {bill.frequency}
             </p>
           </div>
         </div>
@@ -639,9 +815,7 @@ function RecurringBillsList({ bills }: { bills: RecurringBill[] }) {
           <span className="text-slate-600">Total Monthly Bills</span>
           <span className="text-slate-900">
             {formatCurrency(
-              bills
-                .filter(b => b.frequency === 'monthly')
-                .reduce((sum, b) => sum + b.amount, 0)
+              bills.reduce((sum, b) => sum + (b.monthly_amount ?? b.amount), 0)
             )}
           </span>
         </div>
@@ -680,8 +854,8 @@ function IncomeStreamsList({ streams }: { streams: IncomeStream[] }) {
             </div>
           </div>
           <div className="text-right">
-            <p className="font-semibold text-emerald-600 text-sm">{formatCurrency(stream.average_amount)}</p>
-            <p className="text-xs text-slate-400">avg per payment</p>
+            <p className="font-semibold text-emerald-600 text-sm">{formatCurrency(stream.monthly_amount ?? stream.average_amount)}/mo</p>
+            <p className="text-xs text-slate-400">{formatCurrency(stream.average_amount)} × {stream.frequency}</p>
           </div>
         </div>
       ))}

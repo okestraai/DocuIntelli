@@ -211,9 +211,9 @@ async function handleEvent(event: Stripe.Event) {
         if (sub && sub.payment_status !== 'active' && sub.dunning_step > 0 && sub.dunning_step < 8) {
           const restoredPlan = sub.previous_plan || sub.plan;
           const planLimits: Record<string, Record<string, number>> = {
-            free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3 },
-            starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30 },
-            pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150 },
+            free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3, bank_account_limit: 0 },
+            starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30, bank_account_limit: 2 },
+            pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150, bank_account_limit: 5 },
           };
           const limits = planLimits[restoredPlan] || planLimits.free;
 
@@ -232,6 +232,7 @@ async function handleEvent(event: Stripe.Event) {
               document_limit: limits.document_limit,
               ai_questions_limit: limits.ai_questions_limit,
               monthly_upload_limit: limits.monthly_upload_limit,
+              bank_account_limit: limits.bank_account_limit,
               updated_at: new Date().toISOString(),
             })
             .eq('user_id', custData.user_id);
@@ -366,6 +367,7 @@ async function syncCustomerFromStripe(customerId: string) {
           status: 'active',
           document_limit: 3,
           ai_questions_limit: 5,
+          bank_account_limit: 0,
           stripe_customer_id: customerId,
           stripe_subscription_id: null,
           stripe_price_id: null,
@@ -394,12 +396,12 @@ async function syncCustomerFromStripe(customerId: string) {
     }
 
     // Map price_id to plan and limits (matching our 3-tier system)
-    const planMapping: Record<string, { plan: 'starter' | 'pro'; documentLimit: number; aiQuestionsLimit: number }> = {};
+    const planMapping: Record<string, { plan: 'starter' | 'pro'; documentLimit: number; aiQuestionsLimit: number; bankAccountLimit: number }> = {};
     if (starterPriceId) {
-      planMapping[starterPriceId] = { plan: 'starter', documentLimit: 25, aiQuestionsLimit: 999999 };
+      planMapping[starterPriceId] = { plan: 'starter', documentLimit: 25, aiQuestionsLimit: 999999, bankAccountLimit: 2 };
     }
     if (proPriceId) {
-      planMapping[proPriceId] = { plan: 'pro', documentLimit: 100, aiQuestionsLimit: 999999 };
+      planMapping[proPriceId] = { plan: 'pro', documentLimit: 100, aiQuestionsLimit: 999999, bankAccountLimit: 5 };
     }
 
     const planDetails = planMapping[priceId];
@@ -453,6 +455,7 @@ async function syncCustomerFromStripe(customerId: string) {
         cancel_at_period_end: subscription.cancel_at_period_end,
         document_limit: planDetails.documentLimit,
         ai_questions_limit: planDetails.aiQuestionsLimit,
+        bank_account_limit: planDetails.bankAccountLimit,
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', userId);

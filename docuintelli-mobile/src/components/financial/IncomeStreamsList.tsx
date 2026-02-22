@@ -18,7 +18,7 @@ const formatCurrency = (amount: number): string =>
 export default function IncomeStreamsList({ streams }: IncomeStreamsListProps) {
   if (!streams.length) return null;
 
-  const totalMonthly = streams.reduce((sum, s) => sum + s.average_amount, 0);
+  const totalMonthly = streams.reduce((sum, s) => sum + s.monthly_amount, 0);
 
   return (
     <CollapsibleSection
@@ -41,7 +41,7 @@ export default function IncomeStreamsList({ streams }: IncomeStreamsListProps) {
                 {stream.is_salary && <Badge label="Salary" variant="success" />}
               </View>
             </View>
-            <Text style={styles.amount}>{formatCurrency(stream.average_amount)}</Text>
+            <Text style={styles.amount}>{formatCurrency(stream.monthly_amount)}/mo</Text>
           </View>
         ))}
       </View>

@@ -83,7 +83,7 @@ export default function ConnectedAccountsList({
                   />
                 </View>
                 <Text style={styles.balance}>
-                  {formatCurrency(acc.current_balance ?? 0)}
+                  {formatCurrency(acc.initial_balance ?? 0)}
                 </Text>
               </View>
             ))}

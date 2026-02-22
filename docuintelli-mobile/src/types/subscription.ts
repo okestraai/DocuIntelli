@@ -12,6 +12,7 @@ export interface Subscription {
   monthly_upload_limit: number;
   monthly_uploads_used: number;
   monthly_upload_reset_date: string;
+  bank_account_limit: number;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   pending_plan: string | null;

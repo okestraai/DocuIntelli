@@ -22,7 +22,7 @@ function formatDate(dateStr: string): string {
 export default function RecurringBillsList({ bills }: RecurringBillsListProps) {
   if (!bills.length) return null;
 
-  const total = bills.reduce((sum, b) => sum + b.amount, 0);
+  const total = bills.reduce((sum, b) => sum + b.monthly_amount, 0);
 
   return (
     <CollapsibleSection
@@ -45,7 +45,7 @@ export default function RecurringBillsList({ bills }: RecurringBillsListProps) {
                 )}
               </View>
             </View>
-            <Text style={styles.billAmount}>{formatCurrency(bill.amount)}</Text>
+            <Text style={styles.billAmount}>{formatCurrency(bill.monthly_amount)}/mo</Text>
           </View>
         ))}
       </View>

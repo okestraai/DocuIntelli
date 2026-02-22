@@ -103,10 +103,10 @@ export async function recoverFromDunning(userId: string): Promise<void> {
   const step = sub.dunning_step || 0;
 
   // Plan limits
-  const PLAN_LIMITS: Record<string, { document_limit: number; ai_questions_limit: number; monthly_upload_limit: number }> = {
-    free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3 },
-    starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30 },
-    pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150 },
+  const PLAN_LIMITS: Record<string, { document_limit: number; ai_questions_limit: number; monthly_upload_limit: number; bank_account_limit: number }> = {
+    free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3, bank_account_limit: 0 },
+    starter: { document_limit: 25, ai_questions_limit: 999999, monthly_upload_limit: 30, bank_account_limit: 2 },
+    pro: { document_limit: 100, ai_questions_limit: 999999, monthly_upload_limit: 150, bank_account_limit: 5 },
   };
 
   const limits = PLAN_LIMITS[restoredPlan] || PLAN_LIMITS.free;
@@ -126,6 +126,7 @@ export async function recoverFromDunning(userId: string): Promise<void> {
       document_limit: limits.document_limit,
       ai_questions_limit: limits.ai_questions_limit,
       monthly_upload_limit: limits.monthly_upload_limit,
+      bank_account_limit: limits.bank_account_limit,
       updated_at: new Date().toISOString(),
     })
     .eq('user_id', userId);
@@ -282,6 +283,7 @@ async function executeStep6(userId: string, sub: any, userInfo: any): Promise<vo
       document_limit: FREE_DOCUMENT_LIMIT,
       ai_questions_limit: 5,
       monthly_upload_limit: 3,
+      bank_account_limit: 0,
       deletion_scheduled_at: new Date(Date.now() + 24 * 86400000).toISOString(), // 24 days from now = Day 45 total
       updated_at: new Date().toISOString(),
     })

@@ -83,6 +83,7 @@ export interface RecurringBill {
   name: string;
   merchant: string | null;
   amount: number;
+  monthly_amount: number;
   frequency: string;
   category: string;
   last_date: string;
@@ -92,6 +93,7 @@ export interface RecurringBill {
 export interface IncomeStream {
   source: string;
   average_amount: number;
+  monthly_amount: number;
   frequency: string;
   is_salary: boolean;
   last_date: string;
@@ -185,6 +187,42 @@ export async function disconnectBankAccount(itemId: string): Promise<void> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to disconnect' }));
+    throw new Error(err.error || err.message);
+  }
+}
+
+// ── Account Selection (post-Plaid-Link modal) ──────────────────
+
+/** Commit account selection after Plaid Link modal */
+export async function commitAccountSelection(
+  selectedAccountIds: string[]
+): Promise<{ kept: number; removed: number }> {
+  const session = await getSession();
+  const res = await fetch(`${API_BASE}/api/financial/commit-account-selection`, {
+    method: 'POST',
+    headers: backendHeaders(session.access_token),
+    body: JSON.stringify({ selected_account_ids: selectedAccountIds }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to save selection' }));
+    throw new Error(err.error || err.message);
+  }
+
+  return res.json();
+}
+
+/** Cancel a recently created Plaid connection */
+export async function cancelConnection(itemId: string): Promise<void> {
+  const session = await getSession();
+  const res = await fetch(`${API_BASE}/api/financial/cancel-connection`, {
+    method: 'POST',
+    headers: backendHeaders(session.access_token),
+    body: JSON.stringify({ item_id: itemId }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to cancel connection' }));
     throw new Error(err.error || err.message);
   }
 }
