@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Target,
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import {
@@ -39,6 +40,7 @@ import {
   MonthlyAverage,
 } from '../lib/financialApi';
 import { SmartDocumentPrompts } from './SmartDocumentPrompts';
+import { FinancialGoalsWidget } from './FinancialGoalsWidget';
 import { LoanAnalysisPanel } from './LoanAnalysisPanel';
 import { getAnalyzedLoans, AnalyzedLoan } from '../lib/financialApi';
 import { useSubscription } from '../hooks/useSubscription';
@@ -145,6 +147,7 @@ export function FinancialInsightsPage({ onUpgrade }: { onUpgrade?: () => void } 
   const [error, setError] = useState<string | null>(null);
   const [analyzedLoans, setAnalyzedLoans] = useState<AnalyzedLoan[]>([]);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    goals: true,
     accounts: true,
     debtOptimization: true,
     spending: true,
@@ -539,6 +542,16 @@ export function FinancialInsightsPage({ onUpgrade }: { onUpgrade?: () => void } 
                 </div>
               ))}
             </div>
+          </CollapsibleSection>
+
+          {/* Financial Goals */}
+          <CollapsibleSection
+            title="Financial Goals"
+            icon={Target}
+            expanded={expandedSections.goals}
+            onToggle={() => toggleSection('goals')}
+          >
+            <FinancialGoalsWidget connectedAccounts={connectedAccounts} />
           </CollapsibleSection>
 
           {/* Smart Document Prompts */}

@@ -20,6 +20,7 @@ import AccountSelectionModal, {
 } from '../src/components/financial/AccountSelectionModal';
 import FinancialSummaryCards from '../src/components/financial/FinancialSummaryCards';
 import ConnectedAccountsList from '../src/components/financial/ConnectedAccountsList';
+import FinancialGoalsSection from '../src/components/financial/FinancialGoalsSection';
 import SpendingBreakdown from '../src/components/financial/SpendingBreakdown';
 import RecurringBillsList from '../src/components/financial/RecurringBillsList';
 import IncomeStreamsList from '../src/components/financial/IncomeStreamsList';
@@ -396,6 +397,9 @@ export default function FinancialInsightsScreen() {
               onSync={handleSync}
               onDisconnect={handleDisconnect}
             />
+
+            {/* Financial Goals */}
+            <FinancialGoalsSection connectedAccounts={connectedAccounts} />
 
             {/* Smart Document Prompts — "Optimize Your Debts" */}
             <SmartDocumentPrompts onUploadComplete={loadData} />

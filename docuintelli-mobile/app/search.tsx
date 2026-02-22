@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Platform,
+  StyleSheet, ActivityIndicator, Platform, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -151,6 +151,7 @@ export default function SearchScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   // Track the query that produced the current results (for highlight accuracy)
   const [resultQuery, setResultQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController | null>(null);
@@ -226,6 +227,13 @@ export default function SearchScreen() {
       debounceRef.current = setTimeout(() => doSearch(query, value), 300);
     }
   }, [query, doSearch]);
+
+  const onRefresh = useCallback(async () => {
+    if (query.trim().length < 2) return;
+    setRefreshing(true);
+    await doSearch(query, category);
+    setRefreshing(false);
+  }, [query, category, doSearch]);
 
   // Stable renderItem using memoised ResultRow — uses resultQuery for highlights
   const renderItem = useCallback(({ item }: { item: GlobalSearchResultGroup }) => (
@@ -424,6 +432,14 @@ export default function SearchScreen() {
             renderItem={renderItem}
             contentContainerStyle={styles.resultsList}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[colors.primary[500]]}
+                tintColor={colors.primary[500]}
+              />
+            }
             removeClippedSubviews={Platform.OS !== 'web'}
             maxToRenderPerBatch={10}
             windowSize={5}

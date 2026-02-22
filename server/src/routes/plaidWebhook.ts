@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { syncTransactions, exchangePublicToken, getUserIdForLinkToken, markLinkTokenUsed } from '../services/plaidService';
 import { invalidateInsightsCache } from '../services/financialAnalyzer';
+import { recalculateAllUserGoals } from '../services/goalProgressCalculator';
 import { cacheDel } from '../services/redisClient';
 
 const router = Router();
@@ -126,6 +127,12 @@ router.post('/', async (req: Request, res: Response) => {
             try {
               const result = await syncTransactions(item.user_id, item_id, item.access_token);
               console.log(`✅ Synced ${result.added} transactions for item ${item_id}`);
+              // Recalculate financial goals after new transactions + invalidate goals cache
+              recalculateAllUserGoals(item.user_id)
+                .then(() => cacheDel(`fin_goals:${item.user_id}`))
+                .catch(err =>
+                  console.error('Goal recalculation after webhook failed:', err)
+                );
             } catch (syncErr) {
               console.error(`Failed to sync transactions for item ${item_id}:`, syncErr);
             }

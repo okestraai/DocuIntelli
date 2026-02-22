@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -33,6 +33,7 @@ export default function GlobalChatScreen() {
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Load chat history
@@ -67,6 +68,26 @@ export default function GlobalChatScreen() {
     return () => {
       cancelled = true;
     };
+  }, [isPro]);
+
+  const onRefresh = useCallback(async () => {
+    if (!isPro) return;
+    setRefreshing(true);
+    try {
+      const history = await loadGlobalChatHistory();
+      setMessages(
+        history.map((msg) => ({
+          id: msg.id,
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          sources: msg.sources,
+        }))
+      );
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false);
+    }
   }, [isPro]);
 
   const handleSend = async () => {
@@ -169,6 +190,14 @@ export default function GlobalChatScreen() {
           ]}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary[500]]}
+              tintColor={colors.primary[500]}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <GradientIcon size={72}>

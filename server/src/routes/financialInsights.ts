@@ -33,7 +33,7 @@ const router = Router();
 /** Invalidate all financial Redis caches + Supabase AI insights cache for a user */
 async function invalidateAllFinancialCaches(userId: string): Promise<void> {
   await Promise.all([
-    cacheDel(`fin_summary:${userId}`, `fin_accounts:${userId}`),
+    cacheDel(`fin_summary:${userId}`, `fin_accounts:${userId}`, `fin_goals:${userId}`),
     invalidateInsightsCache(userId),
   ]);
 }

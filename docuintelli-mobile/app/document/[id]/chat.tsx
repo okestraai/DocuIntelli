@@ -12,6 +12,7 @@ import {
   StatusBar,
   Animated,
   Easing,
+  RefreshControl,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { goBack } from '../../../src/utils/navigation';
@@ -124,6 +125,7 @@ export default function DocumentChatScreen() {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Load document name
@@ -159,6 +161,23 @@ export default function DocumentChatScreen() {
         setLoadingHistory(false);
       }
     })();
+  }, [id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const history = await loadChatHistory(id!);
+      setMessages(
+        history.map((m) => ({
+          ...m,
+          role: m.role as 'user' | 'assistant',
+        }))
+      );
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false);
+    }
   }, [id]);
 
   const handleSend = useCallback(
@@ -334,6 +353,14 @@ export default function DocumentChatScreen() {
             flatListRef.current?.scrollToEnd({ animated: true })
           }
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary[500]]}
+              tintColor={colors.primary[500]}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <GradientIcon size={64}>

@@ -20,6 +20,7 @@ import globalSearchRoutes from "./routes/globalSearch";
 import globalChatRoutes from "./routes/globalChat";
 import deviceRoutes from "./routes/devices";
 import financialInsightsRoutes from "./routes/financialInsights";
+import financialGoalsRoutes from "./routes/financialGoals";
 import plaidWebhookRoutes from "./routes/plaidWebhook";
 import dunningRoutes from "./routes/dunning";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
@@ -448,6 +449,7 @@ console.log("🔧 Environment Check:", {
   app.use("/api/search", globalSearchRoutes);
   app.use("/api/global-chat", globalChatRoutes);
   app.use("/api/devices", deviceRoutes);
+  app.use("/api/financial/goals", financialGoalsRoutes);
   app.use("/api/financial", financialInsightsRoutes);
   app.use("/api/plaid-webhook", plaidWebhookRoutes);
   app.use("/api/dunning", dunningRoutes);
