@@ -35,8 +35,14 @@ router.use(loadSubscription);
 router.post('/link-token', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
-    const linkToken = await createLinkToken(userId);
-    res.json({ success: true, link_token: linkToken });
+    const platform = req.body?.platform || 'web';
+    console.log(`[link-token] userId=${userId}, platform=${platform}, body=`, req.body);
+    const result = await createLinkToken(userId, platform);
+    res.json({
+      success: true,
+      link_token: result.link_token,
+      ...(result.hosted_link_url && { hosted_link_url: result.hosted_link_url }),
+    });
   } catch (error) {
     console.error('Error creating link token:', error);
     res.status(500).json({
@@ -170,6 +176,9 @@ router.delete('/disconnect/:itemId', async (req: Request, res: Response) => {
     const { itemId } = req.params;
 
     await disconnectAccount(userId, itemId);
+    // Clear cached AI insights so the next summary call regenerates
+    // without the disconnected account's data
+    await invalidateInsightsCache(userId);
     res.json({ success: true, message: 'Account disconnected' });
   } catch (error) {
     console.error('Error disconnecting account:', error);

@@ -267,6 +267,8 @@ console.log("🔧 Environment Check:", {
     var params = new URLSearchParams(window.location.search);
     var token = params.get('token');
     var isMobile = params.get('mobile') === '1';
+    // Store the link token so the OAuth redirect page can retrieve it
+    try { sessionStorage.setItem('plaid_link_token', token || ''); } catch(e){}
     if (!token) {
       showError('No link token provided');
     } else if (typeof Plaid === 'undefined') {
@@ -278,21 +280,43 @@ console.log("🔧 Environment Check:", {
           onSuccess: function(publicToken, metadata) {
             var instName = metadata && metadata.institution ? metadata.institution.name : 'Unknown Bank';
             if (isMobile) {
-              // Mobile WebView: navigate to plaidlink:// URL scheme for React Native to intercept
-              window.location.href = 'plaidlink://connected?public_token='
-                + encodeURIComponent(publicToken)
-                + '&institution_name=' + encodeURIComponent(instName);
+              // Mobile WebView: use ReactNativeWebView.postMessage (the official RN WebView bridge)
+              // Falls back to plaidlink:// URL scheme if bridge isn't available
+              var mobilePayload = JSON.stringify({ type:'plaid-link-success', publicToken:publicToken, institutionName:instName });
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(mobilePayload);
+              } else {
+                window.location.href = 'plaidlink://connected?public_token='
+                  + encodeURIComponent(publicToken)
+                  + '&institution_name=' + encodeURIComponent(instName);
+              }
             } else {
-              // Web popup: use postMessage to parent window
-              try { if (window.opener) window.opener.postMessage({ type:'plaid-link-success', publicToken:publicToken, institutionName:instName }, '*'); } catch(e){}
+              var payload = { type:'plaid-link-success', publicToken:publicToken, institutionName:instName };
+              var sent = false;
+              // Try postMessage first (works on desktop popups)
+              try { if (window.opener) { window.opener.postMessage(payload, '*'); sent = true; } } catch(e){}
+              // Fallback: localStorage bridge (mobile browsers where window.opener is null)
+              if (!sent) {
+                try { localStorage.setItem('plaid_link_result', JSON.stringify(payload)); } catch(e){}
+              }
               setTimeout(function(){ window.close(); }, 300);
             }
           },
           onExit: function(err, metadata) {
             if (isMobile) {
-              window.location.href = 'plaidlink://exit';
+              var mobilePayload = JSON.stringify({ type:'plaid-link-exit', error:err||null });
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(mobilePayload);
+              } else {
+                window.location.href = 'plaidlink://exit';
+              }
             } else {
-              try { if (window.opener) window.opener.postMessage({ type:'plaid-link-exit', error:err||null }, '*'); } catch(e){}
+              var payload = { type:'plaid-link-exit', error:err||null };
+              var sent = false;
+              try { if (window.opener) { window.opener.postMessage(payload, '*'); sent = true; } } catch(e){}
+              if (!sent) {
+                try { localStorage.setItem('plaid_link_result', JSON.stringify(payload)); } catch(e){}
+              }
               setTimeout(function(){ window.close(); }, 300);
             }
           },
@@ -316,6 +340,103 @@ console.log("🔧 Environment Check:", {
   </script>
 </body>
 </html>`);
+  });
+
+  // ── Plaid OAuth redirect page ──
+  // After OAuth-based bank auth, Plaid redirects here with query params.
+  // This page re-initializes Plaid Link with receivedRedirectUri, which
+  // triggers the onSuccess callback that the original page lost during redirects.
+  app.get('/plaid-oauth-redirect', (_req: Request, res: Response) => {
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+  <title>Connecting... — DocuIntelli</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+         background:#f8fafc;display:flex;align-items:center;justify-content:center;
+         min-height:100vh;color:#334155}
+    .loading{text-align:center;padding:2rem}
+    .loading h2{font-size:1.25rem;margin-bottom:.5rem}
+    .loading p{color:#64748b;font-size:.875rem}
+    .spinner{width:40px;height:40px;margin:0 auto 1rem;border:3px solid #e2e8f0;
+             border-top-color:#059669;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .error{color:#dc2626;text-align:center;padding:2rem}
+    .error button{margin-top:1rem;padding:.5rem 1.5rem;background:#059669;color:#fff;
+                  border:none;border-radius:8px;font-size:.875rem;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="loading" id="loadingState">
+    <div class="spinner"></div>
+    <h2>Finishing bank connection...</h2>
+    <p>Please wait while we complete the setup</p>
+  </div>
+  <div class="error" id="errorState" style="display:none">
+    <h2>Connection Error</h2>
+    <p id="errorMsg"></p>
+    <button onclick="window.close()">Close</button>
+  </div>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script>
+    // Retrieve the link token that was stored before the OAuth redirect
+    var linkToken = sessionStorage.getItem('plaid_link_token');
+
+    if (!linkToken) {
+      showError('Session expired. Please close this window and try connecting again.');
+    } else if (typeof Plaid === 'undefined') {
+      showError('Failed to load Plaid SDK');
+    } else {
+      try {
+        var handler = Plaid.create({
+          token: linkToken,
+          receivedRedirectUri: window.location.href,
+          onSuccess: function(publicToken, metadata) {
+            var instName = metadata && metadata.institution ? metadata.institution.name : 'Unknown Bank';
+            // Use plaidlink:// scheme for native WebView interception
+            window.location.href = 'plaidlink://connected?public_token='
+              + encodeURIComponent(publicToken)
+              + '&institution_name=' + encodeURIComponent(instName);
+          },
+          onExit: function(err, metadata) {
+            window.location.href = 'plaidlink://exit';
+          },
+          onLoad: function() {
+            document.getElementById('loadingState').style.display = 'none';
+          },
+          onEvent: function(eventName) {
+            console.log('[PlaidLink OAuth redirect] event:', eventName);
+          }
+        });
+        handler.open();
+      } catch (e) {
+        showError(e.message || 'Failed to initialize');
+      }
+    }
+    function showError(msg) {
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('errorState').style.display = 'block';
+      document.getElementById('errorMsg').textContent = msg;
+    }
+  </script>
+</body>
+</html>`);
+  });
+
+  // Plaid Hosted Link callback — InAppBrowser intercepts this URL before it reaches
+  // the server, but if it does land here (e.g. deep link fallback), show a simple page.
+  app.get('/plaid-callback', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html><head><title>Plaid Connected</title>
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8fafc;color:#334155}
+.msg{text-align:center;padding:2rem}h2{color:#059669;margin-bottom:.5rem}</style></head>
+<body><div class="msg"><h2>Bank Connected!</h2><p>You can close this window and return to the app.</p></div></body></html>`);
   });
 
   // 7. Routes — specific paths first, catch-all last
