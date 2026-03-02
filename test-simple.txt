@@ -1,0 +1,4 @@
+This is a simple test document.
+It has multiple lines of text.
+We can use this to test the chunking logic.
+This should create at least one chunk in the database.

@@ -1,0 +1,46 @@
+# Dependencies (installed fresh inside container)
+node_modules
+server/node_modules
+docuintelli-mobile
+
+# Build outputs (built inside container)
+dist
+server/dist
+
+# Environment files (NEVER bake into image)
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker files (avoid recursive context)
+docker-compose*.yml
+
+# Documentation and planning artifacts
+*.md
+!README.md
+*.sql
+*.txt
+CLAUDE.md
+
+# Supabase local dev
+supabase/.temp
+
+# Claude / AI artifacts
+.claude
+
+# Scripts (not needed in container)
+scripts
+
+# Misc
+nul
+server/nul
