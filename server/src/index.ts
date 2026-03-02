@@ -536,6 +536,13 @@ console.log("🔧 Environment Check:", {
     console.log('   Checking for missing embeddings every 30 minutes');
     embeddingMonitorInterval = startEmbeddingMonitor(30);
 
+    // Start cron scheduler (replaces pg_cron + edge function dispatch)
+    import('./services/scheduler').then(({ startScheduler }) => {
+      startScheduler();
+    }).catch((err) => {
+      console.error('Failed to start scheduler:', err);
+    });
+
     // Verify email service connection
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       verifyEmailConnection().then(ok => {
