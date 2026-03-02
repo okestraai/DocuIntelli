@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { resetPasswordWithOTP } from '../../src/lib/supabase';
+import { resetPasswordWithOTP } from '../../src/lib/auth';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
 import { colors } from '../../src/theme/colors';

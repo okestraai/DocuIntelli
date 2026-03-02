@@ -20,7 +20,7 @@ import {
   EyeOff,
   ArrowRight,
 } from 'lucide-react-native';
-import { signIn, signInWithGoogle } from '../../src/lib/supabase';
+import { signIn, signInWithGoogle } from '../../src/lib/auth';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
 import { colors } from '../../src/theme/colors';

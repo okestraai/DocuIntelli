@@ -1,12 +1,12 @@
 // Life events API — ported from web
-import { supabase } from './supabase';
+import { auth } from './auth';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
 
 const LIFE_EVENTS_BASE = `${API_BASE}/api/life-events`;
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
   const deviceId = await getDeviceId();
   return { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json', 'X-Device-ID': deviceId };

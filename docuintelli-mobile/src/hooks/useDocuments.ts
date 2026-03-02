@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getDocuments, supabase } from '../lib/supabase';
-import type { SupabaseDocument } from '../lib/supabase';
+import { getDocuments, auth } from '../lib/auth';
+import type { SupabaseDocument } from '../lib/auth';
 import { uploadDocumentFile, processURLContent, processManualContent } from '../lib/api';
 import type { DocumentUploadRequest } from '../lib/api';
 import { API_BASE } from '../lib/config';
@@ -50,7 +50,7 @@ export function useDocuments(isAuthenticated: boolean) {
   const deleteDocumentById = async (id: string) => {
     try {
       setError(null);
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('User not authenticated');
 
       const res = await fetch(`${API_BASE}/api/documents/${id}`, {

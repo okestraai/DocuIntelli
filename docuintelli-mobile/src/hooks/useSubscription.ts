@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { auth } from '../lib/auth';
 import { API_BASE } from '../lib/config';
 import type { Subscription } from '../types/subscription';
 
@@ -23,10 +23,11 @@ export function useSubscription(): UseSubscriptionReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [documentCount, setDocumentCount] = useState(0);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchSubscription = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) {
         setError('User not authenticated');
         setLoading(false);
@@ -58,7 +59,7 @@ export function useSubscription(): UseSubscriptionReturn {
     if (!subscription) return;
     setSubscription({ ...subscription, ai_questions_used: subscription.ai_questions_used + 1 });
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) return;
       await fetch(`${API_BASE}/api/subscription/increment-questions`, {
         method: 'POST',
@@ -73,7 +74,7 @@ export function useSubscription(): UseSubscriptionReturn {
     if (!subscription) return;
     setSubscription({ ...subscription, monthly_uploads_used: subscription.monthly_uploads_used + 1 });
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) return;
       await fetch(`${API_BASE}/api/subscription/increment-uploads`, {
         method: 'POST',
@@ -87,15 +88,13 @@ export function useSubscription(): UseSubscriptionReturn {
   useEffect(() => {
     fetchSubscription();
 
-    const channel = supabase
-      .channel('subscription-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_subscriptions' }, () => {
-        fetchSubscription();
-      })
-      .subscribe();
+    // Poll every 60 seconds instead of Supabase Realtime subscription
+    pollIntervalRef.current = setInterval(fetchSubscription, 60_000);
 
     return () => {
-      supabase.removeChannel(channel);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
     };
   }, []);
 

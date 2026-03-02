@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 import Constants from 'expo-constants';
 
 // Configure notification handling
@@ -69,7 +69,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     const token = tokenData.data;
 
     // Store token via API
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (session) {
       const { API_BASE } = require('../lib/config');
       await fetch(`${API_BASE}/api/user/push-token`, {
@@ -115,7 +115,7 @@ export function setupNotificationListeners() {
 
 export async function clearPushToken() {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (session) {
       const { API_BASE } = require('../lib/config');
       await fetch(`${API_BASE}/api/user/push-token`, {

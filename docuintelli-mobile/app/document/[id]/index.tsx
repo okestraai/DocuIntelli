@@ -33,8 +33,8 @@ import {
   AlertCircle,
   Maximize2,
 } from 'lucide-react-native';
-import { supabase, deleteDocument } from '../../../src/lib/supabase';
-import type { SupabaseDocument } from '../../../src/lib/supabase';
+import { auth, deleteDocument } from '../../../src/lib/auth';
+import type { SupabaseDocument } from '../../../src/lib/auth';
 import { API_BASE, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../../src/lib/config';
 import Card from '../../../src/components/ui/Card';
 import Button from '../../../src/components/ui/Button';
@@ -148,7 +148,7 @@ export default function DocumentViewerScreen() {
     }
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await auth.getSession();
         if (!session) throw new Error('Not authenticated');
 
         const res = await fetch(`${API_BASE}/api/documents/${id}`, {
@@ -180,7 +180,7 @@ export default function DocumentViewerScreen() {
       const fileName = document.original_name || document.name || '';
 
       // Get preview URL from API
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
       // Word documents → convert to HTML via Edge Function (needs filePath from API)

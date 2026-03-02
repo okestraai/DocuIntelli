@@ -2,7 +2,7 @@
  * Device Management API helpers
  * Reuses backend endpoints at /api/devices/*
  */
-import { supabase } from './supabase';
+import { auth } from './auth';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
 
@@ -18,7 +18,7 @@ async function backendHeaders(accessToken: string): Promise<Record<string, strin
 }
 
 async function getSession() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
   return session;
 }

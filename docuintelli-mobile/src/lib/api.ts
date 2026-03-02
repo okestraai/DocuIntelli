@@ -1,17 +1,8 @@
 // Backend API helpers — ported from web
 import { Platform } from 'react-native';
-import { supabase } from './supabase';
-import { API_BASE, SUPABASE_URL, SUPABASE_ANON_KEY } from './config';
+import { auth } from './auth';
+import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
-
-/** Standard headers for Supabase Edge Function calls */
-function edgeFunctionHeaders(accessToken: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-    apikey: SUPABASE_ANON_KEY,
-  };
-}
 
 export interface UploadResponse {
   success: boolean;
@@ -42,7 +33,7 @@ export async function uploadDocumentFile(
   expirationDate?: string
 ): Promise<UploadResponse> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'User not authenticated' };
 
     const formData = new FormData();
@@ -89,12 +80,15 @@ export async function processURLContent(
   expirationDate?: string
 ): Promise<UploadResponse> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'User not authenticated' };
 
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-url-content`, {
+    const res = await fetch(`${API_BASE}/api/documents/process-url`, {
       method: 'POST',
-      headers: edgeFunctionHeaders(session.access_token),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ url, name, category, expirationDate }),
     });
 
@@ -118,12 +112,15 @@ export async function processManualContent(
   expirationDate?: string
 ): Promise<UploadResponse> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'User not authenticated' };
 
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/process-manual-content`, {
+    const res = await fetch(`${API_BASE}/api/documents/process-manual`, {
       method: 'POST',
-      headers: edgeFunctionHeaders(session.access_token),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ content, name, category, expirationDate }),
     });
 
@@ -145,12 +142,15 @@ export async function chatWithDocument(
   question: string,
   onChunk?: (content: string) => void
 ): Promise<{ success: boolean; answer: string; sources: any[] }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat-document`, {
+  const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
-    headers: edgeFunctionHeaders(session.access_token),
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({ document_id: documentId, question, user_id: session.user.id }),
   });
 
@@ -228,7 +228,7 @@ export async function chatWithDocument(
 // ── Load chat history ───────────────────────────────────────────────
 
 export async function loadChatHistory(documentId: string) {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
   const res = await fetch(`${API_BASE}/api/chat/document/${documentId}/history`, {
@@ -274,7 +274,7 @@ export async function globalSearch(
   query: string,
   options?: { category?: string; tags?: string[]; limit?: number }
 ): Promise<GlobalSearchResponse> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
   const deviceId = await getDeviceId();
@@ -312,7 +312,7 @@ export async function globalChatStream(
   question: string,
   onChunk?: (content: string) => void
 ): Promise<{ success: boolean; answer: string; sources: GlobalChatSource[] }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
   const deviceId2 = await getDeviceId();
@@ -371,7 +371,7 @@ export async function globalChatStream(
 export async function loadGlobalChatHistory(): Promise<Array<{
   id: string; role: string; content: string; sources?: GlobalChatSource[]; created_at: string;
 }>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) return [];
 
   try {

@@ -25,7 +25,7 @@ import {
   Sparkles,
 } from 'lucide-react-native';
 import { chatWithDocument, loadChatHistory } from '../../../src/lib/api';
-import { supabase } from '../../../src/lib/supabase';
+import { auth } from '../../../src/lib/auth';
 import { useSubscription } from '../../../src/hooks/useSubscription';
 import GradientIcon from '../../../src/components/ui/GradientIcon';
 import LoadingSpinner from '../../../src/components/ui/LoadingSpinner';
@@ -132,7 +132,7 @@ export default function DocumentChatScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await auth.getSession();
         if (!session) return;
 
         const { API_BASE } = require('../../../src/lib/config');

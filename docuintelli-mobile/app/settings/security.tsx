@@ -20,9 +20,9 @@ import {
 import { useAuthStore } from '../../src/store/authStore';
 import { useBiometrics } from '../../src/hooks/useBiometrics';
 import {
-  supabase,
+  auth,
   changePassword,
-} from '../../src/lib/supabase';
+} from '../../src/lib/auth';
 import Card from '../../src/components/ui/Card';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
@@ -75,7 +75,7 @@ export default function SecurityScreen() {
     try {
       setChangingPassword(true);
       // Re-authenticate with current password first
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await auth.signInWithPassword({
         email: user?.email || '',
         password: currentPassword,
       });
@@ -98,7 +98,7 @@ export default function SecurityScreen() {
   const handleDeleteAccount = async () => {
     try {
       setDeleting(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
       const { API_BASE } = require('../../src/lib/config');

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, KeyboardAvoidingV
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Lock, Eye, EyeOff } from 'lucide-react-native';
-import { supabase } from '../../src/lib/supabase';
+import { auth } from '../../src/lib/auth';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
 import { colors } from '../../src/theme/colors';
@@ -33,7 +33,7 @@ export default function ResetPasswordScreen() {
 
     setLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      const { error: updateError } = await auth.updateUser({ password: newPassword });
       if (updateError) throw updateError;
       router.replace('/(tabs)/dashboard');
     } catch (err: unknown) {

@@ -10,7 +10,7 @@ import {
   Compass,
   Activity,
 } from 'lucide-react-native';
-import { getUserProfile, updateUserProfile, type UserProfile } from '../../src/lib/supabase';
+import { getUserProfile, updateUserProfile, type UserProfile } from '../../src/lib/auth';
 import Card from '../../src/components/ui/Card';
 import Button from '../../src/components/ui/Button';
 import GradientIcon from '../../src/components/ui/GradientIcon';

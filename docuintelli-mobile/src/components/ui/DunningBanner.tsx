@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Linking } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CreditCard, AlertTriangle, Clock, Trash2, X } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { supabase } from '../../lib/supabase';
+import { auth } from '../../lib/auth';
 import { getCustomerPortalUrl } from '../../lib/subscriptionApi';
 import { API_BASE } from '../../lib/config';
 import { colors } from '../../theme/colors';
@@ -33,7 +33,7 @@ export default function DunningBanner() {
 
   const fetchDunningStatus = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) return;
 
       const res = await fetch(`${API_BASE}/api/dunning/status`, {

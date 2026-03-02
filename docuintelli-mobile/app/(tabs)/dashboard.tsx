@@ -39,7 +39,7 @@ import LoadingSpinner from '../../src/components/ui/LoadingSpinner';
 import TodayFeedWidget from '../../src/components/dashboard/TodayFeedWidget';
 import ReviewPrompt from '../../src/components/ui/ReviewPrompt';
 import OnboardingModal from '../../src/components/OnboardingModal';
-import { getUserProfile, isOnboardingComplete } from '../../src/lib/supabase';
+import { getUserProfile, isOnboardingComplete } from '../../src/lib/auth';
 import { colors } from '../../src/theme/colors';
 import { typography } from '../../src/theme/typography';
 import { spacing, borderRadius } from '../../src/theme/spacing';

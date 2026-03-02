@@ -10,7 +10,7 @@ import {
   CheckCircle,
 } from 'lucide-react-native';
 import { useAuthStore } from '../../src/store/authStore';
-import { getUserProfile, updateUserProfile } from '../../src/lib/supabase';
+import { getUserProfile, updateUserProfile } from '../../src/lib/auth';
 import Card from '../../src/components/ui/Card';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';

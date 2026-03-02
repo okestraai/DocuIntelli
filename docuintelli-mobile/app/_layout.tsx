@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import NetInfo from '@react-native-community/netinfo';
 import { ArrowLeft, Shield } from 'lucide-react-native';
 import { goBack } from '../src/utils/navigation';
-import { supabase } from '../src/lib/supabase';
+import { auth } from '../src/lib/auth';
 import { useAuthStore } from '../src/store/authStore';
 import { useAppStore } from '../src/store/appStore';
 import { useBiometrics } from '../src/hooks/useBiometrics';
@@ -37,7 +37,7 @@ export default function RootLayout() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, sess) => {
+    } = auth.onAuthStateChange((_event, sess) => {
       setSession(sess);
     });
 

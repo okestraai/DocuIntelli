@@ -1,12 +1,12 @@
 // Engagement API — ported from web
-import { supabase } from './supabase';
+import { auth } from './auth';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
 
 const ENGAGEMENT_BASE = `${API_BASE}/api/engagement`;
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
   const deviceId = await getDeviceId();
   return {

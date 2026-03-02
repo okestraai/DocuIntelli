@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 
 /**
  * Hook that provides auth state and listens for auth changes.
@@ -12,7 +12,7 @@ export function useAuth() {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 

@@ -1,9 +1,9 @@
-import { supabase } from './supabase';
-import { API_BASE, SUPABASE_URL, SUPABASE_ANON_KEY, APP_SCHEME, STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID } from './config';
+import { auth } from './auth';
+import { API_BASE, APP_SCHEME, STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID } from './config';
 import { getDeviceId } from './deviceId';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
   const deviceId = await getDeviceId();
   return {
@@ -76,7 +76,7 @@ export async function getSubscriptionDetails(): Promise<any> {
 
 // Get Stripe checkout URL for a new subscription (caller opens in InAppBrowser)
 export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
   const priceIds: Record<string, string> = {
@@ -86,12 +86,11 @@ export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<st
   const priceId = priceIds[plan];
   if (!priceId) throw new Error(`Price ID not configured for ${plan} plan`);
 
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/stripe-checkout`, {
+  const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
-      apikey: SUPABASE_ANON_KEY,
     },
     body: JSON.stringify({
       price_id: priceId,
@@ -109,15 +108,14 @@ export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<st
 
 // Get Stripe customer portal URL (caller opens in InAppBrowser)
 export async function getCustomerPortalUrl(): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/stripe-customer-portal`, {
+  const res = await fetch(`${API_BASE}/api/stripe/customer-portal`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
-      apikey: SUPABASE_ANON_KEY,
     },
     body: JSON.stringify({
       return_url: `${APP_SCHEME}://billing`,

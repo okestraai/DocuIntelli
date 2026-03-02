@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '../../src/utils/navigation';
-import { supabase, verifySignupOTP, sendSignupOTP, verifyOTP, resetPasswordWithOTP } from '../../src/lib/supabase';
+import { auth, verifySignupOTP, sendSignupOTP, verifyOTP, resetPasswordWithOTP } from '../../src/lib/auth';
 import Button from '../../src/components/ui/Button';
 import { colors } from '../../src/theme/colors';
 import { typography } from '../../src/theme/typography';
@@ -50,7 +50,7 @@ export default function VerifyOtpScreen() {
       if (isSignup) {
         const result = await verifySignupOTP(email!, otpCode);
         if (result.token_hash) {
-          const { data, error: verifyError } = await supabase.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+          const { data, error: verifyError } = await auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
           if (verifyError) throw verifyError;
           if (data.user) router.replace('/(tabs)/dashboard');
         } else {

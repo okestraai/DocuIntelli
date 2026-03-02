@@ -13,7 +13,7 @@ import { User, Calendar, AlertCircle } from 'lucide-react-native';
 import Input from './ui/Input';
 import Button from './ui/Button';
 import PhoneInputMobile from './ui/PhoneInput';
-import { getUserProfile, updateUserProfile } from '../lib/supabase';
+import { getUserProfile, updateUserProfile } from '../lib/auth';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing, borderRadius } from '../theme/spacing';
