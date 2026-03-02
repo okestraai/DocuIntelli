@@ -1,7 +1,7 @@
 {
   "name": "legalease-backend",
   "version": "1.0.0",
-  "description": "Minimal backend server for LegalEase (Auth handled by Supabase)",
+  "description": "DocuIntelli AI backend server (Azure PostgreSQL + Custom JWT Auth)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
@@ -20,7 +20,6 @@
   "license": "MIT",
   "dependencies": {
     "@azure/storage-blob": "^12.31.0",
-    "@supabase/supabase-js": "^2.56.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

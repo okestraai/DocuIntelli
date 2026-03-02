@@ -6,8 +6,7 @@ FROM node:20-alpine AS frontend-build
 WORKDIR /app
 
 # VITE_ env vars must be ARGs — Vite bakes them into the JS bundle at build time
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_BASE_URL
 ARG VITE_STRIPE_STARTER_PRICE_ID
 ARG VITE_STRIPE_PRO_PRICE_ID
 
