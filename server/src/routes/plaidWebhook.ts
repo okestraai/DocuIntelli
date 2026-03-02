@@ -4,19 +4,14 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { PlaidApi, Configuration, PlaidEnvironments } from 'plaid';
 import { syncTransactions, exchangePublicToken, getUserIdForLinkToken, markLinkTokenUsed } from '../services/plaidService';
 import { invalidateInsightsCache } from '../services/financialAnalyzer';
 import { recalculateAllUserGoals } from '../services/goalProgressCalculator';
 import { cacheDel } from '../services/redisClient';
+import { query } from '../services/db';
 
 const router = Router();
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Plaid client for webhook verification
 const plaidConfig = new Configuration({
@@ -122,15 +117,15 @@ router.post('/', async (req: Request, res: Response) => {
       error: plaidError,
     } = req.body;
 
-    console.log(`📩 Plaid webhook: ${webhook_type}/${webhook_code} for item ${item_id}`);
+    console.log(`Plaid webhook: ${webhook_type}/${webhook_code} for item ${item_id}`);
 
     // ── LINK webhooks (Hosted Link flow) ─────────────────────────
     // Handle BEFORE item_id lookup — the item doesn't exist yet at this point.
     if (webhook_type === 'LINK') {
       if (webhook_code === 'ITEM_ADD_RESULT') {
-        console.log(`🔗 LINK/ITEM_ADD_RESULT full body:`, JSON.stringify(req.body, null, 2));
+        console.log(`LINK/ITEM_ADD_RESULT full body:`, JSON.stringify(req.body, null, 2));
         const { public_token, link_token, status, institution_name } = req.body;
-        console.log(`🔗 LINK/ITEM_ADD_RESULT: status=${status}, public_token=${public_token ? 'present' : 'missing'}, link_token=${link_token ? 'present' : 'missing'}`);
+        console.log(`LINK/ITEM_ADD_RESULT: status=${status}, public_token=${public_token ? 'present' : 'missing'}, link_token=${link_token ? 'present' : 'missing'}`);
 
         // Accept if we have a public_token + link_token, regardless of status field
         // (Plaid sandbox may omit or nest the status differently)
@@ -143,19 +138,21 @@ router.post('/', async (req: Request, res: Response) => {
           }
 
           // Check bank account limit before exchanging
-          const { count: bankCount } = await supabase
-            .from('plaid_items')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', userId);
-          const { data: userSub } = await supabase
-            .from('user_subscriptions')
-            .select('bank_account_limit')
-            .eq('user_id', userId)
-            .single();
+          const bankCountResult = await query(
+            'SELECT COUNT(*) AS count FROM plaid_items WHERE user_id = $1',
+            [userId]
+          );
+          const bankCount = parseInt(bankCountResult.rows[0]?.count || '0');
+
+          const userSubResult = await query(
+            'SELECT bank_account_limit FROM user_subscriptions WHERE user_id = $1',
+            [userId]
+          );
+          const userSub = userSubResult.rows[0];
           const bankLimit = userSub?.bank_account_limit ?? 0;
 
           if (bankLimit === 0) {
-            console.warn(`⚠️ LINK webhook: user ${userId} on free plan (bank_account_limit=0) — skipping exchange`);
+            console.warn(`LINK webhook: user ${userId} on free plan (bank_account_limit=0) — skipping exchange`);
             await markLinkTokenUsed(link_token);
             res.json({ received: true });
             return;
@@ -169,7 +166,7 @@ router.post('/', async (req: Request, res: Response) => {
             );
             await markLinkTokenUsed(link_token);
 
-            console.log(`✅ Hosted Link exchange complete: item=${result.itemId}, accounts=${result.accounts.length}`);
+            console.log(`Hosted Link exchange complete: item=${result.itemId}, accounts=${result.accounts.length}`);
             // Clear ALL financial caches so polling sees the new item immediately
             await Promise.all([
               cacheDel(`fin_accounts:${userId}`, `fin_summary:${userId}`),
@@ -189,11 +186,11 @@ router.post('/', async (req: Request, res: Response) => {
 
     // ── All other webhooks need the item lookup ──────────────────
     // Look up which user owns this item
-    const { data: item } = await supabase
-      .from('plaid_items')
-      .select('user_id, access_token')
-      .eq('item_id', item_id)
-      .single();
+    const itemResult = await query(
+      'SELECT user_id, access_token FROM plaid_items WHERE item_id = $1',
+      [item_id]
+    );
+    const item = itemResult.rows[0];
 
     if (!item) {
       console.warn(`Plaid webhook for unknown item: ${item_id}`);
@@ -212,7 +209,7 @@ router.post('/', async (req: Request, res: Response) => {
             // New transactions available — re-sync
             try {
               const result = await syncTransactions(item.user_id, item_id, item.access_token);
-              console.log(`✅ Synced ${result.added} transactions for item ${item_id}`);
+              console.log(`Synced ${result.added} transactions for item ${item_id}`);
               // Recalculate financial goals after new transactions + invalidate goals cache
               recalculateAllUserGoals(item.user_id)
                 .then(() => cacheDel(`fin_goals:${item.user_id}`))
@@ -227,16 +224,14 @@ router.post('/', async (req: Request, res: Response) => {
           case 'TRANSACTIONS_REMOVED':
             // Remove specific transactions
             if (removed_transactions && removed_transactions.length > 0) {
-              const { error: deleteErr } = await supabase
-                .from('plaid_transactions')
-                .delete()
-                .eq('user_id', item.user_id)
-                .in('transaction_id', removed_transactions);
-
-              if (deleteErr) {
+              try {
+                await query(
+                  'DELETE FROM plaid_transactions WHERE user_id = $1 AND transaction_id = ANY($2)',
+                  [item.user_id, removed_transactions]
+                );
+                console.log(`Removed ${removed_transactions.length} transactions`);
+              } catch (deleteErr) {
                 console.error('Failed to remove transactions:', deleteErr);
-              } else {
-                console.log(`🗑️  Removed ${removed_transactions.length} transactions`);
               }
             }
             break;
@@ -251,19 +246,16 @@ router.post('/', async (req: Request, res: Response) => {
         switch (webhook_code) {
           case 'ERROR':
             // Item has an error — log it
-            console.error(`⚠️  Plaid item error for ${item_id}:`, plaidError);
-            await supabase
-              .from('plaid_items')
-              .update({
-                last_synced_at: new Date().toISOString(),
-              })
-              .eq('item_id', item_id)
-              .eq('user_id', item.user_id);
+            console.error(`Plaid item error for ${item_id}:`, plaidError);
+            await query(
+              'UPDATE plaid_items SET last_synced_at = $1 WHERE item_id = $2 AND user_id = $3',
+              [new Date().toISOString(), item_id, item.user_id]
+            );
             break;
 
           case 'PENDING_EXPIRATION':
             // Access token will expire soon — user needs to re-link
-            console.warn(`⏳ Plaid item ${item_id} access token expiring soon`);
+            console.warn(`Plaid item ${item_id} access token expiring soon`);
             break;
 
           default:

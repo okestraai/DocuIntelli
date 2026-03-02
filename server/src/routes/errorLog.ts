@@ -6,15 +6,10 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 
 const router = Router();
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Require auth so we know which user hit the error
 router.use(loadSubscription);
@@ -34,16 +29,19 @@ router.post('/log', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await supabase.from('usage_logs').insert({
-      user_id: userId,
-      feature: `client_error:${String(feature).slice(0, 50)}`,
-      metadata: {
-        error: String(errorMessage).slice(0, 2000),
-        context: context ? JSON.parse(JSON.stringify(context)) : undefined,
-        user_agent: req.headers['user-agent']?.slice(0, 500),
-        timestamp: new Date().toISOString(),
-      },
-    });
+    await query(
+      `INSERT INTO usage_logs (user_id, feature, metadata) VALUES ($1, $2, $3)`,
+      [
+        userId,
+        `client_error:${String(feature).slice(0, 50)}`,
+        JSON.stringify({
+          error: String(errorMessage).slice(0, 2000),
+          context: context ? JSON.parse(JSON.stringify(context)) : undefined,
+          user_agent: req.headers['user-agent']?.slice(0, 500),
+          timestamp: new Date().toISOString(),
+        }),
+      ]
+    );
 
     res.json({ success: true });
   } catch (err) {

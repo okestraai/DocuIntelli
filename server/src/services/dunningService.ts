@@ -2,17 +2,13 @@
  * DocuIntelli AI — Dunning Service
  *
  * Handles payment failure escalation with automatic retries at every step.
- * Timeline: Day 0→3→5→7→14→21→30→45 (terminal deletion).
+ * Timeline: Day 0->3->5->7->14->21->30->45 (terminal deletion).
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import Stripe from 'stripe';
 import { sendNotificationEmail, resolveUserInfo } from './emailService';
 import { invalidateSubscriptionCache } from '../middleware/subscriptionGuard';
-
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-01-28.clover' as any,
@@ -40,12 +36,10 @@ async function logDunning(
   action: string,
   details: Record<string, unknown> = {},
 ): Promise<void> {
-  await supabase.from('dunning_log').insert({
-    user_id: userId,
-    step,
-    action,
-    details,
-  });
+  await query(
+    'INSERT INTO dunning_log (user_id, step, action, details) VALUES ($1, $2, $3, $4)',
+    [userId, step, action, JSON.stringify(details)]
+  );
 }
 
 function daysSince(date: string | Date): number {
@@ -91,11 +85,11 @@ async function retryPayment(stripeCustomerId: string): Promise<boolean> {
  * Restores full access immediately.
  */
 export async function recoverFromDunning(userId: string): Promise<void> {
-  const { data: sub } = await supabase
-    .from('user_subscriptions')
-    .select('payment_status, dunning_step, previous_plan, plan, display_name')
-    .eq('user_id', userId)
-    .single();
+  const subResult = await query(
+    'SELECT payment_status, dunning_step, previous_plan, plan, display_name FROM user_subscriptions WHERE user_id = $1',
+    [userId]
+  );
+  const sub = subResult.rows[0];
 
   if (!sub || sub.payment_status === 'active') return;
 
@@ -111,25 +105,32 @@ export async function recoverFromDunning(userId: string): Promise<void> {
 
   const limits = PLAN_LIMITS[restoredPlan] || PLAN_LIMITS.free;
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      payment_status: 'active',
-      dunning_step: 0,
-      payment_failed_at: null,
-      restricted_at: null,
-      downgraded_at: null,
-      previous_plan: null,
-      deletion_scheduled_at: null,
-      plan: restoredPlan,
-      status: 'active',
-      document_limit: limits.document_limit,
-      ai_questions_limit: limits.ai_questions_limit,
-      monthly_upload_limit: limits.monthly_upload_limit,
-      bank_account_limit: limits.bank_account_limit,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+  await query(
+    `UPDATE user_subscriptions SET
+      payment_status = $1,
+      dunning_step = $2,
+      payment_failed_at = $3,
+      restricted_at = $4,
+      downgraded_at = $5,
+      previous_plan = $6,
+      deletion_scheduled_at = $7,
+      plan = $8,
+      status = $9,
+      document_limit = $10,
+      ai_questions_limit = $11,
+      monthly_upload_limit = $12,
+      bank_account_limit = $13,
+      updated_at = $14
+    WHERE user_id = $15`,
+    [
+      'active', 0, null, null, null, null, null,
+      restoredPlan, 'active',
+      limits.document_limit, limits.ai_questions_limit,
+      limits.monthly_upload_limit, limits.bank_account_limit,
+      new Date().toISOString(),
+      userId,
+    ]
+  );
 
   await invalidateSubscriptionCache(userId);
   await logDunning(userId, step, 'recovered', { restoredPlan });
@@ -153,11 +154,11 @@ export async function recoverFromDunning(userId: string): Promise<void> {
  * Starts the dunning flow if not already started.
  */
 export async function startDunning(userId: string, failureReason?: string): Promise<void> {
-  const { data: sub } = await supabase
-    .from('user_subscriptions')
-    .select('payment_status, payment_failed_at, plan, stripe_customer_id')
-    .eq('user_id', userId)
-    .single();
+  const subResult = await query(
+    'SELECT payment_status, payment_failed_at, plan, stripe_customer_id FROM user_subscriptions WHERE user_id = $1',
+    [userId]
+  );
+  const sub = subResult.rows[0];
 
   if (!sub) return;
 
@@ -172,15 +173,15 @@ export async function startDunning(userId: string, failureReason?: string): Prom
 
   const now = new Date().toISOString();
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      payment_status: 'past_due',
-      payment_failed_at: now,
-      dunning_step: 1,
-      updated_at: now,
-    })
-    .eq('user_id', userId);
+  await query(
+    `UPDATE user_subscriptions SET
+      payment_status = $1,
+      payment_failed_at = $2,
+      dunning_step = $3,
+      updated_at = $4
+    WHERE user_id = $5`,
+    ['past_due', now, 1, now, userId]
+  );
 
   await invalidateSubscriptionCache(userId);
   await logDunning(userId, 1, 'dunning_started', { failureReason });
@@ -226,80 +227,91 @@ async function executeStep3(userId: string, sub: any, userInfo: any): Promise<vo
 
 async function executeStep4(userId: string, sub: any, userInfo: any): Promise<void> {
   // Restrict access
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      payment_status: 'restricted',
-      restricted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+  const now = new Date().toISOString();
+  await query(
+    `UPDATE user_subscriptions SET
+      payment_status = $1,
+      restricted_at = $2,
+      updated_at = $3
+    WHERE user_id = $4`,
+    ['restricted', now, now, userId]
+  );
 
   await invalidateSubscriptionCache(userId);
 
-  const { count: docCount } = await supabase
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId);
+  const countResult = await query(
+    'SELECT COUNT(*) as count FROM documents WHERE user_id = $1',
+    [userId]
+  );
+  const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
   await sendNotificationEmail(userId, 'dunning_access_restricted', {
     userName: userInfo.userName,
     plan: sub.plan,
     documentLimit: FREE_DOCUMENT_LIMIT,
-    documentCount: docCount || 0,
+    documentCount: docCount,
   });
 }
 
 async function executeStep5(userId: string, sub: any, userInfo: any): Promise<void> {
-  const { count: docCount } = await supabase
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId);
+  const countResult = await query(
+    'SELECT COUNT(*) as count FROM documents WHERE user_id = $1',
+    [userId]
+  );
+  const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
   await sendNotificationEmail(userId, 'dunning_last_chance', {
     userName: userInfo.userName,
     plan: sub.plan,
     downgradeDate: futureDate(7),
-    documentCount: docCount || 0,
+    documentCount: docCount,
     freeLimit: FREE_DOCUMENT_LIMIT,
   });
 }
 
 async function executeStep6(userId: string, sub: any, userInfo: any): Promise<void> {
   // Hard downgrade to free
-  const { count: docCount } = await supabase
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId);
+  const countResult = await query(
+    'SELECT COUNT(*) as count FROM documents WHERE user_id = $1',
+    [userId]
+  );
+  const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      payment_status: 'downgraded',
-      downgraded_at: new Date().toISOString(),
-      previous_plan: sub.plan,
-      plan: 'free',
-      status: 'active',
-      document_limit: FREE_DOCUMENT_LIMIT,
-      ai_questions_limit: 5,
-      monthly_upload_limit: 3,
-      bank_account_limit: 0,
-      deletion_scheduled_at: new Date(Date.now() + 24 * 86400000).toISOString(), // 24 days from now = Day 45 total
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+  const now = new Date().toISOString();
+  await query(
+    `UPDATE user_subscriptions SET
+      payment_status = $1,
+      downgraded_at = $2,
+      previous_plan = $3,
+      plan = $4,
+      status = $5,
+      document_limit = $6,
+      ai_questions_limit = $7,
+      monthly_upload_limit = $8,
+      bank_account_limit = $9,
+      deletion_scheduled_at = $10,
+      updated_at = $11
+    WHERE user_id = $12`,
+    [
+      'downgraded', now, sub.plan, 'free', 'active',
+      FREE_DOCUMENT_LIMIT, 5, 3, 0,
+      new Date(Date.now() + 24 * 86400000).toISOString(), // 24 days from now = Day 45 total
+      now, userId,
+    ]
+  );
 
   await invalidateSubscriptionCache(userId);
 
   // Disconnect bank accounts (Plaid)
   let banksDisconnected = 0;
   try {
-    const { data: plaidItems } = await supabase
-      .from('plaid_items')
-      .select('item_id, access_token')
-      .eq('user_id', userId);
+    const plaidItemsResult = await query(
+      'SELECT item_id, access_token FROM plaid_items WHERE user_id = $1',
+      [userId]
+    );
+    const plaidItems = plaidItemsResult.rows;
 
-    if (plaidItems && plaidItems.length > 0) {
+    if (plaidItems.length > 0) {
       for (const item of plaidItems) {
         try {
           // Dynamic import to avoid hard dependency
@@ -322,10 +334,10 @@ async function executeStep6(userId: string, sub: any, userInfo: any): Promise<vo
       }
 
       // Clean up plaid data
-      await supabase.from('plaid_transactions').delete().eq('user_id', userId);
-      await supabase.from('plaid_accounts').delete().eq('user_id', userId);
-      await supabase.from('plaid_items').delete().eq('user_id', userId);
-      await supabase.from('financial_insights').delete().eq('user_id', userId);
+      await query('DELETE FROM plaid_transactions WHERE user_id = $1', [userId]);
+      await query('DELETE FROM plaid_accounts WHERE user_id = $1', [userId]);
+      await query('DELETE FROM plaid_items WHERE user_id = $1', [userId]);
+      await query('DELETE FROM financial_insights WHERE user_id = $1', [userId]);
     }
   } catch (err) {
     console.error(`[DUNNING] Bank disconnect error for ${userId}:`, err);
@@ -343,7 +355,7 @@ async function executeStep6(userId: string, sub: any, userInfo: any): Promise<vo
   await sendNotificationEmail(userId, 'dunning_downgrade_notice', {
     userName: userInfo.userName,
     previousPlan: sub.plan,
-    documentCount: docCount || 0,
+    documentCount: docCount,
     freeLimit: FREE_DOCUMENT_LIMIT,
     deletionDate: futureDate(24), // 24 more days to Day 45
   });
@@ -353,13 +365,11 @@ async function executeStep6(userId: string, sub: any, userInfo: any): Promise<vo
 
 async function executeStep7(userId: string, sub: any, userInfo: any): Promise<void> {
   // Deletion warning — identify excess documents
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, name')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true });
-
-  const allDocs = docs || [];
+  const docsResult = await query(
+    'SELECT id, name FROM documents WHERE user_id = $1 ORDER BY created_at ASC',
+    [userId]
+  );
+  const allDocs = docsResult.rows;
   const excessCount = Math.max(0, allDocs.length - FREE_DOCUMENT_LIMIT);
 
   if (excessCount > 0) {
@@ -377,13 +387,11 @@ async function executeStep7(userId: string, sub: any, userInfo: any): Promise<vo
 async function executeStep8(userId: string, sub: any, userInfo: any): Promise<void> {
   // ── TERMINAL ACTION — Permanently delete excess documents ──
 
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, name')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true }); // oldest first
-
-  const allDocs = docs || [];
+  const docsResult = await query(
+    'SELECT id, name FROM documents WHERE user_id = $1 ORDER BY created_at ASC',
+    [userId]
+  );
+  const allDocs = docsResult.rows;
   const excessCount = Math.max(0, allDocs.length - FREE_DOCUMENT_LIMIT);
   const docsToDelete = allDocs.slice(0, excessCount);
 
@@ -391,54 +399,60 @@ async function executeStep8(userId: string, sub: any, userInfo: any): Promise<vo
 
   if (docsToDelete.length > 0) {
     const deleteIds = docsToDelete.map((d: any) => d.id);
+    const deletePlaceholders = deleteIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
 
     // Delete embeddings
-    await supabase.from('document_chunks').delete().in('document_id', deleteIds);
+    await query(`DELETE FROM document_chunks WHERE document_id IN (${deletePlaceholders})`, deleteIds);
     // Delete chats
-    await supabase.from('document_chats').delete().in('document_id', deleteIds);
+    await query(`DELETE FROM document_chats WHERE document_id IN (${deletePlaceholders})`, deleteIds);
     // Delete documents
-    const { error: delError } = await supabase.from('documents').delete().in('id', deleteIds);
-
-    if (!delError) {
+    try {
+      await query(`DELETE FROM documents WHERE id IN (${deletePlaceholders})`, deleteIds);
       documentsDeleted = docsToDelete.length;
-    } else {
+    } catch (delError) {
       console.error(`[DUNNING] Document deletion failed for ${userId}:`, delError);
     }
   }
 
   // Ensure no remaining bank connections (may have been re-connected)
   let banksDisconnected = 0;
-  const { data: remainingPlaid } = await supabase
-    .from('plaid_items')
-    .select('item_id')
-    .eq('user_id', userId);
+  const remainingPlaidResult = await query(
+    'SELECT item_id FROM plaid_items WHERE user_id = $1',
+    [userId]
+  );
+  const remainingPlaid = remainingPlaidResult.rows;
 
-  if (remainingPlaid && remainingPlaid.length > 0) {
-    await supabase.from('plaid_transactions').delete().eq('user_id', userId);
-    await supabase.from('plaid_accounts').delete().eq('user_id', userId);
-    await supabase.from('plaid_items').delete().eq('user_id', userId);
-    await supabase.from('financial_insights').delete().eq('user_id', userId);
+  if (remainingPlaid.length > 0) {
+    await query('DELETE FROM plaid_transactions WHERE user_id = $1', [userId]);
+    await query('DELETE FROM plaid_accounts WHERE user_id = $1', [userId]);
+    await query('DELETE FROM plaid_items WHERE user_id = $1', [userId]);
+    await query('DELETE FROM financial_insights WHERE user_id = $1', [userId]);
     banksDisconnected = remainingPlaid.length;
   }
 
   // Finalize — user is now a clean free user
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      plan: 'free',
-      payment_status: 'active',
-      dunning_step: 0,
-      payment_failed_at: null,
-      restricted_at: null,
-      downgraded_at: null,
-      previous_plan: null,
-      deletion_scheduled_at: null,
-      stripe_subscription_id: null,
-      stripe_price_id: null,
-      document_limit: FREE_DOCUMENT_LIMIT,
-      ai_questions_limit: 5,
-      monthly_upload_limit: 3,
-      feature_flags: {
+  await query(
+    `UPDATE user_subscriptions SET
+      plan = $1,
+      payment_status = $2,
+      dunning_step = $3,
+      payment_failed_at = $4,
+      restricted_at = $5,
+      downgraded_at = $6,
+      previous_plan = $7,
+      deletion_scheduled_at = $8,
+      stripe_subscription_id = $9,
+      stripe_price_id = $10,
+      document_limit = $11,
+      ai_questions_limit = $12,
+      monthly_upload_limit = $13,
+      feature_flags = $14,
+      updated_at = $15
+    WHERE user_id = $16`,
+    [
+      'free', 'active', 0, null, null, null, null, null, null, null,
+      FREE_DOCUMENT_LIMIT, 5, 3,
+      JSON.stringify({
         auto_tags: false,
         ocr_enabled: false,
         global_search: false,
@@ -448,10 +462,11 @@ async function executeStep8(userId: string, sub: any, userInfo: any): Promise<vo
         multi_device_sync: false,
         email_notifications: false,
         background_embedding: false,
-      },
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+      }),
+      new Date().toISOString(),
+      userId,
+    ]
+  );
 
   await invalidateSubscriptionCache(userId);
 
@@ -469,14 +484,15 @@ async function executeStep8(userId: string, sub: any, userInfo: any): Promise<vo
 // ─── Main Escalation Runner (called by cron) ─────────────────────────────────
 
 export async function runDunningEscalation(): Promise<{ processed: number; recovered: number; errors: number }> {
-  const { data: users } = await supabase
-    .from('user_subscriptions')
-    .select('user_id, plan, payment_status, payment_failed_at, dunning_step, stripe_customer_id, stripe_subscription_id')
-    .neq('payment_status', 'active')
-    .gt('dunning_step', 0)
-    .lt('dunning_step', 9); // 8 is the max step
+  const usersResult = await query(
+    `SELECT user_id, plan, payment_status, payment_failed_at, dunning_step, stripe_customer_id, stripe_subscription_id
+     FROM user_subscriptions
+     WHERE payment_status != $1 AND dunning_step > $2 AND dunning_step < $3`,
+    ['active', 0, 9]
+  );
+  const users = usersResult.rows;
 
-  if (!users || users.length === 0) {
+  if (users.length === 0) {
     return { processed: 0, recovered: 0, errors: 0 };
   }
 
@@ -532,10 +548,10 @@ export async function runDunningEscalation(): Promise<{ processed: number; recov
         }
 
         // 3. Update dunning step
-        await supabase
-          .from('user_subscriptions')
-          .update({ dunning_step: step, updated_at: new Date().toISOString() })
-          .eq('user_id', sub.user_id);
+        await query(
+          'UPDATE user_subscriptions SET dunning_step = $1, updated_at = $2 WHERE user_id = $3',
+          [step, new Date().toISOString(), sub.user_id]
+        );
 
         await logDunning(sub.user_id, step, 'step_executed');
         await logDunning(sub.user_id, step, 'email_sent', { template: `dunning_step_${step}` });
@@ -564,11 +580,11 @@ export async function getDunningStatus(userId: string): Promise<{
   deletionDate: string | null;
   previousPlan: string | null;
 }> {
-  const { data: sub } = await supabase
-    .from('user_subscriptions')
-    .select('payment_status, dunning_step, payment_failed_at, restricted_at, downgraded_at, deletion_scheduled_at, previous_plan')
-    .eq('user_id', userId)
-    .single();
+  const subResult = await query(
+    'SELECT payment_status, dunning_step, payment_failed_at, restricted_at, downgraded_at, deletion_scheduled_at, previous_plan FROM user_subscriptions WHERE user_id = $1',
+    [userId]
+  );
+  const sub = subResult.rows[0];
 
   if (!sub) {
     return {

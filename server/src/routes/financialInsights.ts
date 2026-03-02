@@ -19,15 +19,10 @@ import { detectLoanPayments } from '../services/loanDetector';
 import { analyzeLoanDocument } from '../services/loanAnalyzer';
 import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { sendNotificationEmail } from '../services/emailService';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 
 const SUMMARY_CACHE_TTL = 1800;  // 30 minutes
 const ACCOUNTS_CACHE_TTL = 600;  // 10 minutes
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const router = Router();
 
@@ -91,13 +86,13 @@ router.post('/exchange-token', async (req: Request, res: Response) => {
     // Send bank connected email (fire-and-forget)
     const instName = institution_name || 'Unknown Bank';
     const accountNames = (result.accounts || []).map((a: any) => a.name || a.account_id);
-    const { data: profile } = await supabase
-      .from('user_subscriptions')
-      .select('display_name')
-      .eq('user_id', userId)
-      .single();
+    const profileResult = await query(
+      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+    const profile = profileResult.rows[0];
     sendNotificationEmail(userId, 'bank_account_connected', {
-      userName: (profile as any)?.display_name || '',
+      userName: profile?.display_name || '',
       institutionName: instName,
       accountCount: result.accounts?.length || 0,
       accountNames,
@@ -255,17 +250,17 @@ router.delete('/disconnect/:itemId', async (req: Request, res: Response) => {
     const { itemId } = req.params;
 
     // Fetch institution info before disconnecting (data gets deleted)
-    const { data: itemInfo } = await supabase
-      .from('plaid_items')
-      .select('institution_name')
-      .eq('item_id', itemId)
-      .eq('user_id', userId)
-      .single();
-    const { count: acctCount } = await supabase
-      .from('plaid_accounts')
-      .select('account_id', { count: 'exact', head: true })
-      .eq('item_id', itemId)
-      .eq('user_id', userId);
+    const itemInfoResult = await query(
+      'SELECT institution_name FROM plaid_items WHERE item_id = $1 AND user_id = $2',
+      [itemId, userId]
+    );
+    const itemInfo = itemInfoResult.rows[0];
+
+    const acctCountResult = await query(
+      'SELECT COUNT(*) AS count FROM plaid_accounts WHERE item_id = $1 AND user_id = $2',
+      [itemId, userId]
+    );
+    const acctCount = parseInt(acctCountResult.rows[0]?.count || '0');
 
     await disconnectAccount(userId, itemId);
     // Clear cached AI insights so the next summary call regenerates
@@ -273,15 +268,15 @@ router.delete('/disconnect/:itemId', async (req: Request, res: Response) => {
     await invalidateAllFinancialCaches(userId);
 
     // Send bank disconnected email (fire-and-forget)
-    const { data: profile } = await supabase
-      .from('user_subscriptions')
-      .select('display_name')
-      .eq('user_id', userId)
-      .single();
+    const profileResult = await query(
+      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+    const profile = profileResult.rows[0];
     sendNotificationEmail(userId, 'bank_account_disconnected', {
-      userName: (profile as any)?.display_name || '',
-      institutionName: (itemInfo as any)?.institution_name || 'Unknown Bank',
-      accountCount: acctCount || 0,
+      userName: profile?.display_name || '',
+      institutionName: itemInfo?.institution_name || 'Unknown Bank',
+      accountCount: acctCount,
     }).catch(() => {});
 
     res.json({ success: true, message: 'Account disconnected' });
@@ -326,10 +321,11 @@ router.post('/commit-account-selection', async (req: Request, res: Response) => 
     }
 
     // Fetch all current accounts for this user
-    const { data: allAccounts } = await supabase
-      .from('plaid_accounts')
-      .select('account_id')
-      .eq('user_id', userId);
+    const allAccountsResult = await query(
+      'SELECT account_id FROM plaid_accounts WHERE user_id = $1',
+      [userId]
+    );
+    const allAccounts = allAccountsResult.rows;
 
     if (!allAccounts) {
       res.status(500).json({ error: 'Failed to fetch accounts' });
@@ -349,14 +345,15 @@ router.post('/commit-account-selection', async (req: Request, res: Response) => 
     await invalidateAllFinancialCaches(userId);
 
     // Verify final count matches expectations
-    const { count: finalCount } = await supabase
-      .from('plaid_accounts')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+    const finalCountResult = await query(
+      'SELECT COUNT(*) AS count FROM plaid_accounts WHERE user_id = $1',
+      [userId]
+    );
+    const finalCount = parseInt(finalCountResult.rows[0]?.count || '0');
 
     console.log(`[commit-account-selection] done: kept=${selected_account_ids.length} removed=${result.removed} verified_remaining=${finalCount}`);
 
-    if (finalCount && finalCount > bankLimit) {
+    if (finalCount > bankLimit) {
       console.warn(`[commit-account-selection] WARNING: user ${userId} still has ${finalCount} accounts (limit=${bankLimit}) after commit`);
     }
 
@@ -364,7 +361,7 @@ router.post('/commit-account-selection', async (req: Request, res: Response) => 
       success: true,
       kept: selected_account_ids.length,
       removed: result.removed,
-      remaining: finalCount ?? selected_account_ids.length,
+      remaining: finalCount,
     });
   } catch (error) {
     console.error('Error committing account selection:', error);
@@ -391,12 +388,11 @@ router.post('/cancel-connection', async (req: Request, res: Response) => {
     }
 
     // Safety: only allow cancellation of recently created items
-    const { data: item } = await supabase
-      .from('plaid_items')
-      .select('item_id, connected_at')
-      .eq('user_id', userId)
-      .eq('item_id', item_id)
-      .single();
+    const itemResult = await query(
+      'SELECT item_id, connected_at FROM plaid_items WHERE user_id = $1 AND item_id = $2',
+      [userId, item_id]
+    );
+    const item = itemResult.rows[0];
 
     if (!item) {
       res.status(404).json({ error: 'Item not found' });
@@ -444,14 +440,11 @@ router.get('/detected-loans', async (req: Request, res: Response) => {
     const userId = req.userId!;
 
     // Check for existing non-stale detected loans
-    const { data: existing } = await supabase
-      .from('detected_loans')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('dismissed', false)
-      .is('document_id', null)
-      .order('estimated_monthly_payment', { ascending: false })
-      .limit(3);
+    const existingResult = await query(
+      'SELECT * FROM detected_loans WHERE user_id = $1 AND dismissed = false AND document_id IS NULL ORDER BY estimated_monthly_payment DESC LIMIT 3',
+      [userId]
+    );
+    const existing = existingResult.rows;
 
     // If we have recent results (updated in last 24h), return them
     const now = new Date();
@@ -471,13 +464,11 @@ router.get('/detected-loans', async (req: Request, res: Response) => {
     }
 
     // Run fresh detection from transactions
-    const { data: transactions } = await supabase
-      .from('plaid_transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('pending', false)
-      .gt('amount', 0)
-      .order('date', { ascending: false });
+    const transactionsResult = await query(
+      'SELECT * FROM plaid_transactions WHERE user_id = $1 AND pending = false AND amount > 0 ORDER BY date DESC',
+      [userId]
+    );
+    const transactions = transactionsResult.rows;
 
     if (!transactions || transactions.length === 0) {
       res.json({ success: true, detected_loans: [] });
@@ -488,34 +479,35 @@ router.get('/detected-loans', async (req: Request, res: Response) => {
 
     // Upsert detected loans
     for (const loan of detected) {
-      await supabase
-        .from('detected_loans')
-        .upsert({
-          user_id: userId,
-          loan_type: loan.loan_type,
-          merchant_name: loan.merchant_name,
-          display_name: loan.display_name,
-          estimated_monthly_payment: loan.estimated_monthly_payment,
-          frequency: loan.frequency,
-          confidence: loan.confidence,
-          first_seen_date: loan.first_seen_date,
-          last_payment_date: loan.last_payment_date,
-          payment_count: loan.payment_count,
-          category: loan.category,
-          category_detailed: loan.category_detailed,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id,merchant_name,loan_type' });
+      await query(
+        `INSERT INTO detected_loans (user_id, loan_type, merchant_name, display_name, estimated_monthly_payment, frequency, confidence, first_seen_date, last_payment_date, payment_count, category, category_detailed, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (user_id, merchant_name, loan_type) DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           estimated_monthly_payment = EXCLUDED.estimated_monthly_payment,
+           frequency = EXCLUDED.frequency,
+           confidence = EXCLUDED.confidence,
+           first_seen_date = EXCLUDED.first_seen_date,
+           last_payment_date = EXCLUDED.last_payment_date,
+           payment_count = EXCLUDED.payment_count,
+           category = EXCLUDED.category,
+           category_detailed = EXCLUDED.category_detailed,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          userId, loan.loan_type, loan.merchant_name, loan.display_name,
+          loan.estimated_monthly_payment, loan.frequency, loan.confidence,
+          loan.first_seen_date, loan.last_payment_date, loan.payment_count,
+          loan.category, loan.category_detailed, new Date().toISOString(),
+        ]
+      );
     }
 
     // Return active (non-dismissed, no doc linked) prompts
-    const { data: active } = await supabase
-      .from('detected_loans')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('dismissed', false)
-      .is('document_id', null)
-      .order('estimated_monthly_payment', { ascending: false })
-      .limit(3);
+    const activeResult = await query(
+      'SELECT * FROM detected_loans WHERE user_id = $1 AND dismissed = false AND document_id IS NULL ORDER BY estimated_monthly_payment DESC LIMIT 3',
+      [userId]
+    );
+    const active = activeResult.rows;
 
     const prompts = (active || []).map((l: any) => ({
       ...l,
@@ -541,13 +533,11 @@ router.post('/detected-loans/:id/dismiss', async (req: Request, res: Response) =
     const userId = req.userId!;
     const { id } = req.params;
 
-    const { error } = await supabase
-      .from('detected_loans')
-      .update({ dismissed: true, dismissed_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('user_id', userId);
+    await query(
+      'UPDATE detected_loans SET dismissed = true, dismissed_at = $1 WHERE id = $2 AND user_id = $3',
+      [new Date().toISOString(), id, userId]
+    );
 
-    if (error) throw error;
     res.json({ success: true });
   } catch (error) {
     console.error('Error dismissing loan:', error);
@@ -571,12 +561,11 @@ router.post('/detected-loans/:id/link-document', async (req: Request, res: Respo
     }
 
     // Verify document belongs to user
-    const { data: doc } = await supabase
-      .from('documents')
-      .select('id, tags')
-      .eq('id', document_id)
-      .eq('user_id', userId)
-      .maybeSingle();
+    const docResult = await query(
+      'SELECT id, tags FROM documents WHERE id = $1 AND user_id = $2',
+      [document_id, userId]
+    );
+    const doc = docResult.rows[0];
 
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
@@ -584,12 +573,11 @@ router.post('/detected-loans/:id/link-document', async (req: Request, res: Respo
     }
 
     // Get the detected loan
-    const { data: loan } = await supabase
-      .from('detected_loans')
-      .select('*')
-      .eq('id', id)
-      .eq('user_id', userId)
-      .maybeSingle();
+    const loanResult = await query(
+      'SELECT * FROM detected_loans WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    const loan = loanResult.rows[0];
 
     if (!loan) {
       res.status(404).json({ error: 'Detected loan not found' });
@@ -597,20 +585,19 @@ router.post('/detected-loans/:id/link-document', async (req: Request, res: Respo
     }
 
     // Link document to detected loan
-    await supabase
-      .from('detected_loans')
-      .update({ document_id, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('user_id', userId);
+    await query(
+      'UPDATE detected_loans SET document_id = $1, updated_at = $2 WHERE id = $3 AND user_id = $4',
+      [document_id, new Date().toISOString(), id, userId]
+    );
 
     // Append loan-type tag to document (cap at 5 tags)
     const existingTags: string[] = doc.tags || [];
     const loanTag = loan.loan_type.replace('_', '-');
     const newTags = [...new Set([...existingTags, loanTag])].slice(0, 5);
-    await supabase
-      .from('documents')
-      .update({ tags: newTags })
-      .eq('id', document_id);
+    await query(
+      'UPDATE documents SET tags = $1 WHERE id = $2',
+      [newTags, document_id]
+    );
 
     // Trigger analysis async (non-blocking)
     analyzeLoanDocument(userId, id, document_id, loan.loan_type, loan.estimated_monthly_payment)
@@ -631,16 +618,12 @@ router.get('/analyzed-loans', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
 
-    const { data: loans } = await supabase
-      .from('detected_loans')
-      .select('id, loan_type, display_name, merchant_name, estimated_monthly_payment, frequency, confidence, document_id')
-      .eq('user_id', userId)
-      .eq('dismissed', false)
-      .not('document_id', 'is', null)
-      .order('estimated_monthly_payment', { ascending: false })
-      .limit(10);
+    const loansResult = await query(
+      'SELECT id, loan_type, display_name, merchant_name, estimated_monthly_payment, frequency, confidence, document_id FROM detected_loans WHERE user_id = $1 AND dismissed = false AND document_id IS NOT NULL ORDER BY estimated_monthly_payment DESC LIMIT 10',
+      [userId]
+    );
 
-    res.json({ success: true, analyzed_loans: loans || [] });
+    res.json({ success: true, analyzed_loans: loansResult.rows || [] });
   } catch (error) {
     console.error('Error fetching analyzed loans:', error);
     res.status(500).json({ error: 'Failed to fetch analyzed loans' });
@@ -657,15 +640,11 @@ router.get('/loan-analysis/:detectedLoanId', async (req: Request, res: Response)
     const { detectedLoanId } = req.params;
 
     // Check for cached non-expired analysis
-    const { data: cached } = await supabase
-      .from('loan_analyses')
-      .select('*')
-      .eq('detected_loan_id', detectedLoanId)
-      .eq('user_id', userId)
-      .gt('expires_at', new Date().toISOString())
-      .order('generated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const cachedResult = await query(
+      'SELECT * FROM loan_analyses WHERE detected_loan_id = $1 AND user_id = $2 AND expires_at > $3 ORDER BY generated_at DESC LIMIT 1',
+      [detectedLoanId, userId, new Date().toISOString()]
+    );
+    const cached = cachedResult.rows[0];
 
     if (cached) {
       res.json({ success: true, analysis: cached });
@@ -673,12 +652,11 @@ router.get('/loan-analysis/:detectedLoanId', async (req: Request, res: Response)
     }
 
     // Check if a document is linked
-    const { data: loan } = await supabase
-      .from('detected_loans')
-      .select('*')
-      .eq('id', detectedLoanId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    const loanResult = await query(
+      'SELECT * FROM detected_loans WHERE id = $1 AND user_id = $2',
+      [detectedLoanId, userId]
+    );
+    const loan = loanResult.rows[0];
 
     if (!loan || !loan.document_id) {
       res.status(404).json({ error: 'No document linked to this loan yet' });

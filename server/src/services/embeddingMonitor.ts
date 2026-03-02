@@ -1,10 +1,8 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { processDocumentVLLMEmbeddings as processDocumentEmbeddings } from './vllmEmbeddings';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
 
 interface EmbeddingCheckResult {
   totalDocuments: number;
@@ -33,18 +31,12 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
 
   try {
     // Get all documents
-    const { data: documents, error: docError } = await supabase
-      .from('documents')
-      .select('id, name')
-      .order('created_at', { ascending: false });
+    const docsResult = await query(
+      'SELECT id, name FROM documents ORDER BY created_at DESC'
+    );
+    const documents = docsResult.rows;
 
-    if (docError) {
-      console.error('❌ Error fetching documents:', docError);
-      result.errors.push(`Failed to fetch documents: ${docError.message}`);
-      return result;
-    }
-
-    if (!documents || documents.length === 0) {
+    if (documents.length === 0) {
       console.log('ℹ️  No documents found');
       return result;
     }
@@ -54,23 +46,17 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
 
     // Check each document for missing embeddings
     for (const doc of documents) {
-      const { data: chunks, error: chunkError } = await supabase
-        .from('document_chunks')
-        .select('id, embedding, chunk_index')
-        .eq('document_id', doc.id)
-        .order('chunk_index', { ascending: true });
+      const chunksResult = await query(
+        'SELECT id, embedding, chunk_index FROM document_chunks WHERE document_id = $1 ORDER BY chunk_index ASC',
+        [doc.id]
+      );
+      const chunks = chunksResult.rows;
 
-      if (chunkError) {
-        console.error(`❌ Error fetching chunks for ${doc.name}:`, chunkError);
-        result.errors.push(`${doc.name}: ${chunkError.message}`);
-        continue;
-      }
-
-      if (!chunks || chunks.length === 0) {
+      if (chunks.length === 0) {
         console.log(`⚠️  ${doc.name}: No chunks found — attempting recovery via edge function...`);
         try {
           // Reset processed flag so edge function can re-process
-          await supabase.from('documents').update({ processed: false }).eq('id', doc.id);
+          await query('UPDATE documents SET processed = false WHERE id = $1', [doc.id]);
 
           const processResponse = await fetch(`${supabaseUrl}/functions/v1/process-document`, {
             method: 'POST',
@@ -115,7 +101,7 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
       }
 
       result.totalChunks += chunks.length;
-      const missingEmbeddings = chunks.filter((c) => !c.embedding);
+      const missingEmbeddings = chunks.filter((c: any) => !c.embedding);
       result.chunksWithoutEmbeddings += missingEmbeddings.length;
 
       if (missingEmbeddings.length > 0) {
@@ -145,11 +131,11 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
         console.log(`✅ ${doc.name}: All ${chunks.length} chunks have embeddings`);
 
         // Check if document needs tags generated
-        const { data: docData } = await supabase
-          .from('documents')
-          .select('tags')
-          .eq('id', doc.id)
-          .single();
+        const docDataResult = await query(
+          'SELECT tags FROM documents WHERE id = $1',
+          [doc.id]
+        );
+        const docData = docDataResult.rows[0];
 
         const needsTags =
           !docData?.tags || !Array.isArray(docData.tags) || docData.tags.length === 0;

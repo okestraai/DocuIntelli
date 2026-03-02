@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { query } from '../services/db';
 import { loadSubscription, invalidateSubscriptionCache } from '../middleware/subscriptionGuard';
 import { detectImpersonation } from '../middleware/impersonation';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
@@ -10,21 +10,14 @@ const router = Router();
 // Apply subscription loading + impersonation detection to ALL routes
 router.use(loadSubscription, detectImpersonation);
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripeStarterPriceId = process.env.STRIPE_STARTER_PRICE_ID;
 const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration in subscription routes');
-}
 
 if (!stripeSecretKey) {
   throw new Error('Missing Stripe configuration in subscription routes');
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2026-01-28.clover',
 });
@@ -51,17 +44,10 @@ async function savePendingDowngrade(
   documentsToKeep: string[] | null
 ): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({
-        pending_plan: pendingPlan,
-        documents_to_keep: documentsToKeep,
-      })
-      .eq('user_id', userId);
-
-    if (error) {
-      console.warn('⚠️ Could not save pending downgrade info (migration may not be applied):', error.message);
-    }
+    await query(
+      `UPDATE user_subscriptions SET pending_plan = $1, documents_to_keep = $2 WHERE user_id = $3`,
+      [pendingPlan, documentsToKeep, userId]
+    );
   } catch (err) {
     console.warn('⚠️ savePendingDowngrade failed:', err);
   }
@@ -97,16 +83,13 @@ router.post('/cancel', async (req: Request, res: Response): Promise<void> => {
     );
 
     // Update our database — critical fields only
-    const { error: dbError } = await supabase
-      .from('user_subscriptions')
-      .update({
-        status: 'canceling',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (dbError) {
-      console.error('❌ DB update failed during cancel:', dbError);
+    try {
+      await query(
+        `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
+        ['canceling', new Date().toISOString(), userId]
+      );
+    } catch (dbErr) {
+      console.error('❌ DB update failed during cancel:', dbErr);
     }
 
     await invalidateSubscriptionCache(userId);
@@ -118,16 +101,17 @@ router.post('/cancel', async (req: Request, res: Response): Promise<void> => {
     // Send cancellation email (non-blocking)
     resolveUserInfo(userId).then(async userInfo => {
       if (userInfo) {
-        const { count: docCount } = await supabase
-          .from('documents')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', userId);
+        const countResult = await query(
+          `SELECT COUNT(*) as count FROM documents WHERE user_id = $1`,
+          [userId]
+        );
+        const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
         sendNotificationEmail(userId, 'subscription_canceled', {
           userName: userInfo.userName,
           plan: subscription.plan,
           effectiveDate: cancelAt ? new Date(cancelAt).toLocaleDateString('en-US', { dateStyle: 'long' }) : 'End of billing period',
-          documentCount: docCount || 0,
+          documentCount: docCount,
         }).catch(err => console.error('📧 Cancel email failed:', err));
       }
     });
@@ -188,16 +172,13 @@ router.post('/reactivate', async (req: Request, res: Response): Promise<void> =>
     }
 
     // Critical DB update: set status to active
-    const { error: dbError } = await supabase
-      .from('user_subscriptions')
-      .update({
-        status: 'active',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (dbError) {
-      console.error('❌ DB update failed during reactivate:', dbError);
+    try {
+      await query(
+        `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
+        ['active', new Date().toISOString(), userId]
+      );
+    } catch (dbErr) {
+      console.error('❌ DB update failed during reactivate:', dbErr);
     }
 
     // Non-critical: clear pending downgrade columns (may not exist yet)
@@ -379,21 +360,25 @@ router.post('/upgrade', async (req: Request, res: Response): Promise<void> => {
 
     // Critical DB update: plan, status, and limits
     const limits = PLAN_DB_LIMITS[new_plan] || PLAN_DB_LIMITS.pro;
-    const { error: dbError } = await supabase
-      .from('user_subscriptions')
-      .update({
-        plan: new_plan,
-        status: 'active',
-        document_limit: limits.document_limit,
-        ai_questions_limit: limits.ai_questions_limit,
-        monthly_upload_limit: limits.monthly_upload_limit,
-        bank_account_limit: limits.bank_account_limit,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (dbError) {
-      console.error('❌ DB update failed during upgrade:', dbError);
+    try {
+      await query(
+        `UPDATE user_subscriptions
+         SET plan = $1, status = $2, document_limit = $3, ai_questions_limit = $4,
+             monthly_upload_limit = $5, bank_account_limit = $6, updated_at = $7
+         WHERE user_id = $8`,
+        [
+          new_plan,
+          'active',
+          limits.document_limit,
+          limits.ai_questions_limit,
+          limits.monthly_upload_limit,
+          limits.bank_account_limit,
+          new Date().toISOString(),
+          userId,
+        ]
+      );
+    } catch (dbErr) {
+      console.error('❌ DB update failed during upgrade:', dbErr);
     }
 
     // Non-critical: clear pending downgrade columns (may not exist yet)
@@ -476,16 +461,13 @@ router.post('/downgrade', async (req: Request, res: Response): Promise<void> => 
       );
 
       // Critical DB update: set status to canceling
-      const { error: dbError } = await supabase
-        .from('user_subscriptions')
-        .update({
-          status: 'canceling',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId);
-
-      if (dbError) {
-        console.error('❌ DB update failed during downgrade-to-free:', dbError);
+      try {
+        await query(
+          `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
+          ['canceling', new Date().toISOString(), userId]
+        );
+      } catch (dbErr) {
+        console.error('❌ DB update failed during downgrade-to-free:', dbErr);
       }
 
       // Non-critical: save pending downgrade info (may not exist yet)
@@ -590,19 +572,16 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
     let subscription = req.subscription!;
 
     // Count documents
-    const { count, error: countError } = await supabase
-      .from('documents')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    if (countError) {
-      console.error('⚠️ Document count error:', countError);
-    }
+    const countResult = await query(
+      `SELECT COUNT(*) as count FROM documents WHERE user_id = $1`,
+      [userId]
+    );
+    const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
     res.json({
       success: true,
       subscription,
-      documentCount: count || 0,
+      documentCount: docCount,
     });
   } catch (err: any) {
     console.error('❌ Get current subscription error:', err);
@@ -633,16 +612,13 @@ router.post('/increment-questions', async (req: Request, res: Response): Promise
 
     const newCount = subscription.ai_questions_used + 1;
 
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({
-        ai_questions_used: newCount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('❌ Increment AI questions error:', error);
+    try {
+      await query(
+        `UPDATE user_subscriptions SET ai_questions_used = $1, updated_at = $2 WHERE user_id = $3`,
+        [newCount, new Date().toISOString(), userId]
+      );
+    } catch (dbErr) {
+      console.error('❌ Increment AI questions error:', dbErr);
       res.status(500).json({ success: false, error: 'Failed to increment AI questions' });
       return;
     }
@@ -683,16 +659,13 @@ router.post('/increment-uploads', async (req: Request, res: Response): Promise<v
 
     const newCount = subscription.monthly_uploads_used + 1;
 
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({
-        monthly_uploads_used: newCount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('❌ Increment uploads error:', error);
+    try {
+      await query(
+        `UPDATE user_subscriptions SET monthly_uploads_used = $1, updated_at = $2 WHERE user_id = $3`,
+        [newCount, new Date().toISOString(), userId]
+      );
+    } catch (dbErr) {
+      console.error('❌ Increment uploads error:', dbErr);
       res.status(500).json({ success: false, error: 'Failed to increment uploads' });
       return;
     }

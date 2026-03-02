@@ -11,12 +11,7 @@ import {
   Products,
   CountryCode,
 } from 'plaid';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { query, getClient } from '../services/db';
 
 // Initialize Plaid client
 function getPlaidClient(): PlaidApi {
@@ -42,33 +37,34 @@ const plaidClient = getPlaidClient();
 // Stored in DB (plaid_link_tokens table) so it survives server restarts.
 
 export async function getUserIdForLinkToken(linkToken: string): Promise<string | undefined> {
-  const { data } = await supabase
-    .from('plaid_link_tokens')
-    .select('user_id')
-    .eq('link_token', linkToken)
-    .is('used_at', null)
-    .single();
-  return data?.user_id;
+  const result = await query(
+    'SELECT user_id FROM plaid_link_tokens WHERE link_token = $1 AND used_at IS NULL',
+    [linkToken]
+  );
+  return result.rows[0]?.user_id;
 }
 
 async function storeLinkTokenMapping(linkToken: string, userId: string): Promise<void> {
   console.log(`[Plaid] Storing link_token mapping: token=${linkToken.substring(0, 20)}..., userId=${userId}`);
-  const { data, error } = await supabase
-    .from('plaid_link_tokens')
-    .upsert({ link_token: linkToken, user_id: userId }, { onConflict: 'link_token' })
-    .select();
-  if (error) {
+  try {
+    const result = await query(
+      `INSERT INTO plaid_link_tokens (link_token, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (link_token) DO UPDATE SET user_id = $2
+       RETURNING *`,
+      [linkToken, userId]
+    );
+    console.log('[Plaid] link_token mapping stored successfully:', result.rows);
+  } catch (error) {
     console.error('[Plaid] Failed to store link_token mapping:', error);
-  } else {
-    console.log('[Plaid] link_token mapping stored successfully:', data);
   }
 }
 
 export async function markLinkTokenUsed(linkToken: string): Promise<void> {
-  await supabase
-    .from('plaid_link_tokens')
-    .update({ used_at: new Date().toISOString() })
-    .eq('link_token', linkToken);
+  await query(
+    'UPDATE plaid_link_tokens SET used_at = $1 WHERE link_token = $2',
+    [new Date().toISOString(), linkToken]
+  );
 }
 
 export async function createLinkToken(
@@ -193,34 +189,29 @@ export async function exchangePublicToken(
   // sees the new plaid_items row, the plaid_accounts rows already exist.
   // This prevents the UI from briefly showing the institution with no accounts.
   for (const account of accounts) {
-    await supabase.from('plaid_accounts').upsert({
-      user_id: userId,
-      item_id: itemId,
-      account_id: account.account_id,
-      name: account.name,
-      official_name: account.official_name,
-      type: account.type,
-      subtype: account.subtype,
-      mask: account.mask,
-      initial_balance: account.current_balance,
-      currency: account.currency,
-      synced_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,account_id' });
+    await query(
+      `INSERT INTO plaid_accounts (user_id, item_id, account_id, name, official_name, type, subtype, mask, initial_balance, currency, synced_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (user_id, account_id) DO UPDATE SET
+         item_id = $2, name = $4, official_name = $5, type = $6, subtype = $7,
+         mask = $8, initial_balance = $9, currency = $10, synced_at = $11`,
+      [userId, itemId, account.account_id, account.name, account.official_name,
+       account.type, account.subtype, account.mask, account.current_balance,
+       account.currency, new Date().toISOString()]
+    );
   }
 
   // Now store the item — polling detects new items via plaid_items,
   // so accounts are guaranteed to exist by the time the item appears.
-  const { error: upsertError } = await supabase
-    .from('plaid_items')
-    .upsert({
-      user_id: userId,
-      item_id: itemId,
-      access_token: accessToken,
-      institution_name: resolvedName,
-      connected_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,item_id' });
-
-  if (upsertError) {
+  try {
+    await query(
+      `INSERT INTO plaid_items (user_id, item_id, access_token, institution_name, connected_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, item_id) DO UPDATE SET
+         access_token = $3, institution_name = $4, connected_at = $5`,
+      [userId, itemId, accessToken, resolvedName, new Date().toISOString()]
+    );
+  } catch (upsertError) {
     console.error('Error storing Plaid item:', upsertError);
     throw new Error('Failed to store bank connection');
   }
@@ -242,15 +233,13 @@ export async function syncTransactions(
 ): Promise<{ added: number; modified: number; removed: number }> {
   // Get access token if not provided
   if (!accessToken) {
-    const { data } = await supabase
-      .from('plaid_items')
-      .select('access_token')
-      .eq('user_id', userId)
-      .eq('item_id', itemId)
-      .single();
+    const result = await query(
+      'SELECT access_token FROM plaid_items WHERE user_id = $1 AND item_id = $2',
+      [userId, itemId]
+    );
 
-    if (!data) throw new Error('Plaid item not found');
-    accessToken = data.access_token;
+    if (!result.rows[0]) throw new Error('Plaid item not found');
+    accessToken = result.rows[0].access_token;
   }
 
   // Fetch last 6 months of transactions
@@ -280,31 +269,31 @@ export async function syncTransactions(
   let added = 0, modified = 0, removed = 0;
 
   for (const txn of allTransactions) {
-    const { error } = await supabase.from('plaid_transactions').upsert({
-      user_id: userId,
-      item_id: itemId,
-      transaction_id: txn.transaction_id,
-      account_id: txn.account_id,
-      amount: txn.amount,
-      date: txn.date,
-      name: txn.name,
-      merchant_name: txn.merchant_name,
-      category: txn.personal_finance_category?.primary || txn.category?.[0] || 'OTHER',
-      category_detailed: txn.personal_finance_category?.detailed || txn.category?.join(' > ') || null,
-      pending: txn.pending,
-      payment_channel: txn.payment_channel,
-      currency: txn.iso_currency_code || 'USD',
-    }, { onConflict: 'user_id,transaction_id' });
-
-    if (!error) added++;
+    try {
+      await query(
+        `INSERT INTO plaid_transactions (user_id, item_id, transaction_id, account_id, amount, date, name, merchant_name, category, category_detailed, pending, payment_channel, currency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (user_id, transaction_id) DO UPDATE SET
+           account_id = $4, amount = $5, date = $6, name = $7, merchant_name = $8,
+           category = $9, category_detailed = $10, pending = $11, payment_channel = $12, currency = $13`,
+        [userId, itemId, txn.transaction_id, txn.account_id, txn.amount, txn.date,
+         txn.name, txn.merchant_name,
+         txn.personal_finance_category?.primary || txn.category?.[0] || 'OTHER',
+         txn.personal_finance_category?.detailed || txn.category?.join(' > ') || null,
+         txn.pending, txn.payment_channel, txn.iso_currency_code || 'USD']
+      );
+      added++;
+    } catch (error) {
+      // Skip individual transaction errors
+      console.error(`[Plaid] Failed to upsert transaction ${txn.transaction_id}:`, error);
+    }
   }
 
   // Update sync timestamp
-  await supabase
-    .from('plaid_items')
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .eq('item_id', itemId);
+  await query(
+    'UPDATE plaid_items SET last_synced_at = $1 WHERE user_id = $2 AND item_id = $3',
+    [new Date().toISOString(), userId, itemId]
+  );
 
   return { added, modified, removed };
 }
@@ -384,19 +373,16 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   const cutoffDate = twelveMonthsAgo.toISOString().split('T')[0];
 
   // Fetch accounts and transactions in parallel
-  const [{ data: accounts }, { data: transactions }] = await Promise.all([
-    supabase
-      .from('plaid_accounts')
-      .select('*')
-      .eq('user_id', userId),
-    supabase
-      .from('plaid_transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('pending', false)
-      .gte('date', cutoffDate)
-      .order('date', { ascending: false }),
+  const [accountsResult, transactionsResult] = await Promise.all([
+    query('SELECT * FROM plaid_accounts WHERE user_id = $1', [userId]),
+    query(
+      'SELECT * FROM plaid_transactions WHERE user_id = $1 AND pending = false AND date >= $2 ORDER BY date DESC',
+      [userId, cutoffDate]
+    ),
   ]);
+
+  const accounts = accountsResult.rows;
+  const transactions = transactionsResult.rows;
 
   if (!accounts || accounts.length === 0) {
     throw new Error('No connected accounts found. Please connect a bank account first.');
@@ -839,16 +825,16 @@ function generate30DayPlan(data: {
 
 export async function getConnectedAccounts(userId: string) {
   // Fetch items and accounts in parallel
-  const [{ data: items }, { data: accounts }] = await Promise.all([
-    supabase
-      .from('plaid_items')
-      .select('item_id, institution_name, connected_at, last_synced_at')
-      .eq('user_id', userId),
-    supabase
-      .from('plaid_accounts')
-      .select('*')
-      .eq('user_id', userId),
+  const [itemsResult, accountsResult] = await Promise.all([
+    query(
+      'SELECT item_id, institution_name, connected_at, last_synced_at FROM plaid_items WHERE user_id = $1',
+      [userId]
+    ),
+    query('SELECT * FROM plaid_accounts WHERE user_id = $1', [userId]),
   ]);
+
+  const items = itemsResult.rows;
+  const accounts = accountsResult.rows;
 
   if (!items || items.length === 0) return [];
 
@@ -860,12 +846,11 @@ export async function getConnectedAccounts(userId: string) {
 
 export async function disconnectAccount(userId: string, itemId: string): Promise<void> {
   // Get access token
-  const { data: item } = await supabase
-    .from('plaid_items')
-    .select('access_token')
-    .eq('user_id', userId)
-    .eq('item_id', itemId)
-    .single();
+  const result = await query(
+    'SELECT access_token FROM plaid_items WHERE user_id = $1 AND item_id = $2',
+    [userId, itemId]
+  );
+  const item = result.rows[0];
 
   if (item?.access_token) {
     try {
@@ -876,9 +861,9 @@ export async function disconnectAccount(userId: string, itemId: string): Promise
   }
 
   // Remove from database
-  await supabase.from('plaid_transactions').delete().eq('user_id', userId).eq('item_id', itemId);
-  await supabase.from('plaid_accounts').delete().eq('user_id', userId).eq('item_id', itemId);
-  await supabase.from('plaid_items').delete().eq('user_id', userId).eq('item_id', itemId);
+  await query('DELETE FROM plaid_transactions WHERE user_id = $1 AND item_id = $2', [userId, itemId]);
+  await query('DELETE FROM plaid_accounts WHERE user_id = $1 AND item_id = $2', [userId, itemId]);
+  await query('DELETE FROM plaid_items WHERE user_id = $1 AND item_id = $2', [userId, itemId]);
 }
 
 /**
@@ -894,47 +879,60 @@ export async function removeAccountsAndCleanup(
   console.log(`[Plaid] removeAccountsAndCleanup: removing ${accountIdsToRemove.length} accounts for user ${userId}:`, accountIdsToRemove);
 
   // Batch-delete transactions for removed accounts
-  const { error: txnErr } = await supabase.from('plaid_transactions').delete()
-    .eq('user_id', userId).in('account_id', accountIdsToRemove);
-  if (txnErr) console.error('[Plaid] Failed to delete transactions for removed accounts:', txnErr);
+  try {
+    await query(
+      'DELETE FROM plaid_transactions WHERE user_id = $1 AND account_id = ANY($2)',
+      [userId, accountIdsToRemove]
+    );
+  } catch (txnErr) {
+    console.error('[Plaid] Failed to delete transactions for removed accounts:', txnErr);
+  }
 
   // Batch-delete financial_goal_accounts referencing removed accounts
-  const { error: goalAcctErr } = await supabase.from('financial_goal_accounts').delete()
-    .eq('user_id', userId).in('account_id', accountIdsToRemove);
-  if (goalAcctErr) console.error('[Plaid] Failed to delete goal account links:', goalAcctErr);
+  try {
+    await query(
+      'DELETE FROM financial_goal_accounts WHERE user_id = $1 AND account_id = ANY($2)',
+      [userId, accountIdsToRemove]
+    );
+  } catch (goalAcctErr) {
+    console.error('[Plaid] Failed to delete goal account links:', goalAcctErr);
+  }
 
   // Batch-delete the accounts themselves
-  const { error: acctErr } = await supabase.from('plaid_accounts').delete()
-    .eq('user_id', userId).in('account_id', accountIdsToRemove);
-  if (acctErr) {
+  try {
+    await query(
+      'DELETE FROM plaid_accounts WHERE user_id = $1 AND account_id = ANY($2)',
+      [userId, accountIdsToRemove]
+    );
+  } catch (acctErr: any) {
     console.error('[Plaid] CRITICAL — failed to delete plaid_accounts:', acctErr);
     throw new Error(`Failed to delete accounts: ${acctErr.message}`);
   }
 
   // Verify the accounts were actually removed
-  const { count: remainingRemoved } = await supabase
-    .from('plaid_accounts')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .in('account_id', accountIdsToRemove);
+  const verifyResult = await query(
+    'SELECT COUNT(*) AS cnt FROM plaid_accounts WHERE user_id = $1 AND account_id = ANY($2)',
+    [userId, accountIdsToRemove]
+  );
+  const remainingRemoved = parseInt(verifyResult.rows[0]?.cnt || '0', 10);
 
-  if (remainingRemoved && remainingRemoved > 0) {
+  if (remainingRemoved > 0) {
     console.error(`[Plaid] CRITICAL — ${remainingRemoved} accounts still exist after deletion!`);
     throw new Error(`Account deletion verification failed: ${remainingRemoved} accounts not removed`);
   }
 
   // Find and clean up orphaned plaid_items (items with 0 remaining accounts)
-  const { data: items } = await supabase
-    .from('plaid_items')
-    .select('item_id, access_token')
-    .eq('user_id', userId);
+  const itemsResult = await query(
+    'SELECT item_id, access_token FROM plaid_items WHERE user_id = $1',
+    [userId]
+  );
 
-  for (const item of (items || [])) {
-    const { count } = await supabase
-      .from('plaid_accounts')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('item_id', item.item_id);
+  for (const item of (itemsResult.rows || [])) {
+    const countResult = await query(
+      'SELECT COUNT(*) AS cnt FROM plaid_accounts WHERE user_id = $1 AND item_id = $2',
+      [userId, item.item_id]
+    );
+    const count = parseInt(countResult.rows[0]?.cnt || '0', 10);
 
     if (count === 0) {
       console.log(`[Plaid] Cleaning up orphaned item: ${item.item_id}`);
@@ -946,10 +944,14 @@ export async function removeAccountsAndCleanup(
           console.error('[Plaid] itemRemove for orphan failed:', e);
         }
       }
-      await supabase.from('plaid_transactions').delete()
-        .eq('user_id', userId).eq('item_id', item.item_id);
-      await supabase.from('plaid_items').delete()
-        .eq('user_id', userId).eq('item_id', item.item_id);
+      await query(
+        'DELETE FROM plaid_transactions WHERE user_id = $1 AND item_id = $2',
+        [userId, item.item_id]
+      );
+      await query(
+        'DELETE FROM plaid_items WHERE user_id = $1 AND item_id = $2',
+        [userId, item.item_id]
+      );
     }
   }
 

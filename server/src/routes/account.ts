@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
 
@@ -14,6 +15,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase configuration in account routes');
 }
 
+// Keep Supabase client ONLY for auth.admin and storage operations (Phase 2 migration)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 /**
@@ -30,26 +32,27 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
     const userInfo = await resolveUserInfo(userId);
 
     // 1. Get document file paths for storage cleanup
-    const { data: documents } = await supabase
-      .from('documents')
-      .select('id, file_path')
-      .eq('user_id', userId);
+    const docsResult = await query(
+      `SELECT id, file_path FROM documents WHERE user_id = $1`,
+      [userId]
+    );
+    const documents = docsResult.rows;
 
     // 2. Delete document chunks
-    const { error: chunksError } = await supabase
-      .from('document_chunks')
-      .delete()
-      .eq('user_id', userId);
-
-    if (chunksError) {
-      console.error('⚠️ Error deleting document chunks:', chunksError);
+    try {
+      await query(
+        `DELETE FROM document_chunks WHERE user_id = $1`,
+        [userId]
+      );
+    } catch (chunksErr) {
+      console.error('⚠️ Error deleting document chunks:', chunksErr);
     }
 
-    // 3. Delete storage files
+    // 3. Delete storage files (uses Supabase storage — Phase 2 migration)
     if (documents && documents.length > 0) {
       const filePaths = documents
-        .map(d => d.file_path)
-        .filter((p): p is string => !!p);
+        .map((d: any) => d.file_path)
+        .filter((p: string | null): p is string => !!p);
 
       if (filePaths.length > 0) {
         const { error: storageError } = await supabase.storage
@@ -77,33 +80,33 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     // 4. Delete documents
-    const { error: docsError } = await supabase
-      .from('documents')
-      .delete()
-      .eq('user_id', userId);
-
-    if (docsError) {
-      console.error('⚠️ Error deleting documents:', docsError);
+    try {
+      await query(
+        `DELETE FROM documents WHERE user_id = $1`,
+        [userId]
+      );
+    } catch (docsErr) {
+      console.error('⚠️ Error deleting documents:', docsErr);
     }
 
     // 5. Delete user profile
-    const { error: profileError } = await supabase
-      .from('user_profiles')
-      .delete()
-      .eq('id', userId);
-
-    if (profileError) {
-      console.error('⚠️ Error deleting user profile:', profileError);
+    try {
+      await query(
+        `DELETE FROM user_profiles WHERE id = $1`,
+        [userId]
+      );
+    } catch (profileErr) {
+      console.error('⚠️ Error deleting user profile:', profileErr);
     }
 
     // 6. Delete user subscription
-    const { error: subError } = await supabase
-      .from('user_subscriptions')
-      .delete()
-      .eq('user_id', userId);
-
-    if (subError) {
-      console.error('⚠️ Error deleting user subscription:', subError);
+    try {
+      await query(
+        `DELETE FROM user_subscriptions WHERE user_id = $1`,
+        [userId]
+      );
+    } catch (subErr) {
+      console.error('⚠️ Error deleting user subscription:', subErr);
     }
 
     // 7. Send account deletion email (before deleting auth user)
@@ -120,7 +123,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // 8. Delete the auth user
+    // 8. Delete the auth user (uses Supabase auth admin — Phase 2 migration)
     const { error: authError } = await supabase.auth.admin.deleteUser(userId);
     if (authError) {
       console.error('⚠️ Error deleting auth user:', authError);

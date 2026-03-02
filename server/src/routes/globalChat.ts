@@ -5,7 +5,6 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { loadSubscription, requireFeature, checkAIQuestionLimit, incrementAIQuestions } from '../middleware/subscriptionGuard';
 import { detectImpersonation } from '../middleware/impersonation';
 import {
@@ -17,11 +16,7 @@ import {
   loadConversationHistory,
   DocRef,
 } from '../services/globalChat';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { query } from '../services/db';
 
 const router = Router();
 
@@ -52,15 +47,14 @@ router.post(
 
       // ── Step 1: Fetch docs + history in parallel (both are independent DB queries) ──
       const [docsResult, history] = await Promise.all([
-        supabase
-          .from('documents')
-          .select('id, name')
-          .eq('user_id', userId)
-          .order('name'),
+        query(
+          'SELECT id, name FROM documents WHERE user_id = $1 ORDER BY name',
+          [userId]
+        ),
         loadConversationHistory(userId, 10),
       ]);
 
-      const documents: DocRef[] = (docsResult.data || []).map((d: any) => ({ id: d.id, name: d.name }));
+      const documents: DocRef[] = (docsResult.rows || []).map((d: any) => ({ id: d.id, name: d.name }));
       console.log(`[GlobalChat] docs=${documents.length} history=${history.length}`);
 
       // ── Step 2: Parse @-mention (instant) ──
@@ -90,14 +84,9 @@ router.post(
 
         // Increment AI question counter for free tier (fire-and-forget)
         if (req.subscription?.plan === 'free') {
-          Promise.resolve(
-            supabase
-              .from('user_subscriptions')
-              .update({
-                ai_questions_used: (req.subscription.ai_questions_used || 0) + 1,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', req.subscription.id)
+          query(
+            'UPDATE user_subscriptions SET ai_questions_used = $1, updated_at = $2 WHERE id = $3',
+            [(req.subscription.ai_questions_used || 0) + 1, new Date().toISOString(), req.subscription.id]
           ).catch(() => {});
         }
       }

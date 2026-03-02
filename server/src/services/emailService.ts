@@ -6,7 +6,7 @@
  */
 
 import nodemailer from 'nodemailer';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import {
   welcomeEmail,
   passwordChangedEmail,
@@ -73,14 +73,6 @@ const SMTP_USER = process.env.SMTP_USER || '';         // Mailjet API Key
 const SMTP_PASS = process.env.SMTP_PASS || '';         // Mailjet Secret Key
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@docuintelli.com';
 const FROM_NAME = process.env.FROM_NAME || 'DocuIntelli AI';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-let supabase: ReturnType<typeof createClient> | null = null;
-if (supabaseUrl && supabaseServiceKey) {
-  supabase = createClient(supabaseUrl, supabaseServiceKey);
-}
 
 // ─── Transporter ───────────────────────────────────────────────────────────────
 
@@ -251,53 +243,63 @@ async function getUserPreferences(userId: string): Promise<UserNotificationPrefe
     activity_alerts: true,
   };
 
-  if (!supabase) return defaults;
-
   // Read from user_profiles first (source of truth for preferences), fall back to user_subscriptions
-  let { data } = await supabase
-    .from('user_profiles')
-    .select('security_alerts, billing_alerts, document_alerts, engagement_digests, life_event_alerts, activity_alerts')
-    .eq('id', userId)
-    .single() as { data: any };
+  try {
+    const profileResult = await query(
+      'SELECT security_alerts, billing_alerts, document_alerts, engagement_digests, life_event_alerts, activity_alerts FROM user_profiles WHERE id = $1',
+      [userId]
+    );
 
-  if (!data) {
-    const result = await supabase
-      .from('user_subscriptions')
-      .select('security_alerts, billing_alerts, document_alerts, engagement_digests, life_event_alerts, activity_alerts')
-      .eq('user_id', userId)
-      .single() as { data: any };
-    data = result.data;
+    let data = profileResult.rows[0];
+
+    if (!data) {
+      const subResult = await query(
+        'SELECT security_alerts, billing_alerts, document_alerts, engagement_digests, life_event_alerts, activity_alerts FROM user_subscriptions WHERE user_id = $1',
+        [userId]
+      );
+      data = subResult.rows[0];
+    }
+
+    if (!data) return defaults;
+
+    return {
+      security_alerts: data.security_alerts ?? true,
+      billing_alerts: data.billing_alerts ?? true,
+      document_alerts: data.document_alerts ?? true,
+      engagement_digests: data.engagement_digests ?? true,
+      life_event_alerts: data.life_event_alerts ?? true,
+      activity_alerts: data.activity_alerts ?? true,
+    };
+  } catch (err) {
+    console.error('Failed to fetch user preferences:', err);
+    return defaults;
   }
-
-  if (!data) return defaults;
-
-  return {
-    security_alerts: data.security_alerts ?? true,
-    billing_alerts: data.billing_alerts ?? true,
-    document_alerts: data.document_alerts ?? true,
-    engagement_digests: data.engagement_digests ?? true,
-    life_event_alerts: data.life_event_alerts ?? true,
-    activity_alerts: data.activity_alerts ?? true,
-  };
 }
 
 async function getUserEmail(userId: string): Promise<string | null> {
-  if (!supabase) return null;
-
-  const { data } = await supabase.auth.admin.getUserById(userId);
-  return data?.user?.email || null;
+  try {
+    const result = await query(
+      'SELECT email FROM auth.users WHERE id = $1',
+      [userId]
+    );
+    return result.rows[0]?.email || null;
+  } catch (err) {
+    console.error('Failed to fetch user email:', err);
+    return null;
+  }
 }
 
 async function getUserName(userId: string): Promise<string> {
-  if (!supabase) return '';
-
-  const { data } = await supabase
-    .from('user_subscriptions')
-    .select('display_name')
-    .eq('user_id', userId)
-    .single() as { data: any };
-
-  return data?.display_name || '';
+  try {
+    const result = await query(
+      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+    return result.rows[0]?.display_name || '';
+  } catch (err) {
+    console.error('Failed to fetch user name:', err);
+    return '';
+  }
 }
 
 // ─── Core Send Function ────────────────────────────────────────────────────────
@@ -339,19 +341,12 @@ async function logNotification(
   messageId?: string,
   error?: string,
 ): Promise<void> {
-  if (!supabase) return;
-
   try {
-    await (supabase.from('notification_logs') as any).insert({
-      user_id: userId,
-      notification_type: `email:${template}`,
-      channel: 'email',
-      recipient: recipientEmail,
-      status: success ? 'sent' : 'failed',
-      message_id: messageId,
-      error_message: error,
-      sent_at: new Date().toISOString(),
-    });
+    await query(
+      `INSERT INTO notification_logs (user_id, notification_type, channel, recipient, status, message_id, error_message, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [userId, `email:${template}`, 'email', recipientEmail, success ? 'sent' : 'failed', messageId || null, error || null, new Date().toISOString()]
+    );
   } catch (err) {
     console.error('Failed to log notification:', err);
   }

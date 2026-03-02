@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
 import { TextExtractor } from '../services/textExtractor';
 import {
@@ -27,6 +28,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase configuration in upload routes');
 }
 
+// Keep Supabase client ONLY for storage operations (Phase 2 migration)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const upload = multer({
@@ -97,27 +99,30 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
       return;
     }
 
-    const { data: documentData, error: dbError } = await supabase
-      .from('documents')
-      .insert([{
-        user_id: userId,
-        name: name.trim(),
+    const insertResult = await query(
+      `INSERT INTO documents (user_id, name, category, type, size, file_path, original_name, upload_date, expiration_date, status, processed)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [
+        userId,
+        name.trim(),
         category,
-        type: file.mimetype,
-        size: file.size,
-        file_path: uploadResult.filePath,
-        original_name: file.originalname,
-        upload_date: new Date().toISOString().split('T')[0],
-        expiration_date: expirationDate || null,
-        status: 'active',
-        processed: false,
-      }])
-      .select()
-      .single();
+        file.mimetype,
+        file.size,
+        uploadResult.filePath,
+        file.originalname,
+        new Date().toISOString().split('T')[0],
+        expirationDate || null,
+        'active',
+        false,
+      ]
+    );
 
-    if (dbError) {
+    const documentData = insertResult.rows[0];
+
+    if (!documentData) {
       await deleteFromStorage(uploadResult.filePath!);
-      console.error('DB insert error:', dbError.message);
+      console.error('DB insert error: no row returned');
       res.status(500).json({ success: false, error: 'Failed to save document metadata' });
       return;
     }
@@ -171,28 +176,30 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
           console.log(`✂️ Local extractor created ${extractionResult.chunks.length} text chunks`);
 
           if (extractionResult.chunks.length > 0) {
-            const { error: chunkError } = await supabase
-              .from('document_chunks')
-              .insert(
-                extractionResult.chunks.map(({ index, content }) => ({
-                  document_id: documentData.id,
-                  user_id: userId,
-                  chunk_index: index,
-                  chunk_text: content,
-                  embedding: null,
-                }))
-              );
+            // Build a multi-row INSERT for all chunks
+            const values: any[] = [];
+            const placeholders: string[] = [];
+            extractionResult.chunks.forEach(({ index, content }, i) => {
+              const offset = i * 4;
+              placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`);
+              values.push(documentData.id, userId, index, content);
+            });
 
-            if (chunkError) {
-              console.error('⚠️ Failed to store chunks:', chunkError.message);
-            } else {
+            try {
+              await query(
+                `INSERT INTO document_chunks (document_id, user_id, chunk_index, chunk_text)
+                 VALUES ${placeholders.join(', ')}`,
+                values
+              );
               chunksCreated = extractionResult.chunks.length;
               console.log(`✅ Stored ${chunksCreated} chunks in DB`);
-              await supabase
-                .from('documents')
-                .update({ processed: true })
-                .eq('id', documentData.id);
+              await query(
+                `UPDATE documents SET processed = true WHERE id = $1`,
+                [documentData.id]
+              );
               console.log(`✅ Document marked as processed: ${documentData.id}`);
+            } catch (chunkErr: any) {
+              console.error('⚠️ Failed to store chunks:', chunkErr.message);
             }
           }
         } catch (localErr: any) {
@@ -205,7 +212,10 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
           try {
             const processUrl = `${supabaseUrl}/functions/v1/process-document`;
             // Reset processed flag so edge function can re-process
-            await supabase.from('documents').update({ processed: false }).eq('id', documentData.id);
+            await query(
+              `UPDATE documents SET processed = false WHERE id = $1`,
+              [documentData.id]
+            );
 
             const processResponse = await fetch(processUrl, {
               method: 'POST',
@@ -325,19 +335,12 @@ router.get('/documents', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
-    const { data, error } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    const result = await query(
+      `SELECT * FROM documents WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
+    );
 
-    if (error) {
-      console.error('❌ List documents error:', error);
-      res.status(500).json({ success: false, error: 'Failed to list documents' });
-      return;
-    }
-
-    res.json({ success: true, documents: data || [] });
+    res.json({ success: true, documents: result.rows });
   } catch (err: any) {
     console.error('❌ List documents error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -360,14 +363,13 @@ router.get('/documents/:id', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const { data: document, error } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('id', id)
-      .eq('user_id', userId)
-      .single();
+    const result = await query(
+      `SELECT * FROM documents WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
 
-    if (error || !document) {
+    const document = result.rows[0];
+    if (!document) {
       res.status(404).json({ success: false, error: 'Document not found' });
       return;
     }
@@ -389,32 +391,28 @@ router.get('/documents/:id/preview-url', async (req: Request, res: Response): Pr
     const userId = req.userId!;
 
     // Check document_files table first (multi-file documents)
-    const { data: files } = await supabase
-      .from('document_files')
-      .select('file_path')
-      .eq('document_id', id)
-      .order('file_order', { ascending: true })
-      .limit(1);
+    const filesResult = await query(
+      `SELECT file_path FROM document_files WHERE document_id = $1 ORDER BY file_order ASC LIMIT 1`,
+      [id]
+    );
 
     let filePath: string | null = null;
 
-    if (files && files.length > 0 && files[0].file_path) {
-      filePath = files[0].file_path;
+    if (filesResult.rows.length > 0 && filesResult.rows[0].file_path) {
+      filePath = filesResult.rows[0].file_path;
     } else {
       // Fall back to documents.file_path
-      const { data: docData, error: docError } = await supabase
-        .from('documents')
-        .select('file_path')
-        .eq('id', id)
-        .eq('user_id', userId)
-        .single();
+      const docResult = await query(
+        `SELECT file_path FROM documents WHERE id = $1 AND user_id = $2`,
+        [id, userId]
+      );
 
-      if (docError || !docData?.file_path) {
+      if (docResult.rows.length === 0 || !docResult.rows[0]?.file_path) {
         res.status(404).json({ success: false, error: 'Document not found' });
         return;
       }
 
-      filePath = docData.file_path;
+      filePath = docResult.rows[0].file_path;
     }
 
     if (!filePath) {
@@ -422,7 +420,7 @@ router.get('/documents/:id/preview-url', async (req: Request, res: Response): Pr
       return;
     }
 
-    // Create signed URL (3600s / 1 hour expiry)
+    // Create signed URL (3600s / 1 hour expiry) — uses Supabase storage client (Phase 2 migration)
     const { data: signedUrlData, error: signedUrlError } = await supabase
       .storage
       .from('documents')
@@ -461,17 +459,10 @@ router.put('/documents/:id/status', async (req: Request, res: Response): Promise
       return;
     }
 
-    const { error } = await supabase
-      .from('documents')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('❌ Update document status error:', error);
-      res.status(500).json({ success: false, error: 'Failed to update document status' });
-      return;
-    }
+    await query(
+      `UPDATE documents SET status = $1, updated_at = $2 WHERE id = $3 AND user_id = $4`,
+      [status, new Date().toISOString(), id, userId]
+    );
 
     res.json({ success: true });
   } catch (err: any) {
@@ -485,14 +476,13 @@ router.get('/documents/:id/download', async (req: Request, res: Response): Promi
     const { id } = req.params;
     const userId = req.userId!;
 
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('file_path, name')
-      .eq('id', id)
-      .eq('user_id', userId)
-      .single();
+    const result = await query(
+      `SELECT file_path, name FROM documents WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
 
-    if (docError || !document) {
+    const document = result.rows[0];
+    if (!document) {
       res.status(404).json({ success: false, error: 'Document not found' });
       return;
     }
@@ -513,28 +503,18 @@ router.delete('/documents/:id', async (req: Request, res: Response): Promise<voi
     console.log(`🗑️ Delete request for document: ${id}`);
     console.log(`👤 Authenticated user: ${userId}`);
 
-    const { data: result, error: deleteError } = await supabase
-      .rpc('delete_document_cascade', {
-        p_document_id: id,
-        p_user_id: userId
-      });
+    const rpcResult = await query(
+      `SELECT * FROM delete_document_cascade($1, $2)`,
+      [id, userId]
+    );
 
-    if (deleteError) {
-      console.error('❌ Database deletion error:', deleteError);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to delete document from database',
-      });
-      return;
-    }
-
-    if (!result || result.length === 0) {
+    if (rpcResult.rows.length === 0) {
       console.error('❌ No result from delete function');
       res.status(500).json({ success: false, error: 'Delete operation returned no result' });
       return;
     }
 
-    const deleteResult = result[0];
+    const deleteResult = rpcResult.rows[0];
 
     if (!deleteResult.success) {
       console.error('❌ Delete failed:', deleteResult.message);

@@ -30,6 +30,7 @@
     "nodemailer": "^8.0.1",
     "pdf-parse": "^1.1.1",
     "pdf-to-png-converter": "^3.11.0",
+    "pg": "^8.19.0",
     "plaid": "^41.3.0",
     "rate-limit-redis": "^4.3.1",
     "redis": "^5.10.0",
@@ -44,6 +45,7 @@
     "@types/node": "^20.19.11",
     "@types/nodemailer": "^7.0.9",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.18.0",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"

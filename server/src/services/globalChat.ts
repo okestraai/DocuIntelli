@@ -6,14 +6,9 @@
  */
 
 import { Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { generateQueryEmbedding } from './vllmEmbeddings';
 import { cacheGet, cacheSet } from './redisClient';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const EMBEDDING_CACHE_TTL = 60; // 1 minute — avoids re-embedding identical follow-ups
 
@@ -89,8 +84,8 @@ export function parseAtMention(
  * Generate a query embedding with short-lived Redis caching.
  * Avoids re-calling the vLLM embedder for identical or very recent queries.
  */
-async function getCachedQueryEmbedding(query: string): Promise<number[]> {
-  const normalised = query.toLowerCase().trim();
+async function getCachedQueryEmbedding(queryText: string): Promise<number[]> {
+  const normalised = queryText.toLowerCase().trim();
   const cacheKey = `qemb:${simpleHash(normalised)}`;
 
   // Try cache first
@@ -99,7 +94,7 @@ async function getCachedQueryEmbedding(query: string): Promise<number[]> {
     return cached;
   }
 
-  const embedding = await generateQueryEmbedding(query);
+  const embedding = await generateQueryEmbedding(queryText);
 
   // Cache for quick follow-ups (fire-and-forget)
   cacheSet(cacheKey, embedding, EMBEDDING_CACHE_TTL).catch(() => {});
@@ -124,13 +119,13 @@ function simpleHash(str: string): string {
  */
 export async function retrieveContext(
   userId: string,
-  query: string,
+  queryText: string,
   mentionedDoc?: DocRef | null
 ): Promise<{ chunks: RetrievedChunk[]; sources: ChatSource[] }> {
   const embStart = Date.now();
   let queryEmbedding: number[];
   try {
-    queryEmbedding = await getCachedQueryEmbedding(query);
+    queryEmbedding = await getCachedQueryEmbedding(queryText);
   } catch (err) {
     console.error('Global chat: embedding generation failed:', err);
     return { chunks: [], sources: [] };
@@ -141,52 +136,53 @@ export async function retrieveContext(
 
   if (mentionedDoc) {
     // Single-document search via existing match_document_chunks
-    const { data, error } = await supabase.rpc('match_document_chunks', {
-      query_embedding: queryEmbedding,
-      match_document_id: mentionedDoc.id,
-      match_count: 6,
-      similarity_threshold: 0.15,
-    });
+    const embeddingStr = JSON.stringify(queryEmbedding);
+    try {
+      const result = await query(
+        'SELECT * FROM match_document_chunks($1::vector, $2::uuid, $3::int, $4::float)',
+        [embeddingStr, mentionedDoc.id, 6, 0.15]
+      );
 
-    if (error) {
+      if (result.rows) {
+        console.log(`[GlobalChat] match_document_chunks returned ${result.rows.length} rows`);
+        chunks = result.rows.map((c: any) => ({
+          document_id: mentionedDoc.id,
+          document_name: mentionedDoc.name,
+          chunk_index: c.chunk_index,
+          chunk_text: c.chunk_text,
+          similarity: c.similarity,
+        }));
+      }
+    } catch (error) {
       console.error('[GlobalChat] match_document_chunks error:', error);
-    } else if (data) {
-      console.log(`[GlobalChat] match_document_chunks returned ${data.length} rows`);
-      chunks = data.map((c: any) => ({
-        document_id: mentionedDoc.id,
-        document_name: mentionedDoc.name,
-        chunk_index: c.chunk_index,
-        chunk_text: c.chunk_text,
-        similarity: c.similarity,
-      }));
     }
   } else {
     // Cross-document search via global_search_chunks
     const rpcStart = Date.now();
-    const { data, error } = await supabase.rpc('global_search_chunks', {
-      search_query: query,
-      query_embedding: queryEmbedding,
-      search_user_id: userId,
-      match_count: 8,
-      similarity_threshold: 0.15,
-    });
+    const embeddingStr = JSON.stringify(queryEmbedding);
+    try {
+      const result = await query(
+        'SELECT * FROM global_search_chunks($1::text, $2::vector, $3::uuid, $4::int, $5::float)',
+        [queryText, embeddingStr, userId, 8, 0.15]
+      );
 
-    if (error) {
-      console.error('[GlobalChat] global_search_chunks error:', JSON.stringify(error));
-    } else if (data) {
-      console.log(`[GlobalChat] global_search_chunks returned ${data.length} rows in ${Date.now() - rpcStart}ms`);
-      if (data.length > 0) {
-        console.log(`[GlobalChat] top result: doc="${data[0].document_name}" sem=${data[0].semantic_score} combined=${data[0].combined_score}`);
+      if (result.rows) {
+        console.log(`[GlobalChat] global_search_chunks returned ${result.rows.length} rows in ${Date.now() - rpcStart}ms`);
+        if (result.rows.length > 0) {
+          console.log(`[GlobalChat] top result: doc="${result.rows[0].document_name}" sem=${result.rows[0].semantic_score} combined=${result.rows[0].combined_score}`);
+        }
+        chunks = result.rows.map((c: any) => ({
+          document_id: c.document_id,
+          document_name: c.document_name,
+          chunk_index: c.chunk_index,
+          chunk_text: c.chunk_text,
+          similarity: c.semantic_score || c.combined_score || 0,
+        }));
+      } else {
+        console.log('[GlobalChat] global_search_chunks returned no rows');
       }
-      chunks = data.map((c: any) => ({
-        document_id: c.document_id,
-        document_name: c.document_name,
-        chunk_index: c.chunk_index,
-        chunk_text: c.chunk_text,
-        similarity: c.semantic_score || c.combined_score || 0,
-      }));
-    } else {
-      console.log('[GlobalChat] global_search_chunks returned null data');
+    } catch (error) {
+      console.error('[GlobalChat] global_search_chunks error:', JSON.stringify(error));
     }
   }
 
@@ -373,21 +369,18 @@ export async function persistChatMessages(
   mentionedDocId?: string
 ): Promise<void> {
   try {
-    await supabase.from('global_chats').insert([
-      {
-        user_id: userId,
-        role: 'user',
-        content: question,
-        mentioned_document_id: mentionedDocId || null,
-      },
-      {
-        user_id: userId,
-        role: 'assistant',
-        content: answer,
-        sources: sources.length > 0 ? sources : null,
-        mentioned_document_id: mentionedDocId || null,
-      },
-    ]);
+    // Insert user message
+    await query(
+      `INSERT INTO global_chats (user_id, role, content, mentioned_document_id)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, 'user', question, mentionedDocId || null]
+    );
+    // Insert assistant message with sources
+    await query(
+      `INSERT INTO global_chats (user_id, role, content, sources, mentioned_document_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, 'assistant', answer, sources.length > 0 ? JSON.stringify(sources) : null, mentionedDocId || null]
+    );
   } catch (err) {
     console.error('Error persisting global chat:', err);
     // Non-blocking — don't throw
@@ -401,15 +394,13 @@ export async function loadConversationHistory(
   userId: string,
   limit = 10
 ): Promise<Array<{ role: string; content: string }>> {
-  const { data, error } = await supabase
-    .from('global_chats')
-    .select('role, content')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const result = await query(
+    'SELECT role, content FROM global_chats WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+    [userId, limit]
+  );
 
-  if (error || !data) return [];
+  if (!result.rows || result.rows.length === 0) return [];
 
   // Reverse to get chronological order
-  return data.reverse();
+  return result.rows.reverse();
 }

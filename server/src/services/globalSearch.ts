@@ -6,14 +6,9 @@
  * tsvector FTS with pgvector cosine similarity via Reciprocal Rank Fusion.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { generateQueryEmbedding } from './vllmEmbeddings';
 import { cacheGet, cacheSet, cacheDel } from './redisClient';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const SEARCH_CACHE_TTL = 120; // 2 minutes
 
@@ -44,8 +39,8 @@ export interface GlobalSearchResult {
 /**
  * Highlight matching terms in chunk text by wrapping them in <mark> tags.
  */
-function highlightSnippet(text: string, query: string, maxLength = 200): string {
-  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+function highlightSnippet(text: string, queryText: string, maxLength = 200): string {
+  const words = queryText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   let snippet = text;
 
   if (words.length > 0) {
@@ -79,8 +74,8 @@ function highlightSnippet(text: string, query: string, maxLength = 200): string 
 /**
  * Build a deterministic cache key from search params.
  */
-function buildCacheKey(userId: string, query: string, category?: string, tags?: string[]): string {
-  const parts = [userId, query.toLowerCase().trim()];
+function buildCacheKey(userId: string, queryText: string, category?: string, tags?: string[]): string {
+  const parts = [userId, queryText.toLowerCase().trim()];
   if (category) parts.push(category);
   if (tags && tags.length > 0) parts.push(tags.sort().join(','));
   // Simple hash — good enough for cache keys
@@ -97,7 +92,7 @@ function buildCacheKey(userId: string, query: string, category?: string, tags?: 
  */
 export async function executeGlobalSearch(
   userId: string,
-  query: string,
+  searchQuery: string,
   options: {
     category?: string;
     tags?: string[];
@@ -107,7 +102,7 @@ export async function executeGlobalSearch(
   const startTime = Date.now();
 
   // Check cache first
-  const cacheKey = buildCacheKey(userId, query, options.category, options.tags);
+  const cacheKey = buildCacheKey(userId, searchQuery, options.category, options.tags);
   const cached = await cacheGet<GlobalSearchResult>(cacheKey);
   if (cached) {
     return { ...cached, query_time_ms: Date.now() - startTime };
@@ -116,7 +111,7 @@ export async function executeGlobalSearch(
   // Generate query embedding for semantic search
   let queryEmbedding: number[];
   try {
-    queryEmbedding = await generateQueryEmbedding(query);
+    queryEmbedding = await generateQueryEmbedding(searchQuery);
   } catch (err) {
     console.error('Global search: embedding generation failed, falling back to FTS-only:', err);
     // Fall back to FTS-only by providing a zero vector
@@ -128,17 +123,15 @@ export async function executeGlobalSearch(
   const DB_MATCH_COUNT = 100;
 
   // Call the hybrid search RPC function
-  const { data: chunks, error } = await supabase.rpc('global_search_chunks', {
-    search_query: query,
-    query_embedding: queryEmbedding,
-    search_user_id: userId,
-    filter_category: options.category || null,
-    filter_tags: options.tags || null,
-    match_count: DB_MATCH_COUNT,
-    similarity_threshold: 0.55,
-  });
-
-  if (error) {
+  const embeddingStr = JSON.stringify(queryEmbedding);
+  let chunks: any[];
+  try {
+    const result = await query(
+      'SELECT * FROM global_search_chunks($1::text, $2::vector, $3::uuid, $4::text, $5::text[], $6::int, $7::float)',
+      [searchQuery, embeddingStr, userId, options.category || null, options.tags || null, DB_MATCH_COUNT, 0.55]
+    );
+    chunks = result.rows || [];
+  } catch (error) {
     console.error('Global search RPC error:', error);
     throw new Error('Search failed. Please try again.');
   }
@@ -149,7 +142,7 @@ export async function executeGlobalSearch(
   // Strategy: at least ONE chunk in the result set must have a real full-text
   // match (fts_rank > 0). If no chunk has any FTS word overlap with the query,
   // the query is likely gibberish or completely unrelated — return empty.
-  const allChunks = chunks ?? [];
+  const allChunks = chunks;
   const hasFtsMatchAnywhere = allChunks.some((c: any) => c.fts_rank > 0);
 
   if (!hasFtsMatchAnywhere) {
@@ -205,7 +198,7 @@ export async function executeGlobalSearch(
         chunk_id: chunk.chunk_id,
         chunk_index: chunk.chunk_index,
         chunk_text: chunk.chunk_text,
-        highlight: highlightSnippet(chunk.chunk_text, query),
+        highlight: highlightSnippet(chunk.chunk_text, searchQuery),
         combined_score: chunk.combined_score,
       });
     }

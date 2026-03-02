@@ -3,7 +3,6 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import {
   LIFE_EVENT_TEMPLATES,
@@ -11,14 +10,10 @@ import {
 } from '../config/lifeEventTemplates';
 import { computeReadiness, getReadinessSnapshot } from '../services/readinessEngine';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
+import { query } from '../services/db';
 
 const router = Router();
 router.use(loadSubscription);
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // ---------------------------------------------------------------------------
 // GET /life-events/templates — list all available templates
@@ -67,22 +62,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { data: event, error } = await supabase
-      .from('life_events')
-      .insert({
-        user_id: userId,
-        template_id,
-        title: template.name,
-        intake_answers: intake_answers || {},
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating life event:', error);
-      res.status(500).json({ success: false, error: 'Failed to create life event' });
-      return;
-    }
+    const eventResult = await query(
+      `INSERT INTO life_events (user_id, template_id, title, intake_answers)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [userId, template_id, template.name, JSON.stringify(intake_answers || {})]
+    );
+    const event = eventResult.rows[0];
 
     // Run initial matching
     const readiness = await computeReadiness(event.id, userId);
@@ -101,7 +87,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
           requirementsCount: template.requirements.length,
           readinessScore: readiness.readinessScore || 0,
           matchedDocuments: matchedCount,
-        }).catch(emailErr => console.error('📧 Life event email failed:', emailErr));
+        }).catch(emailErr => console.error('Life event email failed:', emailErr));
       }
     });
 
@@ -120,20 +106,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const userId = req.userId!;
     const status = (req.query.status as string) || 'active';
 
-    const { data: events, error } = await supabase
-      .from('life_events')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', status)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      res.status(500).json({ success: false, error: 'Failed to fetch life events' });
-      return;
-    }
+    const eventsResult = await query(
+      'SELECT * FROM life_events WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC',
+      [userId, status]
+    );
+    const events = eventsResult.rows || [];
 
     // Enrich with template metadata
-    const enriched = (events || []).map((ev: any) => {
+    const enriched = events.map((ev: any) => {
       const tmpl = getTemplateById(ev.template_id);
       return {
         ...ev,
@@ -158,14 +138,13 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const userId = req.userId!;
     const eventId = req.params.id;
 
-    const { data: event, error } = await supabase
-      .from('life_events')
-      .select('*')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT * FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
+    const event = eventResult.rows[0];
 
-    if (error || !event) {
+    if (!event) {
       res.status(404).json({ success: false, error: 'Life event not found' });
       return;
     }
@@ -174,17 +153,17 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const readiness = await computeReadiness(eventId, userId);
 
     // Enrich template with custom requirements so frontend can group by section
-    const { data: customReqs } = await supabase
-      .from('life_event_custom_requirements')
-      .select('*')
-      .eq('life_event_id', eventId)
-      .order('created_at', { ascending: true });
+    const customReqsResult = await query(
+      'SELECT * FROM life_event_custom_requirements WHERE life_event_id = $1 ORDER BY created_at ASC',
+      [eventId]
+    );
+    const customReqs = customReqsResult.rows || [];
 
     const enrichedTemplate = template ? {
       ...template,
       requirements: [
         ...template.requirements,
-        ...(customReqs || []).map((cr: any) => ({
+        ...customReqs.map((cr: any) => ({
           id: `custom-${cr.id}`,
           title: cr.title,
           description: cr.description || '',
@@ -240,27 +219,24 @@ router.post(
       const { reason } = req.body;
 
       // Verify ownership
-      const { data: event } = await supabase
-        .from('life_events')
-        .select('id')
-        .eq('id', eventId)
-        .eq('user_id', userId)
-        .single();
+      const eventResult = await query(
+        'SELECT id FROM life_events WHERE id = $1 AND user_id = $2',
+        [eventId, userId]
+      );
 
-      if (!event) {
+      if (!eventResult.rows[0]) {
         res.status(404).json({ success: false, error: 'Event not found' });
         return;
       }
 
-      await supabase.from('life_event_requirement_status').upsert(
-        {
-          life_event_id: eventId,
-          requirement_id: rid,
-          status: 'not_applicable',
-          not_applicable_reason: reason || null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'life_event_id,requirement_id' }
+      await query(
+        `INSERT INTO life_event_requirement_status (life_event_id, requirement_id, status, not_applicable_reason, updated_at)
+         VALUES ($1, $2, 'not_applicable', $3, $4)
+         ON CONFLICT (life_event_id, requirement_id) DO UPDATE SET
+           status = 'not_applicable',
+           not_applicable_reason = EXCLUDED.not_applicable_reason,
+           updated_at = EXCLUDED.updated_at`,
+        [eventId, rid, reason || null, new Date().toISOString()]
       );
 
       // Recompute
@@ -290,49 +266,42 @@ router.post(
       }
 
       // Verify ownership of event
-      const { data: event } = await supabase
-        .from('life_events')
-        .select('id')
-        .eq('id', eventId)
-        .eq('user_id', userId)
-        .single();
+      const eventResult = await query(
+        'SELECT id FROM life_events WHERE id = $1 AND user_id = $2',
+        [eventId, userId]
+      );
 
-      if (!event) {
+      if (!eventResult.rows[0]) {
         res.status(404).json({ success: false, error: 'Event not found' });
         return;
       }
 
       // Verify ownership of document
-      const { data: doc } = await supabase
-        .from('documents')
-        .select('id')
-        .eq('id', document_id)
-        .eq('user_id', userId)
-        .single();
+      const docResult = await query(
+        'SELECT id FROM documents WHERE id = $1 AND user_id = $2',
+        [document_id, userId]
+      );
 
-      if (!doc) {
+      if (!docResult.rows[0]) {
         res.status(404).json({ success: false, error: 'Document not found' });
         return;
       }
 
       // Remove existing non-manual matches for this requirement
-      await supabase
-        .from('life_event_requirement_matches')
-        .delete()
-        .eq('life_event_id', eventId)
-        .eq('requirement_id', rid)
-        .neq('match_method', 'manual');
+      await query(
+        `DELETE FROM life_event_requirement_matches
+         WHERE life_event_id = $1 AND requirement_id = $2 AND match_method != 'manual'`,
+        [eventId, rid]
+      );
 
       // Insert manual match
-      await supabase.from('life_event_requirement_matches').upsert(
-        {
-          life_event_id: eventId,
-          requirement_id: rid,
-          document_id,
-          confidence: 1.0,
-          match_method: 'manual',
-        },
-        { onConflict: 'life_event_id,requirement_id,document_id' }
+      await query(
+        `INSERT INTO life_event_requirement_matches (life_event_id, requirement_id, document_id, confidence, match_method)
+         VALUES ($1, $2, $3, 1.0, 'manual')
+         ON CONFLICT (life_event_id, requirement_id, document_id) DO UPDATE SET
+           confidence = 1.0,
+           match_method = 'manual'`,
+        [eventId, rid, document_id]
       );
 
       const readiness = await computeReadiness(eventId, userId);
@@ -355,21 +324,19 @@ router.post(
       const { id: eventId, rid } = req.params;
 
       // Delete ALL matches for this requirement (manual, deterministic, heuristic)
-      await supabase
-        .from('life_event_requirement_matches')
-        .delete()
-        .eq('life_event_id', eventId)
-        .eq('requirement_id', rid);
+      await query(
+        'DELETE FROM life_event_requirement_matches WHERE life_event_id = $1 AND requirement_id = $2',
+        [eventId, rid]
+      );
 
       // Set status to missing
-      await supabase.from('life_event_requirement_status').upsert(
-        {
-          life_event_id: eventId,
-          requirement_id: rid,
-          status: 'missing',
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'life_event_id,requirement_id' }
+      await query(
+        `INSERT INTO life_event_requirement_status (life_event_id, requirement_id, status, updated_at)
+         VALUES ($1, $2, 'missing', $3)
+         ON CONFLICT (life_event_id, requirement_id) DO UPDATE SET
+           status = 'missing',
+           updated_at = EXCLUDED.updated_at`,
+        [eventId, rid, new Date().toISOString()]
       );
 
       // Return a snapshot (no re-matching) so the removed doc stays removed
@@ -391,18 +358,16 @@ router.post('/:id/archive', async (req: Request, res: Response): Promise<void> =
     const eventId = req.params.id;
 
     // Get event details before archiving
-    const { data: event } = await supabase
-      .from('life_events')
-      .select('*')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT * FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
+    const event = eventResult.rows[0];
 
-    await supabase
-      .from('life_events')
-      .update({ status: 'archived' })
-      .eq('id', eventId)
-      .eq('user_id', userId);
+    await query(
+      `UPDATE life_events SET status = 'archived' WHERE id = $1 AND user_id = $2`,
+      [eventId, userId]
+    );
 
     // Send archive email (non-blocking)
     if (event) {
@@ -440,11 +405,10 @@ router.post('/:id/archive', async (req: Request, res: Response): Promise<void> =
 router.post('/:id/unarchive', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    await supabase
-      .from('life_events')
-      .update({ status: 'active' })
-      .eq('id', req.params.id)
-      .eq('user_id', userId);
+    await query(
+      `UPDATE life_events SET status = 'active' WHERE id = $1 AND user_id = $2`,
+      [req.params.id, userId]
+    );
 
     res.json({ success: true });
   } catch (err: any) {
@@ -461,12 +425,11 @@ router.get('/:id/export', async (req: Request, res: Response): Promise<void> => 
     const userId = req.userId!;
     const eventId = req.params.id;
 
-    const { data: event } = await supabase
-      .from('life_events')
-      .select('*')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT * FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
+    const event = eventResult.rows[0];
 
     if (!event) {
       res.status(404).json({ success: false, error: 'Event not found' });
@@ -477,14 +440,15 @@ router.get('/:id/export', async (req: Request, res: Response): Promise<void> => 
     const readiness = await computeReadiness(eventId, userId);
 
     // Load custom requirements for export lookup
-    const { data: customReqs } = await supabase
-      .from('life_event_custom_requirements')
-      .select('*')
-      .eq('life_event_id', eventId);
+    const customReqsResult = await query(
+      'SELECT * FROM life_event_custom_requirements WHERE life_event_id = $1',
+      [eventId]
+    );
+    const customReqs = customReqsResult.rows || [];
 
     const allReqs = [
       ...(template?.requirements || []),
-      ...(customReqs || []).map((cr: any) => ({
+      ...customReqs.map((cr: any) => ({
         id: `custom-${cr.id}`,
         title: cr.title,
         section: cr.section || 'Custom',
@@ -534,23 +498,22 @@ router.post('/:id/custom-requirements', async (req: Request, res: Response): Pro
       return;
     }
 
-    const { data: event } = await supabase
-      .from('life_events')
-      .select('id')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT id FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
 
-    if (!event) {
+    if (!eventResult.rows[0]) {
       res.status(404).json({ success: false, error: 'Event not found' });
       return;
     }
 
     const section = req.body.section?.trim() || 'Custom';
 
-    await supabase
-      .from('life_event_custom_requirements')
-      .insert({ life_event_id: eventId, title: title.trim(), section });
+    await query(
+      'INSERT INTO life_event_custom_requirements (life_event_id, title, section) VALUES ($1, $2, $3)',
+      [eventId, title.trim(), section]
+    );
 
     const readiness = await getReadinessSnapshot(eventId, userId);
     res.json({ success: true, readiness });
@@ -569,32 +532,41 @@ router.put('/:id/custom-requirements/:crid', async (req: Request, res: Response)
     const { id: eventId, crid } = req.params;
     const { title, section } = req.body;
 
-    const { data: event } = await supabase
-      .from('life_events')
-      .select('id')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT id FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
 
-    if (!event) {
+    if (!eventResult.rows[0]) {
       res.status(404).json({ success: false, error: 'Event not found' });
       return;
     }
 
-    const updates: Record<string, string> = {};
-    if (title !== undefined) updates.title = title.trim();
-    if (section !== undefined) updates.section = section.trim();
+    const setClauses: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
 
-    if (Object.keys(updates).length === 0) {
+    if (title !== undefined) {
+      setClauses.push(`title = $${paramIdx}`);
+      params.push(title.trim());
+      paramIdx++;
+    }
+    if (section !== undefined) {
+      setClauses.push(`section = $${paramIdx}`);
+      params.push(section.trim());
+      paramIdx++;
+    }
+
+    if (setClauses.length === 0) {
       res.status(400).json({ success: false, error: 'Nothing to update' });
       return;
     }
 
-    await supabase
-      .from('life_event_custom_requirements')
-      .update(updates)
-      .eq('id', crid)
-      .eq('life_event_id', eventId);
+    params.push(crid, eventId);
+    await query(
+      `UPDATE life_event_custom_requirements SET ${setClauses.join(', ')} WHERE id = $${paramIdx} AND life_event_id = $${paramIdx + 1}`,
+      params
+    );
 
     const readiness = await getReadinessSnapshot(eventId, userId);
     res.json({ success: true, readiness });
@@ -612,23 +584,20 @@ router.delete('/:id/custom-requirements/:crid', async (req: Request, res: Respon
     const userId = req.userId!;
     const { id: eventId, crid } = req.params;
 
-    const { data: event } = await supabase
-      .from('life_events')
-      .select('id')
-      .eq('id', eventId)
-      .eq('user_id', userId)
-      .single();
+    const eventResult = await query(
+      'SELECT id FROM life_events WHERE id = $1 AND user_id = $2',
+      [eventId, userId]
+    );
 
-    if (!event) {
+    if (!eventResult.rows[0]) {
       res.status(404).json({ success: false, error: 'Event not found' });
       return;
     }
 
-    await supabase
-      .from('life_event_custom_requirements')
-      .delete()
-      .eq('id', crid)
-      .eq('life_event_id', eventId);
+    await query(
+      'DELETE FROM life_event_custom_requirements WHERE id = $1 AND life_event_id = $2',
+      [crid, eventId]
+    );
 
     const readiness = await getReadinessSnapshot(eventId, userId);
     res.json({ success: true, readiness });
@@ -652,23 +621,20 @@ router.post('/:id/custom-requirements/:crid/match', async (req: Request, res: Re
       return;
     }
 
-    const { data: doc } = await supabase
-      .from('documents')
-      .select('id')
-      .eq('id', document_id)
-      .eq('user_id', userId)
-      .single();
+    const docResult = await query(
+      'SELECT id FROM documents WHERE id = $1 AND user_id = $2',
+      [document_id, userId]
+    );
 
-    if (!doc) {
+    if (!docResult.rows[0]) {
       res.status(404).json({ success: false, error: 'Document not found' });
       return;
     }
 
-    await supabase
-      .from('life_event_custom_requirements')
-      .update({ document_id })
-      .eq('id', crid)
-      .eq('life_event_id', eventId);
+    await query(
+      'UPDATE life_event_custom_requirements SET document_id = $1 WHERE id = $2 AND life_event_id = $3',
+      [document_id, crid, eventId]
+    );
 
     const readiness = await getReadinessSnapshot(eventId, userId);
     res.json({ success: true, readiness });
@@ -686,11 +652,10 @@ router.post('/:id/custom-requirements/:crid/unmatch', async (req: Request, res: 
     const userId = req.userId!;
     const { id: eventId, crid } = req.params;
 
-    await supabase
-      .from('life_event_custom_requirements')
-      .update({ document_id: null })
-      .eq('id', crid)
-      .eq('life_event_id', eventId);
+    await query(
+      'UPDATE life_event_custom_requirements SET document_id = NULL WHERE id = $1 AND life_event_id = $2',
+      [crid, eventId]
+    );
 
     const readiness = await getReadinessSnapshot(eventId, userId);
     res.json({ success: true, readiness });

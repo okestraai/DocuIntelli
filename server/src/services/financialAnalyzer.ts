@@ -4,13 +4,8 @@
  * Falls back to rule-based analysis if vLLM is unavailable.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import type { FinancialSummary } from './plaidService';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const INSIGHT_CACHE_TTL_HOURS = 24;
 
@@ -19,10 +14,7 @@ const INSIGHT_CACHE_TTL_HOURS = 24;
  */
 export async function invalidateInsightsCache(userId: string): Promise<void> {
   try {
-    await supabase
-      .from('financial_insights')
-      .delete()
-      .eq('user_id', userId);
+    await query('DELETE FROM financial_insights WHERE user_id = $1', [userId]);
     console.log('🗑️ Cleared financial insights cache for user:', userId);
   } catch (err) {
     console.error('Failed to invalidate insights cache:', err);
@@ -281,24 +273,28 @@ function parseAIResponse(
 // ── Cache ───────────────────────────────────────────────────────
 
 async function getCachedInsights(userId: string): Promise<AIInsightsResult | null> {
-  const { data } = await supabase
-    .from('financial_insights')
-    .select('report_data, ai_recommendations, expires_at')
-    .eq('user_id', userId)
-    .gt('expires_at', new Date().toISOString())
-    .order('generated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  try {
+    const result = await query(
+      `SELECT report_data, ai_recommendations, expires_at FROM financial_insights
+       WHERE user_id = $1 AND expires_at > $2
+       ORDER BY generated_at DESC LIMIT 1`,
+      [userId, new Date().toISOString()]
+    );
 
-  if (!data) return null;
+    const data = result.rows[0];
+    if (!data) return null;
 
-  const report = data.report_data as any;
-  return {
-    insights: report?.insights || [],
-    account_analysis: report?.account_analysis || {},
-    action_plan: report?.action_plan || [],
-    ai_recommendations: data.ai_recommendations || '',
-  };
+    const report = data.report_data as any;
+    return {
+      insights: report?.insights || [],
+      account_analysis: report?.account_analysis || {},
+      action_plan: report?.action_plan || [],
+      ai_recommendations: data.ai_recommendations || '',
+    };
+  } catch (err) {
+    console.error('Failed to fetch cached insights:', err);
+    return null;
+  }
 }
 
 async function cacheInsights(
@@ -311,27 +307,28 @@ async function cacheInsights(
 
   try {
     // Delete old insights for this user
-    await supabase
-      .from('financial_insights')
-      .delete()
-      .eq('user_id', userId);
+    await query('DELETE FROM financial_insights WHERE user_id = $1', [userId]);
 
     // Insert fresh
-    await supabase.from('financial_insights').insert({
-      user_id: userId,
-      report_data: {
-        insights: parsed.insights,
-        account_analysis: parsed.account_analysis,
-        action_plan: parsed.action_plan,
-        total_balance: summary.total_balance,
-        monthly_income: summary.monthly_income,
-        monthly_expenses: summary.monthly_expenses,
-        net_cash_flow: summary.net_cash_flow,
-      },
-      ai_recommendations: parsed.ai_recommendations,
-      generated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
-    });
+    await query(
+      `INSERT INTO financial_insights (user_id, report_data, ai_recommendations, generated_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        userId,
+        JSON.stringify({
+          insights: parsed.insights,
+          account_analysis: parsed.account_analysis,
+          action_plan: parsed.action_plan,
+          total_balance: summary.total_balance,
+          monthly_income: summary.monthly_income,
+          monthly_expenses: summary.monthly_expenses,
+          net_cash_flow: summary.net_cash_flow,
+        }),
+        parsed.ai_recommendations,
+        new Date().toISOString(),
+        expiresAt.toISOString(),
+      ]
+    );
   } catch (err) {
     console.error('Failed to cache financial insights:', err);
     // Non-blocking — analysis still works without cache

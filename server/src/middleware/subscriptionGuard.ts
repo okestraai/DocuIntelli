@@ -6,6 +6,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
 import { cacheGet, cacheSet, cacheDel, cacheIncr, cacheDecr } from '../services/redisClient';
 
@@ -19,6 +20,7 @@ const DEVICE_LIMITS: Record<string, number> = {
   pro: 5,
 };
 
+// Supabase client kept ONLY for auth.getUser() — will be removed in Phase 3
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -92,7 +94,7 @@ export async function loadSubscription(
 
     const token = authHeader.replace('Bearer ', '');
 
-    // Verify token and get user
+    // Verify token and get user — still uses Supabase Auth (Phase 3)
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
@@ -115,43 +117,41 @@ export async function loadSubscription(
     if (cached) {
       req.subscription = cached;
     } else {
-      const { data: subscription, error: subError } = await supabase
-        .from('user_subscriptions')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      const subResult = await query(
+        'SELECT * FROM user_subscriptions WHERE user_id = $1',
+        [user.id]
+      );
 
-      if (subError || !subscription) {
+      if (subResult.rows.length === 0) {
         // Create default free subscription if not exists
-        const { data: newSub, error: createError } = await supabase
-          .from('user_subscriptions')
-          .insert({
-            user_id: user.id,
-            plan: 'free',
-            status: 'active',
-          })
-          .select()
-          .single();
+        try {
+          const insertResult = await query(
+            `INSERT INTO user_subscriptions (user_id, plan, status)
+             VALUES ($1, $2, $3)
+             RETURNING *`,
+            [user.id, 'free', 'active']
+          );
 
-        if (createError) {
-          console.error('Error creating subscription:', createError);
+          const newSub = insertResult.rows[0];
+          req.subscription = newSub as SubscriptionInfo;
+          await cacheSet(cacheKey, newSub, SUB_CACHE_TTL);
+
+          // New user — send welcome email (non-blocking)
+          resolveUserInfo(user.id).then(userInfo => {
+            if (userInfo) {
+              sendNotificationEmail(user.id, 'welcome', {
+                userName: userInfo.userName,
+                email: userInfo.email,
+              }).catch(err => console.error('📧 Welcome email failed:', err));
+            }
+          });
+        } catch (createErr) {
+          console.error('Error creating subscription:', createErr);
           res.status(500).json({ error: 'Failed to create subscription' });
           return;
         }
-
-        req.subscription = newSub as SubscriptionInfo;
-        await cacheSet(cacheKey, newSub, SUB_CACHE_TTL);
-
-        // New user — send welcome email (non-blocking)
-        resolveUserInfo(user.id).then(userInfo => {
-          if (userInfo) {
-            sendNotificationEmail(user.id, 'welcome', {
-              userName: userInfo.userName,
-              email: userInfo.email,
-            }).catch(err => console.error('📧 Welcome email failed:', err));
-          }
-        });
       } else {
+        const subscription = subResult.rows[0];
         req.subscription = subscription as SubscriptionInfo;
         await cacheSet(cacheKey, subscription, SUB_CACHE_TTL);
       }
@@ -236,16 +236,12 @@ export async function checkDocumentLimit(
     if (cachedCount !== null) {
       currentCount = cachedCount;
     } else {
-      const { count, error } = await supabase
-        .from('documents')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
+      const countResult = await query(
+        'SELECT COUNT(*)::int AS count FROM documents WHERE user_id = $1',
+        [userId]
+      );
 
-      if (error) {
-        throw error;
-      }
-
-      currentCount = count || 0;
+      currentCount = countResult.rows[0]?.count || 0;
       await cacheSet(countCacheKey, currentCount, DOC_COUNT_CACHE_TTL);
     }
 
@@ -406,17 +402,12 @@ export async function incrementMonthlyUploads(
   currentCount: number
 ): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({
-        monthly_uploads_used: currentCount + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', subscriptionId);
-
-    if (error) {
-      console.error('Error incrementing monthly uploads:', error);
-    }
+    await query(
+      `UPDATE user_subscriptions
+       SET monthly_uploads_used = $1, updated_at = $2
+       WHERE id = $3`,
+      [currentCount + 1, new Date().toISOString(), subscriptionId]
+    );
   } catch (err) {
     console.error('Error incrementing monthly uploads:', err);
     // Don't throw — this should not block the upload
@@ -563,16 +554,15 @@ export async function incrementAIQuestions(
 
     // Only increment for free tier (paid tiers have unlimited)
     if (subscription.plan === 'free') {
-      const { error } = await supabase
-        .from('user_subscriptions')
-        .update({
-          ai_questions_used: subscription.ai_questions_used + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', subscription.id);
-
-      if (error) {
-        console.error('Error incrementing AI questions:', error);
+      try {
+        await query(
+          `UPDATE user_subscriptions
+           SET ai_questions_used = $1, updated_at = $2
+           WHERE id = $3`,
+          [subscription.ai_questions_used + 1, new Date().toISOString(), subscription.id]
+        );
+      } catch (updateErr) {
+        console.error('Error incrementing AI questions:', updateErr);
       }
 
       // Log usage
@@ -626,25 +616,20 @@ async function enforceDeviceLimit(
   const ua = req.headers['user-agent'] || '';
 
   // 1. Upsert: register device or update last_active_at
-  const { data: upsertedDevice, error: upsertError } = await supabase
-    .from('user_devices')
-    .upsert(
-      {
-        user_id: userId,
-        device_id: deviceId,
-        device_name: parseDeviceName(ua),
-        platform: parsePlatform(ua),
-        user_agent: ua.slice(0, 500),
-        last_active_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,device_id' }
-    )
-    .select('is_blocked')
-    .single();
-
-  if (upsertError) {
+  let upsertedDevice: { is_blocked: boolean } | null = null;
+  try {
+    const upsertResult = await query(
+      `INSERT INTO user_devices (user_id, device_id, device_name, platform, user_agent, last_active_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, device_id)
+       DO UPDATE SET device_name = $3, platform = $4, user_agent = $5, last_active_at = $6
+       RETURNING is_blocked`,
+      [userId, deviceId, parseDeviceName(ua), parsePlatform(ua), ua.slice(0, 500), new Date().toISOString()]
+    );
+    upsertedDevice = upsertResult.rows[0] || null;
+  } catch (upsertErr: any) {
     // Non-fatal — log and allow the request through
-    console.error('Device upsert error:', upsertError.message);
+    console.error('Device upsert error:', upsertErr.message || upsertErr);
     return false;
   }
 
@@ -669,39 +654,37 @@ async function enforceDeviceLimit(
   if (cachedCount !== null) {
     activeCount = cachedCount;
   } else {
-    const { count, error: countError } = await supabase
-      .from('user_devices')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('is_blocked', false);
-
-    if (countError) {
-      console.error('Device count error:', countError.message);
+    try {
+      const countResult = await query(
+        'SELECT COUNT(*)::int AS count FROM user_devices WHERE user_id = $1 AND is_blocked = false',
+        [userId]
+      );
+      activeCount = countResult.rows[0]?.count || 0;
+      await cacheSet(countCacheKey, activeCount, DEVICE_CACHE_TTL);
+    } catch (countErr: any) {
+      console.error('Device count error:', countErr.message || countErr);
       return false;
     }
-    activeCount = count || 0;
-    await cacheSet(countCacheKey, activeCount, DEVICE_CACHE_TTL);
   }
 
   // 4. If over limit, check if THIS device is among the most recent N
   if (activeCount > limit) {
-    const { data: allowedDevices } = await supabase
-      .from('user_devices')
-      .select('device_id')
-      .eq('user_id', userId)
-      .eq('is_blocked', false)
-      .order('last_active_at', { ascending: false })
-      .limit(limit);
+    const allowedResult = await query(
+      `SELECT device_id FROM user_devices
+       WHERE user_id = $1 AND is_blocked = false
+       ORDER BY last_active_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
 
-    const allowedIds = (allowedDevices || []).map(d => d.device_id);
+    const allowedIds = allowedResult.rows.map((d: any) => d.device_id);
 
     if (!allowedIds.includes(deviceId)) {
       // Soft-block this device
-      await supabase
-        .from('user_devices')
-        .update({ is_blocked: true })
-        .eq('user_id', userId)
-        .eq('device_id', deviceId);
+      await query(
+        'UPDATE user_devices SET is_blocked = true WHERE user_id = $1 AND device_id = $2',
+        [userId, deviceId]
+      );
 
       await cacheDel(countCacheKey);
 
@@ -765,12 +748,11 @@ async function logFeatureUsage(
   metadata?: Record<string, any>
 ): Promise<void> {
   try {
-    await supabase.from('usage_logs').insert({
-      user_id: userId,
-      feature,
-      metadata,
-      timestamp: new Date().toISOString(),
-    });
+    await query(
+      `INSERT INTO usage_logs (user_id, feature, metadata, timestamp)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, feature, metadata ? JSON.stringify(metadata) : null, new Date().toISOString()]
+    );
   } catch (error) {
     console.error('Error logging feature usage:', error);
     // Don't throw - logging should not break the app
@@ -787,13 +769,11 @@ async function logLimitViolation(
   limitValue: number
 ): Promise<void> {
   try {
-    await supabase.from('limit_violations').insert({
-      user_id: userId,
-      limit_type: limitType,
-      current_value: currentValue,
-      limit_value: limitValue,
-      timestamp: new Date().toISOString(),
-    });
+    await query(
+      `INSERT INTO limit_violations (user_id, limit_type, current_value, limit_value, timestamp)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, limitType, currentValue, limitValue, new Date().toISOString()]
+    );
 
     console.warn(
       `🚫 Limit violation: User ${userId} hit ${limitType} limit (${currentValue}/${limitValue})`

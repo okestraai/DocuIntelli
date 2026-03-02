@@ -1,9 +1,7 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
 
 interface TagGenerationResult {
   success: boolean;
@@ -24,17 +22,27 @@ export async function generateDocumentTags(
   try {
     console.log(`🏷️  Generating tags for document: ${documentId}`);
 
-    const { data, error } = await supabase.functions.invoke('generate-tags', {
-      body: { document_id: documentId },
+    // Call the edge function directly via HTTP (no supabase.functions.invoke)
+    const response = await fetch(`${supabaseUrl}/functions/v1/generate-tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey,
+      },
+      body: JSON.stringify({ document_id: documentId }),
     });
 
-    if (error) {
-      console.error(`❌ Error generating tags:`, error);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Error generating tags:`, errorText);
       return {
         success: false,
-        error: error.message,
+        error: `Edge function returned ${response.status}: ${errorText}`,
       };
     }
+
+    const data = await response.json() as any;
 
     if (data.success) {
       console.log(`✅ Tags generated:`, data.tags);
@@ -84,25 +92,12 @@ export async function generateAllDocumentTags(): Promise<{
     console.log('🏷️  Starting tag generation for all documents...\n');
 
     // Get all documents without tags or with empty tags array
-    const { data: documents, error: queryError } = await supabase
-      .from('documents')
-      .select('id, name, tags, category')
-      .or('tags.is.null,tags.eq.{}');
+    const docsResult = await query(
+      "SELECT id, name, tags, category FROM documents WHERE tags IS NULL OR tags = '{}'"
+    );
+    const documents = docsResult.rows;
 
-    if (queryError) {
-      console.error('❌ Error querying documents:', queryError);
-      return {
-        success: false,
-        total: 0,
-        processed: 0,
-        tagged: 0,
-        skipped: 0,
-        errors: 1,
-        results: [],
-      };
-    }
-
-    const total = documents?.length || 0;
+    const total = documents.length;
     console.log(`📚 Found ${total} documents without tags\n`);
 
     if (total === 0) {
@@ -129,7 +124,7 @@ export async function generateAllDocumentTags(): Promise<{
       message?: string;
     }> = [];
 
-    for (const doc of documents!) {
+    for (const doc of documents) {
       processed++;
       console.log(
         `[${processed}/${total}] Processing: ${doc.name} (${doc.id})`

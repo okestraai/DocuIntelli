@@ -12,9 +12,11 @@ import { loadSubscription } from '../middleware/subscriptionGuard';
 import { requireAdmin } from '../middleware/requireAdmin';
 import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { generateImpersonationProof } from '../middleware/impersonation';
+import { query } from '../services/db';
 
 const router = Router();
 
+// Supabase client ONLY for auth admin operations (Phase 3 will replace these)
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -47,13 +49,8 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
     }
 
     // Call the SECURITY DEFINER function for aggregate stats
-    const { data: stats, error } = await supabase.rpc('admin_dashboard_stats');
-
-    if (error) {
-      console.error('Dashboard stats error:', error);
-      res.status(500).json({ error: 'Failed to load dashboard stats' });
-      return;
-    }
+    const statsResult = await query('SELECT * FROM admin_dashboard_stats()');
+    const stats = statsResult.rows[0] || {};
 
     // Get recent signups (last 10)
     const { data: recentUsers } = await supabase.auth.admin.listUsers({
@@ -96,25 +93,17 @@ router.get('/users', async (req: Request, res: Response) => {
     const status = (req.query.status as string) || null;
     const offset = (page - 1) * limit;
 
-    const { data: users, error } = await supabase.rpc('admin_list_users', {
-      p_search: search,
-      p_plan: plan,
-      p_status: status,
-      p_limit: limit,
-      p_offset: offset,
-    });
+    const usersResult = await query(
+      'SELECT * FROM admin_list_users($1, $2, $3, $4, $5)',
+      [search, plan, status, limit, offset]
+    );
 
-    if (error) {
-      console.error('Admin list users error:', error);
-      res.status(500).json({ error: 'Failed to list users' });
-      return;
-    }
-
-    const total = users?.[0]?.total_count || 0;
+    const users = usersResult.rows || [];
+    const total = users[0]?.total_count || 0;
 
     res.json({
       data: {
-        users: (users || []).map((u: any) => ({
+        users: users.map((u: any) => ({
           id: u.id,
           email: u.email,
           displayName: u.display_name,
@@ -146,15 +135,12 @@ router.get('/users/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
-    const { data: detail, error } = await supabase.rpc('admin_get_user_detail', {
-      p_user_id: userId,
-    });
+    const detailResult = await query(
+      'SELECT * FROM admin_get_user_detail($1)',
+      [userId]
+    );
 
-    if (error) {
-      console.error('Admin user detail error:', error);
-      res.status(500).json({ error: 'Failed to load user detail' });
-      return;
-    }
+    const detail = detailResult.rows[0] || null;
 
     if (!detail?.user) {
       res.status(404).json({ error: 'User not found' });
@@ -182,7 +168,7 @@ router.post('/users/:userId/update-plan', async (req: Request, res: Response) =>
       return;
     }
 
-    // Get target user email for audit log
+    // Get target user email for audit log (auth admin call — kept)
     const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
     if (!targetUser) {
       res.status(404).json({ error: 'User not found' });
@@ -191,29 +177,19 @@ router.post('/users/:userId/update-plan', async (req: Request, res: Response) =>
 
     // Update subscription plan — the set_subscription_defaults trigger
     // will automatically update limits and feature_flags
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({ plan, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('Update plan error:', error);
-      res.status(500).json({ error: 'Failed to update plan' });
-      return;
-    }
+    await query(
+      'UPDATE user_subscriptions SET plan = $1, updated_at = $2 WHERE user_id = $3',
+      [plan, new Date().toISOString(), userId]
+    );
 
     // Invalidate subscription cache
     await cacheDel(`sub:${userId}`);
 
     // Audit log
-    await supabase.from('admin_audit_log').insert({
-      admin_id: adminId,
-      action: 'update_plan',
-      target_user_id: userId,
-      target_email: targetUser.email,
-      details: { new_plan: plan },
-      ip_address: req.ip,
-    });
+    await query(
+      'INSERT INTO admin_audit_log (admin_id, action, target_user_id, target_email, details, ip_address) VALUES ($1, $2, $3, $4, $5, $6)',
+      [adminId, 'update_plan', userId, targetUser.email, JSON.stringify({ new_plan: plan }), req.ip]
+    );
 
     res.json({ success: true, message: `Plan updated to ${plan}` });
   } catch (err) {
@@ -236,29 +212,17 @@ router.post('/users/:userId/reset-ai-questions', async (req: Request, res: Respo
       return;
     }
 
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({
-        ai_questions_used: 0,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('Reset AI questions error:', error);
-      res.status(500).json({ error: 'Failed to reset AI questions' });
-      return;
-    }
+    await query(
+      'UPDATE user_subscriptions SET ai_questions_used = 0, updated_at = $1 WHERE user_id = $2',
+      [new Date().toISOString(), userId]
+    );
 
     await cacheDel(`sub:${userId}`);
 
-    await supabase.from('admin_audit_log').insert({
-      admin_id: adminId,
-      action: 'reset_ai_questions',
-      target_user_id: userId,
-      target_email: targetUser.email,
-      ip_address: req.ip,
-    });
+    await query(
+      'INSERT INTO admin_audit_log (admin_id, action, target_user_id, target_email, ip_address) VALUES ($1, $2, $3, $4, $5)',
+      [adminId, 'reset_ai_questions', userId, targetUser.email, req.ip]
+    );
 
     res.json({ success: true, message: 'AI questions counter reset' });
   } catch (err) {
@@ -281,30 +245,19 @@ router.post('/users/:userId/unblock-device', async (req: Request, res: Response)
       return;
     }
 
-    const { error } = await supabase
-      .from('user_devices')
-      .update({ is_blocked: false })
-      .eq('user_id', userId)
-      .eq('id', deviceId);
-
-    if (error) {
-      console.error('Unblock device error:', error);
-      res.status(500).json({ error: 'Failed to unblock device' });
-      return;
-    }
+    await query(
+      'UPDATE user_devices SET is_blocked = false WHERE user_id = $1 AND id = $2',
+      [userId, deviceId]
+    );
 
     await cacheDel(`device_count:${userId}`);
 
     const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
 
-    await supabase.from('admin_audit_log').insert({
-      admin_id: adminId,
-      action: 'unblock_device',
-      target_user_id: userId,
-      target_email: targetUser?.email,
-      details: { device_id: deviceId },
-      ip_address: req.ip,
-    });
+    await query(
+      'INSERT INTO admin_audit_log (admin_id, action, target_user_id, target_email, details, ip_address) VALUES ($1, $2, $3, $4, $5, $6)',
+      [adminId, 'unblock_device', userId, targetUser?.email, JSON.stringify({ device_id: deviceId }), req.ip]
+    );
 
     res.json({ success: true, message: 'Device unblocked' });
   } catch (err) {
@@ -376,13 +329,10 @@ router.post('/impersonate/:userId', async (req: Request, res: Response) => {
     }
 
     // Audit log — always log impersonation events
-    await supabase.from('admin_audit_log').insert({
-      admin_id: adminId,
-      action: 'impersonate',
-      target_user_id: userId,
-      target_email: targetUser.email,
-      ip_address: req.ip,
-    });
+    await query(
+      'INSERT INTO admin_audit_log (admin_id, action, target_user_id, target_email, ip_address) VALUES ($1, $2, $3, $4, $5)',
+      [adminId, 'impersonate', userId, targetUser.email, req.ip]
+    );
 
     // Generate HMAC-signed proof token so the impersonation tab can prove its
     // legitimacy to both the Express backend and Edge Functions. This prevents
@@ -416,50 +366,44 @@ router.get('/activity', async (req: Request, res: Response) => {
     const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
     // Recent usage logs
-    let usageQuery = supabase
-      .from('usage_logs')
-      .select('user_id, feature, metadata, timestamp')
-      .gte('timestamp', cutoff)
-      .order('timestamp', { ascending: false })
-      .limit(100);
-
+    let usageLogsResult;
     if (feature) {
-      usageQuery = usageQuery.eq('feature', feature);
+      usageLogsResult = await query(
+        'SELECT user_id, feature, metadata, timestamp FROM usage_logs WHERE timestamp >= $1 AND feature = $2 ORDER BY timestamp DESC LIMIT 100',
+        [cutoff, feature]
+      );
+    } else {
+      usageLogsResult = await query(
+        'SELECT user_id, feature, metadata, timestamp FROM usage_logs WHERE timestamp >= $1 ORDER BY timestamp DESC LIMIT 100',
+        [cutoff]
+      );
     }
-
-    const { data: usageLogs } = await usageQuery;
+    const usageLogs = usageLogsResult.rows;
 
     // Feature breakdown
-    const { data: allLogs } = await supabase
-      .from('usage_logs')
-      .select('feature')
-      .gte('timestamp', cutoff);
-
+    const allLogsResult = await query(
+      'SELECT feature FROM usage_logs WHERE timestamp >= $1',
+      [cutoff]
+    );
     const featureBreakdown: Record<string, number> = {};
-    (allLogs || []).forEach((log: any) => {
+    for (const log of allLogsResult.rows) {
       featureBreakdown[log.feature] = (featureBreakdown[log.feature] || 0) + 1;
-    });
+    }
 
     // Recent limit violations
-    const { data: violations } = await supabase
-      .from('limit_violations')
-      .select('user_id, limit_type, current_value, limit_value, timestamp')
-      .gte('timestamp', cutoff)
-      .order('timestamp', { ascending: false })
-      .limit(50);
+    const violationsResult = await query(
+      'SELECT user_id, limit_type, current_value, limit_value, timestamp FROM limit_violations WHERE timestamp >= $1 ORDER BY timestamp DESC LIMIT 50',
+      [cutoff]
+    );
+    const violations = violationsResult.rows;
 
     // Enrich usage logs with emails (batch lookup)
     const userIds = new Set<string>();
-    (usageLogs || []).forEach((log: any) => userIds.add(log.user_id));
-    (violations || []).forEach((v: any) => userIds.add(v.user_id));
+    usageLogs.forEach((log: any) => userIds.add(log.user_id));
+    violations.forEach((v: any) => userIds.add(v.user_id));
 
     const emailMap: Record<string, string> = {};
     if (userIds.size > 0) {
-      const { data: profiles } = await supabase
-        .from('user_profiles')
-        .select('id, display_name')
-        .in('id', Array.from(userIds));
-
       // Also get emails from admin API (batch)
       for (const uid of userIds) {
         try {
@@ -471,7 +415,7 @@ router.get('/activity', async (req: Request, res: Response) => {
 
     res.json({
       data: {
-        recentActivity: (usageLogs || []).map((log: any) => ({
+        recentActivity: usageLogs.map((log: any) => ({
           userId: log.user_id,
           email: emailMap[log.user_id] || 'unknown',
           feature: log.feature,
@@ -479,7 +423,7 @@ router.get('/activity', async (req: Request, res: Response) => {
           timestamp: log.timestamp,
         })),
         featureBreakdown,
-        violations: (violations || []).map((v: any) => ({
+        violations: violations.map((v: any) => ({
           userId: v.user_id,
           email: emailMap[v.user_id] || 'unknown',
           limitType: v.limit_type,
@@ -501,31 +445,28 @@ router.get('/activity', async (req: Request, res: Response) => {
 router.get('/system/health', async (_req: Request, res: Response) => {
   try {
     // Processing queue
-    const { count: pendingDocs } = await supabase
-      .from('documents')
-      .select('*', { count: 'exact', head: true })
-      .eq('processed', false);
+    const pendingDocsResult = await query(
+      'SELECT COUNT(*) AS count FROM documents WHERE processed = false'
+    );
+    const pendingDocs = parseInt(pendingDocsResult.rows[0]?.count || '0');
 
-    const { data: oldestPending } = await supabase
-      .from('documents')
-      .select('created_at')
-      .eq('processed', false)
-      .order('created_at', { ascending: true })
-      .limit(1);
+    const oldestPendingResult = await query(
+      'SELECT created_at FROM documents WHERE processed = false ORDER BY created_at ASC LIMIT 1'
+    );
 
     // Email delivery (24h and 7d)
     const now24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const now7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data: emails24h } = await supabase
-      .from('notification_logs')
-      .select('status')
-      .gte('sent_at', now24h);
+    const emails24hResult = await query(
+      'SELECT status FROM notification_logs WHERE sent_at >= $1',
+      [now24h]
+    );
 
-    const { data: emails7d } = await supabase
-      .from('notification_logs')
-      .select('status')
-      .gte('sent_at', now7d);
+    const emails7dResult = await query(
+      'SELECT status FROM notification_logs WHERE sent_at >= $1',
+      [now7d]
+    );
 
     const emailStats = (logs: any[]) => {
       const sent = logs.filter(l => l.status === 'sent').length;
@@ -535,88 +476,83 @@ router.get('/system/health', async (_req: Request, res: Response) => {
     };
 
     // Recent email errors
-    const { data: emailErrors } = await supabase
-      .from('notification_logs')
-      .select('notification_type, error_message, sent_at')
-      .eq('status', 'failed')
-      .order('sent_at', { ascending: false })
-      .limit(10);
+    const emailErrorsResult = await query(
+      'SELECT notification_type, error_message, sent_at FROM notification_logs WHERE status = $1 ORDER BY sent_at DESC LIMIT 10',
+      ['failed']
+    );
 
     // Embedding coverage
-    const { count: totalDocs } = await supabase
-      .from('documents')
-      .select('*', { count: 'exact', head: true });
+    const totalDocsResult = await query('SELECT COUNT(*) AS count FROM documents');
+    const totalDocs = parseInt(totalDocsResult.rows[0]?.count || '0');
 
-    const { count: docsWithChunks } = await supabase
-      .from('documents')
-      .select('id', { count: 'exact', head: true })
-      .eq('processed', true);
+    const docsWithChunksResult = await query(
+      'SELECT COUNT(*) AS count FROM documents WHERE processed = true'
+    );
+    const docsWithChunks = parseInt(docsWithChunksResult.rows[0]?.count || '0');
 
     // Dunning pipeline
-    const { data: dunningCounts } = await supabase
-      .from('user_subscriptions')
-      .select('payment_status');
-
+    const dunningCountsResult = await query(
+      'SELECT payment_status FROM user_subscriptions'
+    );
+    const dunningCounts = dunningCountsResult.rows;
     const dunning = {
-      active: (dunningCounts || []).filter((s: any) => s.payment_status === 'active').length,
-      pastDue: (dunningCounts || []).filter((s: any) => s.payment_status === 'past_due').length,
-      restricted: (dunningCounts || []).filter((s: any) => s.payment_status === 'restricted').length,
-      downgraded: (dunningCounts || []).filter((s: any) => s.payment_status === 'downgraded').length,
+      active: dunningCounts.filter((s: any) => s.payment_status === 'active').length,
+      pastDue: dunningCounts.filter((s: any) => s.payment_status === 'past_due').length,
+      restricted: dunningCounts.filter((s: any) => s.payment_status === 'restricted').length,
+      downgraded: dunningCounts.filter((s: any) => s.payment_status === 'downgraded').length,
     };
 
     // Plaid connections
-    const { count: plaidItems } = await supabase
-      .from('plaid_items')
-      .select('*', { count: 'exact', head: true });
+    const plaidItemsResult = await query('SELECT COUNT(*) AS count FROM plaid_items');
+    const plaidItems = parseInt(plaidItemsResult.rows[0]?.count || '0');
 
-    const { count: plaidAccounts } = await supabase
-      .from('plaid_accounts')
-      .select('*', { count: 'exact', head: true });
+    const plaidAccountsResult = await query('SELECT COUNT(*) AS count FROM plaid_accounts');
+    const plaidAccounts = parseInt(plaidAccountsResult.rows[0]?.count || '0');
 
     // Device stats
-    const { count: totalDevices } = await supabase
-      .from('user_devices')
-      .select('*', { count: 'exact', head: true });
+    const totalDevicesResult = await query('SELECT COUNT(*) AS count FROM user_devices');
+    const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || '0');
 
-    const { count: activeDevices } = await supabase
-      .from('user_devices')
-      .select('*', { count: 'exact', head: true })
-      .gte('last_active_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+    const activeDevicesResult = await query(
+      'SELECT COUNT(*) AS count FROM user_devices WHERE last_active_at >= $1',
+      [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]
+    );
+    const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || '0');
 
-    const { count: blockedDevices } = await supabase
-      .from('user_devices')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_blocked', true);
+    const blockedDevicesResult = await query(
+      'SELECT COUNT(*) AS count FROM user_devices WHERE is_blocked = true'
+    );
+    const blockedDevices = parseInt(blockedDevicesResult.rows[0]?.count || '0');
 
     res.json({
       data: {
         processingQueue: {
-          pending: pendingDocs || 0,
-          oldestPendingAt: oldestPending?.[0]?.created_at || null,
+          pending: pendingDocs,
+          oldestPendingAt: oldestPendingResult.rows[0]?.created_at || null,
         },
         emailDelivery: {
-          last24h: emailStats(emails24h || []),
-          last7d: emailStats(emails7d || []),
-          recentErrors: (emailErrors || []).map((e: any) => ({
+          last24h: emailStats(emails24hResult.rows),
+          last7d: emailStats(emails7dResult.rows),
+          recentErrors: emailErrorsResult.rows.map((e: any) => ({
             type: e.notification_type,
             error: e.error_message,
             sentAt: e.sent_at,
           })),
         },
         embeddings: {
-          totalDocuments: totalDocs || 0,
-          processedDocuments: docsWithChunks || 0,
-          coveragePercent: totalDocs ? Math.round(((docsWithChunks || 0) / totalDocs) * 100) : 100,
+          totalDocuments: totalDocs,
+          processedDocuments: docsWithChunks,
+          coveragePercent: totalDocs ? Math.round((docsWithChunks / totalDocs) * 100) : 100,
         },
         dunning,
         plaid: {
-          totalItems: plaidItems || 0,
-          totalAccounts: plaidAccounts || 0,
+          totalItems: plaidItems,
+          totalAccounts: plaidAccounts,
         },
         devices: {
-          total: totalDevices || 0,
-          active: activeDevices || 0,
-          blocked: blockedDevices || 0,
+          total: totalDevices,
+          active: activeDevices,
+          blocked: blockedDevices,
         },
       },
     });
@@ -635,20 +571,17 @@ router.get('/audit-log', async (req: Request, res: Response) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
     const offset = (page - 1) * limit;
 
-    const { data: logs, error, count } = await supabase
-      .from('admin_audit_log')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const logsResult = await query(
+      'SELECT * FROM admin_audit_log ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+    const logs = logsResult.rows;
 
-    if (error) {
-      console.error('Audit log error:', error);
-      res.status(500).json({ error: 'Failed to load audit log' });
-      return;
-    }
+    const countResult = await query('SELECT COUNT(*) AS count FROM admin_audit_log');
+    const count = parseInt(countResult.rows[0]?.count || '0');
 
     // Enrich with admin emails
-    const adminIds = new Set((logs || []).map((l: any) => l.admin_id));
+    const adminIds = new Set(logs.map((l: any) => l.admin_id));
     const adminEmails: Record<string, string> = {};
     for (const aid of adminIds) {
       try {
@@ -659,7 +592,7 @@ router.get('/audit-log', async (req: Request, res: Response) => {
 
     res.json({
       data: {
-        logs: (logs || []).map((l: any) => ({
+        logs: logs.map((l: any) => ({
           id: l.id,
           adminId: l.admin_id,
           adminEmail: adminEmails[l.admin_id] || 'unknown',
@@ -670,7 +603,7 @@ router.get('/audit-log', async (req: Request, res: Response) => {
           ipAddress: l.ip_address,
           createdAt: l.created_at,
         })),
-        total: count || 0,
+        total: count,
         page,
         limit,
       },

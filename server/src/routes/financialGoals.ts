@@ -14,14 +14,9 @@ import { generateGoalSuggestions } from '../services/goalSuggestionEngine';
 import { getFinancialSummary } from '../services/plaidService';
 import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { sendNotificationEmail } from '../services/emailService';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 
 const GOALS_CACHE_TTL = 300; // 5 minutes
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const router = Router();
 
@@ -37,29 +32,21 @@ async function invalidateGoalsCache(userId: string): Promise<void> {
 async function buildGoalsResponse(userId: string): Promise<any> {
   // Phase 1: Fetch active goals + archived count + notifications in parallel
   const [goalsResult, archivedResult, notifsResult] = await Promise.all([
-    supabase
-      .from('financial_goals')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('financial_goals')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .in('status', ['completed', 'expired']),
-    supabase
-      .from('in_app_notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('read', false)
-      .order('created_at', { ascending: false })
-      .limit(20),
+    query(
+      'SELECT * FROM financial_goals WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC',
+      [userId, 'active']
+    ),
+    query(
+      'SELECT COUNT(*) AS count FROM financial_goals WHERE user_id = $1 AND status = ANY($2)',
+      [userId, ['completed', 'expired']]
+    ),
+    query(
+      'SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false ORDER BY created_at DESC LIMIT 20',
+      [userId]
+    ),
   ]);
 
-  if (goalsResult.error) throw goalsResult.error;
-
-  const goals = goalsResult.data || [];
+  const goals = goalsResult.rows || [];
   const goalIds = goals.map((g: any) => g.id);
 
   // Phase 2: Fetch accounts + activities in parallel (only if goals exist)
@@ -68,22 +55,22 @@ async function buildGoalsResponse(userId: string): Promise<any> {
 
   if (goalIds.length > 0) {
     const [accountsResult, activitiesResult] = await Promise.all([
-      supabase
-        .from('financial_goal_accounts')
-        .select('goal_id, account_id')
-        .in('goal_id', goalIds),
-      supabase
-        .from('financial_goal_activities')
-        .select('goal_id, amount')
-        .in('goal_id', goalIds),
+      query(
+        'SELECT goal_id, account_id FROM financial_goal_accounts WHERE goal_id = ANY($1)',
+        [goalIds]
+      ),
+      query(
+        'SELECT goal_id, amount FROM financial_goal_activities WHERE goal_id = ANY($1)',
+        [goalIds]
+      ),
     ]);
 
-    for (const ga of accountsResult.data || []) {
+    for (const ga of accountsResult.rows || []) {
       if (!goalAccountsMap[ga.goal_id]) goalAccountsMap[ga.goal_id] = [];
       goalAccountsMap[ga.goal_id].push(ga.account_id);
     }
 
-    for (const a of activitiesResult.data || []) {
+    for (const a of activitiesResult.rows || []) {
       if (!goalActivityMap[a.goal_id]) goalActivityMap[a.goal_id] = { count: 0, total: 0 };
       goalActivityMap[a.goal_id].count++;
       goalActivityMap[a.goal_id].total += parseFloat(a.amount);
@@ -100,8 +87,8 @@ async function buildGoalsResponse(userId: string): Promise<any> {
   return {
     goals: goalsWithAccounts,
     active_count: goalsWithAccounts.length,
-    archived_count: archivedResult.count || 0,
-    notifications: notifsResult.data || [],
+    archived_count: parseInt(archivedResult.rows[0]?.count || '0'),
+    notifications: notifsResult.rows || [],
   };
 }
 
@@ -133,33 +120,30 @@ router.get('/history', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
 
-    const { data: goals, error } = await supabase
-      .from('financial_goals')
-      .select('*')
-      .eq('user_id', userId)
-      .in('status', ['completed', 'expired'])
-      .order('completed_at', { ascending: false, nullsFirst: false });
-
-    if (error) throw error;
+    const goalsResult = await query(
+      'SELECT * FROM financial_goals WHERE user_id = $1 AND status = ANY($2) ORDER BY completed_at DESC NULLS LAST',
+      [userId, ['completed', 'expired']]
+    );
+    const goals = goalsResult.rows || [];
 
     // Get linked accounts
-    const goalIds = (goals || []).map(g => g.id);
+    const goalIds = goals.map(g => g.id);
     let goalAccountsMap: Record<string, string[]> = {};
 
     if (goalIds.length > 0) {
-      const { data: goalAccounts } = await supabase
-        .from('financial_goal_accounts')
-        .select('goal_id, account_id')
-        .in('goal_id', goalIds);
+      const goalAccountsResult = await query(
+        'SELECT goal_id, account_id FROM financial_goal_accounts WHERE goal_id = ANY($1)',
+        [goalIds]
+      );
 
-      for (const ga of goalAccounts || []) {
+      for (const ga of goalAccountsResult.rows || []) {
         if (!goalAccountsMap[ga.goal_id]) goalAccountsMap[ga.goal_id] = [];
         goalAccountsMap[ga.goal_id].push(ga.account_id);
       }
     }
 
     res.json(
-      (goals || []).map(g => ({ ...g, linked_account_ids: goalAccountsMap[g.id] || [] }))
+      goals.map(g => ({ ...g, linked_account_ids: goalAccountsMap[g.id] || [] }))
     );
   } catch (error) {
     console.error('Error fetching goal history:', error);
@@ -208,13 +192,13 @@ router.post('/', async (req: Request, res: Response) => {
     // Validate linked accounts belong to user
     const accountIds: string[] = linked_account_ids || [];
     if (accountIds.length > 0) {
-      const { count } = await supabase
-        .from('plaid_accounts')
-        .select('account_id', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .in('account_id', accountIds);
+      const countResult = await query(
+        'SELECT COUNT(*) AS count FROM plaid_accounts WHERE user_id = $1 AND account_id = ANY($2)',
+        [userId, accountIds]
+      );
+      const count = parseInt(countResult.rows[0]?.count || '0');
 
-      if ((count || 0) !== accountIds.length) {
+      if (count !== accountIds.length) {
         res.status(400).json({ error: 'One or more linked accounts do not belong to you' });
         return;
       }
@@ -224,44 +208,38 @@ router.post('/', async (req: Request, res: Response) => {
     const baseline = await calculateBaseline(userId, goal_type, accountIds);
 
     // Insert goal
-    const { data: goal, error } = await supabase
-      .from('financial_goals')
-      .insert({
-        user_id: userId,
-        goal_type,
-        name,
-        description: description || null,
-        target_amount,
-        target_date,
-        period_type: goal_type === 'spending_limit' ? (period_type || 'monthly') : null,
-        baseline_amount: baseline,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
+    const goalResult = await query(
+      `INSERT INTO financial_goals (user_id, goal_type, name, description, target_amount, target_date, period_type, baseline_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        userId, goal_type, name, description || null, target_amount, target_date,
+        goal_type === 'spending_limit' ? (period_type || 'monthly') : null,
+        baseline,
+      ]
+    );
+    const goal = goalResult.rows[0];
 
     // Insert linked accounts
     if (accountIds.length > 0) {
-      await supabase.from('financial_goal_accounts').insert(
-        accountIds.map(accountId => ({
-          goal_id: goal.id,
-          account_id: accountId,
-          user_id: userId,
-        }))
+      const values = accountIds.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(', ');
+      const params = accountIds.flatMap(accountId => [goal.id, accountId, userId]);
+      await query(
+        `INSERT INTO financial_goal_accounts (goal_id, account_id, user_id) VALUES ${values}`,
+        params
       );
     }
 
     await invalidateGoalsCache(userId);
 
     // Send goal created email (fire-and-forget)
-    const { data: profile } = await supabase
-      .from('user_subscriptions')
-      .select('display_name')
-      .eq('user_id', userId)
-      .single();
+    const profileResult = await query(
+      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+    const profile = profileResult.rows[0];
     sendNotificationEmail(userId, 'goal_created', {
-      userName: (profile as any)?.display_name || '',
+      userName: profile?.display_name || '',
       goalName: name,
       goalType: goal_type,
       targetAmount: target_amount,
@@ -284,12 +262,11 @@ router.put('/:id', async (req: Request, res: Response) => {
     const { name, description, target_amount, target_date, linked_account_ids } = req.body;
 
     // Verify ownership
-    const { data: existing } = await supabase
-      .from('financial_goals')
-      .select('id, status')
-      .eq('id', goalId)
-      .eq('user_id', userId)
-      .single();
+    const existingResult = await query(
+      'SELECT id, status FROM financial_goals WHERE id = $1 AND user_id = $2',
+      [goalId, userId]
+    );
+    const existing = existingResult.rows[0];
 
     if (!existing) {
       res.status(404).json({ error: 'Goal not found' });
@@ -301,41 +278,55 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Build update object
-    const updates: Record<string, any> = { updated_at: new Date().toISOString() };
-    if (name !== undefined) updates.name = name;
-    if (description !== undefined) updates.description = description;
+    // Build update dynamically
+    const setClauses: string[] = ['updated_at = $1'];
+    const params: any[] = [new Date().toISOString()];
+    let paramIdx = 2;
+
+    if (name !== undefined) {
+      setClauses.push(`name = $${paramIdx}`);
+      params.push(name);
+      paramIdx++;
+    }
+    if (description !== undefined) {
+      setClauses.push(`description = $${paramIdx}`);
+      params.push(description);
+      paramIdx++;
+    }
     if (target_amount !== undefined) {
       if (target_amount <= 0) {
         res.status(400).json({ error: 'target_amount must be positive' });
         return;
       }
-      updates.target_amount = target_amount;
+      setClauses.push(`target_amount = $${paramIdx}`);
+      params.push(target_amount);
+      paramIdx++;
     }
-    if (target_date !== undefined) updates.target_date = target_date;
+    if (target_date !== undefined) {
+      setClauses.push(`target_date = $${paramIdx}`);
+      params.push(target_date);
+      paramIdx++;
+    }
 
-    const { data: updated, error } = await supabase
-      .from('financial_goals')
-      .update(updates)
-      .eq('id', goalId)
-      .select()
-      .single();
-
-    if (error) throw error;
+    params.push(goalId);
+    const updatedResult = await query(
+      `UPDATE financial_goals SET ${setClauses.join(', ')} WHERE id = $${paramIdx} RETURNING *`,
+      params
+    );
+    const updated = updatedResult.rows[0];
 
     // Update linked accounts if provided
     if (linked_account_ids !== undefined) {
       // Remove existing links
-      await supabase.from('financial_goal_accounts').delete().eq('goal_id', goalId);
+      await query('DELETE FROM financial_goal_accounts WHERE goal_id = $1', [goalId]);
 
       // Insert new links
       if (linked_account_ids.length > 0) {
-        await supabase.from('financial_goal_accounts').insert(
-          linked_account_ids.map((accountId: string) => ({
-            goal_id: goalId,
-            account_id: accountId,
-            user_id: userId,
-          }))
+        const values = linked_account_ids.map((_: string, i: number) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(', ');
+        const linkParams = linked_account_ids.flatMap((accountId: string) => [goalId, accountId, userId]);
+        await query(
+          `INSERT INTO financial_goal_accounts (goal_id, account_id, user_id) VALUES ${values}`,
+          linkParams
         );
       }
     }
@@ -354,13 +345,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const userId = req.userId!;
     const goalId = req.params.id;
 
-    const { error } = await supabase
-      .from('financial_goals')
-      .delete()
-      .eq('id', goalId)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    await query(
+      'DELETE FROM financial_goals WHERE id = $1 AND user_id = $2',
+      [goalId, userId]
+    );
 
     await invalidateGoalsCache(userId);
     res.json({ success: true });
@@ -376,20 +364,14 @@ router.post('/:id/archive', async (req: Request, res: Response) => {
     const userId = req.userId!;
     const goalId = req.params.id;
 
-    const { data, error } = await supabase
-      .from('financial_goals')
-      .update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', goalId)
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .select()
-      .single();
+    const archiveResult = await query(
+      `UPDATE financial_goals SET status = 'completed', completed_at = $1, updated_at = $1
+       WHERE id = $2 AND user_id = $3 AND status = 'active'
+       RETURNING *`,
+      [new Date().toISOString(), goalId, userId]
+    );
+    const data = archiveResult.rows[0];
 
-    if (error) throw error;
     if (!data) {
       res.status(404).json({ error: 'Active goal not found' });
       return;
@@ -440,16 +422,12 @@ router.get('/notifications', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
 
-    const { data, error } = await supabase
-      .from('in_app_notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('read', false)
-      .order('created_at', { ascending: false })
-      .limit(20);
+    const result = await query(
+      'SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false ORDER BY created_at DESC LIMIT 20',
+      [userId]
+    );
 
-    if (error) throw error;
-    res.json(data || []);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching notifications:', error);
     res.status(500).json({ error: 'Failed to fetch notifications' });
@@ -462,13 +440,11 @@ router.post('/notifications/:id/read', async (req: Request, res: Response) => {
     const userId = req.userId!;
     const notificationId = req.params.id;
 
-    const { error } = await supabase
-      .from('in_app_notifications')
-      .update({ read: true })
-      .eq('id', notificationId)
-      .eq('user_id', userId);
+    await query(
+      'UPDATE in_app_notifications SET read = true WHERE id = $1 AND user_id = $2',
+      [notificationId, userId]
+    );
 
-    if (error) throw error;
     res.json({ success: true });
   } catch (error) {
     console.error('Error marking notification read:', error);
@@ -481,13 +457,11 @@ router.post('/notifications/read-all', async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
 
-    const { error } = await supabase
-      .from('in_app_notifications')
-      .update({ read: true })
-      .eq('user_id', userId)
-      .eq('read', false);
+    await query(
+      'UPDATE in_app_notifications SET read = true WHERE user_id = $1 AND read = false',
+      [userId]
+    );
 
-    if (error) throw error;
     res.json({ success: true });
   } catch (error) {
     console.error('Error marking all notifications read:', error);
@@ -505,30 +479,30 @@ router.get('/:id/activities', async (req: Request, res: Response) => {
     const offset = parseInt(req.query.offset as string) || 0;
 
     // Verify goal ownership
-    const { data: goal } = await supabase
-      .from('financial_goals')
-      .select('id')
-      .eq('id', goalId)
-      .eq('user_id', userId)
-      .single();
+    const goalResult = await query(
+      'SELECT id FROM financial_goals WHERE id = $1 AND user_id = $2',
+      [goalId, userId]
+    );
 
-    if (!goal) {
+    if (!goalResult.rows[0]) {
       res.status(404).json({ error: 'Goal not found' });
       return;
     }
 
-    const { data: activities, error, count } = await supabase
-      .from('financial_goal_activities')
-      .select('*', { count: 'exact' })
-      .eq('goal_id', goalId)
-      .eq('user_id', userId)
-      .order('activity_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const activitiesResult = await query(
+      'SELECT * FROM financial_goal_activities WHERE goal_id = $1 AND user_id = $2 ORDER BY activity_date DESC, created_at DESC LIMIT $3 OFFSET $4',
+      [goalId, userId, limit, offset]
+    );
 
-    if (error) throw error;
+    const countResult = await query(
+      'SELECT COUNT(*) AS count FROM financial_goal_activities WHERE goal_id = $1 AND user_id = $2',
+      [goalId, userId]
+    );
 
-    res.json({ activities: activities || [], total: count || 0 });
+    res.json({
+      activities: activitiesResult.rows || [],
+      total: parseInt(countResult.rows[0]?.count || '0'),
+    });
   } catch (error) {
     console.error('Error fetching goal activities:', error);
     res.status(500).json({ error: 'Failed to fetch activities' });
@@ -551,12 +525,11 @@ router.post('/:id/activities', async (req: Request, res: Response) => {
     }
 
     // Verify goal ownership and active status
-    const { data: goal } = await supabase
-      .from('financial_goals')
-      .select('id, status, start_date, user_id')
-      .eq('id', goalId)
-      .eq('user_id', userId)
-      .single();
+    const goalResult = await query(
+      'SELECT id, status, start_date, user_id FROM financial_goals WHERE id = $1 AND user_id = $2',
+      [goalId, userId]
+    );
+    const goal = goalResult.rows[0];
 
     if (!goal) {
       res.status(404).json({ error: 'Goal not found' });
@@ -583,19 +556,13 @@ router.post('/:id/activities', async (req: Request, res: Response) => {
     }
 
     // Insert activity
-    const { data: activity, error } = await supabase
-      .from('financial_goal_activities')
-      .insert({
-        goal_id: goalId,
-        user_id: userId,
-        amount: parsedAmount,
-        description: description?.trim() || null,
-        activity_date: dateToUse,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
+    const activityResult = await query(
+      `INSERT INTO financial_goal_activities (goal_id, user_id, amount, description, activity_date)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [goalId, userId, parsedAmount, description?.trim() || null, dateToUse]
+    );
+    const activity = activityResult.rows[0];
 
     // Recalculate goal progress and invalidate cache
     await recalculateAllUserGoals(userId);
@@ -617,26 +584,20 @@ router.delete('/:id/activities/:activityId', async (req: Request, res: Response)
     const activityId = req.params.activityId;
 
     // Verify ownership of both goal and activity
-    const { data: activity } = await supabase
-      .from('financial_goal_activities')
-      .select('id')
-      .eq('id', activityId)
-      .eq('goal_id', goalId)
-      .eq('user_id', userId)
-      .single();
+    const activityResult = await query(
+      'SELECT id FROM financial_goal_activities WHERE id = $1 AND goal_id = $2 AND user_id = $3',
+      [activityId, goalId, userId]
+    );
 
-    if (!activity) {
+    if (!activityResult.rows[0]) {
       res.status(404).json({ error: 'Activity not found' });
       return;
     }
 
-    const { error } = await supabase
-      .from('financial_goal_activities')
-      .delete()
-      .eq('id', activityId)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    await query(
+      'DELETE FROM financial_goal_activities WHERE id = $1 AND user_id = $2',
+      [activityId, userId]
+    );
 
     // Recalculate goal progress and invalidate cache
     await recalculateAllUserGoals(userId);
@@ -658,12 +619,11 @@ router.post('/check-deadlines', async (req: Request, res: Response) => {
     const todayStr = today.toISOString().split('T')[0];
 
     // Find active goals with target_date within 7 days
-    const { data: goals } = await supabase
-      .from('financial_goals')
-      .select('id, user_id, name, target_amount, current_amount, target_date')
-      .eq('status', 'active')
-      .gte('target_date', todayStr)
-      .lte('target_date', sevenDaysOut);
+    const goalsResult = await query(
+      'SELECT id, user_id, name, target_amount, current_amount, target_date FROM financial_goals WHERE status = $1 AND target_date >= $2 AND target_date <= $3',
+      ['active', todayStr, sevenDaysOut]
+    );
+    const goals = goalsResult.rows;
 
     if (!goals || goals.length === 0) {
       res.json({ success: true, sent: 0 });
@@ -673,15 +633,11 @@ router.post('/check-deadlines', async (req: Request, res: Response) => {
     let sent = 0;
     for (const goal of goals) {
       // Deduplicate: check if we already notified about this goal's deadline
-      const { data: existing } = await supabase
-        .from('notification_logs')
-        .select('id')
-        .eq('user_id', goal.user_id)
-        .eq('notification_type', 'goal_deadline_approaching')
-        .gte('sent_at', new Date(today.getTime() - 3 * 86400000).toISOString())
-        .limit(1)
-        .maybeSingle();
-      if (existing) continue;
+      const existingResult = await query(
+        'SELECT id FROM notification_logs WHERE user_id = $1 AND notification_type = $2 AND sent_at >= $3 LIMIT 1',
+        [goal.user_id, 'goal_deadline_approaching', new Date(today.getTime() - 3 * 86400000).toISOString()]
+      );
+      if (existingResult.rows[0]) continue;
 
       const daysUntil = Math.ceil(
         (new Date(goal.target_date).getTime() - today.getTime()) / 86400000
@@ -690,14 +646,14 @@ router.post('/check-deadlines', async (req: Request, res: Response) => {
         ? Math.round((goal.current_amount / goal.target_amount) * 100)
         : 0;
 
-      const { data: profile } = await supabase
-        .from('user_subscriptions')
-        .select('display_name')
-        .eq('user_id', goal.user_id)
-        .single();
+      const profileResult = await query(
+        'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+        [goal.user_id]
+      );
+      const profile = profileResult.rows[0];
 
       await sendNotificationEmail(goal.user_id, 'goal_deadline_approaching', {
-        userName: (profile as any)?.display_name || '',
+        userName: profile?.display_name || '',
         goalName: goal.name,
         daysUntil,
         progressPct,

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import {
   loadSubscription,
   invalidateDeviceCountCache,
@@ -7,10 +7,6 @@ import {
 } from '../middleware/subscriptionGuard';
 
 const router = Router();
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // All routes require auth + subscription
 router.use(loadSubscription);
@@ -22,20 +18,20 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
-    const { data: devices, error } = await supabase
-      .from('user_devices')
-      .select('id, device_id, device_name, platform, last_active_at, created_at, is_blocked')
-      .eq('user_id', userId)
-      .order('last_active_at', { ascending: false });
-
-    if (error) throw error;
+    const result = await query(
+      `SELECT id, device_id, device_name, platform, last_active_at, created_at, is_blocked
+       FROM user_devices
+       WHERE user_id = $1
+       ORDER BY last_active_at DESC`,
+      [userId]
+    );
 
     const plan = req.subscription!.plan;
     const limit = DEVICE_LIMITS[plan] || 1;
 
     res.json({
       success: true,
-      devices: devices || [],
+      devices: result.rows,
       limit,
       plan,
       current_device_id: req.deviceId || null,
@@ -55,13 +51,12 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const rowId = req.params.id;
 
     // Look up the target device
-    const { data: targetDevice } = await supabase
-      .from('user_devices')
-      .select('device_id')
-      .eq('id', rowId)
-      .eq('user_id', userId)
-      .single();
+    const targetResult = await query(
+      `SELECT device_id FROM user_devices WHERE id = $1 AND user_id = $2`,
+      [rowId, userId]
+    );
 
+    const targetDevice = targetResult.rows[0];
     if (!targetDevice) {
       res.status(404).json({ error: 'Device not found' });
       return;
@@ -73,38 +68,35 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { error } = await supabase
-      .from('user_devices')
-      .delete()
-      .eq('id', rowId)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    await query(
+      `DELETE FROM user_devices WHERE id = $1 AND user_id = $2`,
+      [rowId, userId]
+    );
 
     // After removal, auto-unblock the most recently active blocked device if under limit
     const plan = req.subscription!.plan;
     const limit = DEVICE_LIMITS[plan] || 1;
 
-    const { count } = await supabase
-      .from('user_devices')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('is_blocked', false);
+    const countResult = await query(
+      `SELECT COUNT(*) as count FROM user_devices WHERE user_id = $1 AND is_blocked = false`,
+      [userId]
+    );
+    const activeCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
-    if ((count || 0) < limit) {
-      const { data: blockedDevices } = await supabase
-        .from('user_devices')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('is_blocked', true)
-        .order('last_active_at', { ascending: false })
-        .limit(1);
+    if (activeCount < limit) {
+      const blockedResult = await query(
+        `SELECT id FROM user_devices
+         WHERE user_id = $1 AND is_blocked = true
+         ORDER BY last_active_at DESC
+         LIMIT 1`,
+        [userId]
+      );
 
-      if (blockedDevices && blockedDevices.length > 0) {
-        await supabase
-          .from('user_devices')
-          .update({ is_blocked: false })
-          .eq('id', blockedDevices[0].id);
+      if (blockedResult.rows.length > 0) {
+        await query(
+          `UPDATE user_devices SET is_blocked = false WHERE id = $1`,
+          [blockedResult.rows[0].id]
+        );
       }
     }
 

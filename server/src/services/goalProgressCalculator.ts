@@ -4,25 +4,19 @@
  * Handles milestone detection and notification creation.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { sendNotificationEmail } from './emailService';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Account types where the balance represents money OWED (liabilities)
 const LIABILITY_TYPES = new Set(['credit', 'loan']);
 
 /** Get user display name for email templates. */
 async function getUserDisplayName(userId: string): Promise<string> {
-  const { data } = await supabase
-    .from('user_subscriptions')
-    .select('display_name')
-    .eq('user_id', userId)
-    .single();
-  return (data as any)?.display_name || '';
+  const result = await query(
+    'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+    [userId]
+  );
+  return result.rows[0]?.display_name || '';
 }
 
 
@@ -192,26 +186,36 @@ export async function calculateBaseline(
 ): Promise<number> {
   if (linkedAccountIds.length === 0) return 0;
 
-  const [{ data: accounts }, { data: transactions }] = await Promise.all([
-    supabase.from('plaid_accounts').select('*').eq('user_id', userId).in('account_id', linkedAccountIds),
-    supabase.from('plaid_transactions').select('*').eq('user_id', userId).in('account_id', linkedAccountIds).eq('pending', false),
+  // Build parameterized IN clause
+  const accountPlaceholders = linkedAccountIds.map((_, i) => `$${i + 2}`).join(', ');
+
+  const [accountsResult, transactionsResult] = await Promise.all([
+    query(
+      `SELECT * FROM plaid_accounts WHERE user_id = $1 AND account_id IN (${accountPlaceholders})`,
+      [userId, ...linkedAccountIds]
+    ),
+    query(
+      `SELECT * FROM plaid_transactions WHERE user_id = $1 AND account_id IN (${accountPlaceholders}) AND pending = false`,
+      [userId, ...linkedAccountIds]
+    ),
   ]);
 
-  if (!accounts || accounts.length === 0) return 0;
-  const txns = transactions || [];
+  const accounts = accountsResult.rows;
+  if (accounts.length === 0) return 0;
+  const txns = transactionsResult.rows;
 
   switch (goalType) {
     case 'savings': {
       // Baseline = current total balance of linked depository accounts
       return accounts
-        .filter(a => !LIABILITY_TYPES.has(a.type))
-        .reduce((sum, a) => sum + calculateAccountBalance(a, txns), 0);
+        .filter((a: any) => !LIABILITY_TYPES.has(a.type))
+        .reduce((sum: number, a: any) => sum + calculateAccountBalance(a, txns), 0);
     }
     case 'debt_paydown': {
       // Baseline = current total debt on linked credit/loan accounts
       return accounts
-        .filter(a => LIABILITY_TYPES.has(a.type))
-        .reduce((sum, a) => sum + Math.abs(calculateAccountBalance(a, txns)), 0);
+        .filter((a: any) => LIABILITY_TYPES.has(a.type))
+        .reduce((sum: number, a: any) => sum + Math.abs(calculateAccountBalance(a, txns)), 0);
     }
     default:
       return 0;
@@ -266,16 +270,25 @@ async function checkAndNotifyMilestones(
 
   if (notifications.length === 0) return;
 
-  // Insert notifications
-  await supabase.from('in_app_notifications').insert(
-    notifications.map(n => ({ user_id: goal.user_id, ...n }))
+  // Insert notifications — build multi-row VALUES clause
+  const values: any[] = [];
+  const valueClauses: string[] = [];
+  let paramIdx = 1;
+  for (const n of notifications) {
+    valueClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4})`);
+    values.push(goal.user_id, n.type, n.title, n.message, JSON.stringify(n.metadata));
+    paramIdx += 5;
+  }
+  await query(
+    `INSERT INTO in_app_notifications (user_id, type, title, message, metadata) VALUES ${valueClauses.join(', ')}`,
+    values
   );
 
   // Update milestones_notified
-  await supabase
-    .from('financial_goals')
-    .update({ milestones_notified: milestones, updated_at: new Date().toISOString() })
-    .eq('id', goal.id);
+  await query(
+    'UPDATE financial_goals SET milestones_notified = $1, updated_at = $2 WHERE id = $3',
+    [JSON.stringify(milestones), new Date().toISOString(), goal.id]
+  );
 
   // Send email notifications (fire-and-forget)
   const userName = await getUserDisplayName(goal.user_id);
@@ -300,14 +313,10 @@ async function checkAndNotifyMilestones(
 
   // If completed, mark the goal as completed
   if (milestones['100']) {
-    await supabase
-      .from('financial_goals')
-      .update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', goal.id);
+    await query(
+      'UPDATE financial_goals SET status = $1, completed_at = $2, updated_at = $3 WHERE id = $4',
+      ['completed', new Date().toISOString(), new Date().toISOString(), goal.id]
+    );
   }
 }
 
@@ -320,57 +329,66 @@ export async function recalculateAllUserGoals(userId: string): Promise<GoalRecor
   await expireOverdueGoals(userId);
 
   // Fetch all active goals with their linked accounts
-  const { data: goals } = await supabase
-    .from('financial_goals')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('status', 'active');
+  const goalsResult = await query(
+    'SELECT * FROM financial_goals WHERE user_id = $1 AND status = $2',
+    [userId, 'active']
+  );
+  const goals = goalsResult.rows;
 
-  if (!goals || goals.length === 0) return [];
+  if (goals.length === 0) return [];
 
   // Fetch linked account IDs for all goals
-  const goalIds = goals.map(g => g.id);
-  const { data: goalAccounts } = await supabase
-    .from('financial_goal_accounts')
-    .select('goal_id, account_id')
-    .in('goal_id', goalIds);
+  const goalIds = goals.map((g: any) => g.id);
+  const goalIdPlaceholders = goalIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
+  const goalAccountsResult = await query(
+    `SELECT goal_id, account_id FROM financial_goal_accounts WHERE goal_id IN (${goalIdPlaceholders})`,
+    goalIds
+  );
+  const goalAccounts = goalAccountsResult.rows;
 
   const accountsByGoal = new Map<string, string[]>();
-  for (const ga of goalAccounts || []) {
+  for (const ga of goalAccounts) {
     if (!accountsByGoal.has(ga.goal_id)) accountsByGoal.set(ga.goal_id, []);
     accountsByGoal.get(ga.goal_id)!.push(ga.account_id);
   }
 
   // Get all unique linked account IDs
-  const allAccountIds = [...new Set((goalAccounts || []).map(ga => ga.account_id))];
+  const allAccountIds = [...new Set(goalAccounts.map((ga: any) => ga.account_id))];
 
   // Fetch account/transaction data and manual activity sums in parallel
+  const accountIdPlaceholders = allAccountIds.map((_: any, i: number) => `$${i + 2}`).join(', ');
+
   const [accountsResult, transactionsResult, activitiesResult] = await Promise.all([
     allAccountIds.length > 0
-      ? supabase.from('plaid_accounts').select('*').eq('user_id', userId).in('account_id', allAccountIds)
-      : Promise.resolve({ data: [] as any[] }),
+      ? query(
+          `SELECT * FROM plaid_accounts WHERE user_id = $1 AND account_id IN (${accountIdPlaceholders})`,
+          [userId, ...allAccountIds]
+        )
+      : Promise.resolve({ rows: [] as any[] }),
     allAccountIds.length > 0
-      ? supabase.from('plaid_transactions').select('*').eq('user_id', userId).in('account_id', allAccountIds).eq('pending', false)
-      : Promise.resolve({ data: [] as any[] }),
-    supabase.from('financial_goal_activities').select('goal_id, amount, activity_date').in('goal_id', goalIds),
+      ? query(
+          `SELECT * FROM plaid_transactions WHERE user_id = $1 AND account_id IN (${accountIdPlaceholders}) AND pending = false`,
+          [userId, ...allAccountIds]
+        )
+      : Promise.resolve({ rows: [] as any[] }),
+    query(
+      `SELECT goal_id, amount, activity_date FROM financial_goal_activities WHERE goal_id IN (${goalIdPlaceholders})`,
+      goalIds
+    ),
   ]);
 
-  const accts = accountsResult.data || [];
-  const txns = transactionsResult.data || [];
+  const accts = accountsResult.rows;
+  const txns = transactionsResult.rows;
 
   // Build manual activity sums per goal (total and period-filtered for spending_limit)
   const manualSumsByGoal = new Map<string, number>();
-  const manualPeriodSumsByGoal = new Map<string, Map<string, number>>(); // goalId → periodStart → sum
-  for (const a of activitiesResult.data || []) {
+  for (const a of activitiesResult.rows) {
     const prev = manualSumsByGoal.get(a.goal_id) || 0;
     manualSumsByGoal.set(a.goal_id, prev + parseFloat(a.amount));
-    // Also store by date for period filtering
-    if (!manualPeriodSumsByGoal.has(a.goal_id)) manualPeriodSumsByGoal.set(a.goal_id, new Map());
-    // We'll filter later per goal
   }
 
   // For spending_limit goals, compute period-filtered manual sums
-  const rawActivities = activitiesResult.data || [];
+  const rawActivities = activitiesResult.rows;
 
   // Recalculate each goal — collect dirty updates for batching
   const updatedGoals: GoalRecord[] = [];
@@ -386,7 +404,7 @@ export async function recalculateAllUserGoals(userId: string): Promise<GoalRecor
     if (goal.goal_type === 'spending_limit') {
       const periodStart = getPeriodStart(goal.period_type || 'monthly');
       manualSum = rawActivities
-        .filter(a => a.goal_id === goal.id && a.activity_date >= periodStart)
+        .filter((a: any) => a.goal_id === goal.id && a.activity_date >= periodStart)
         .reduce((sum: number, a: any) => sum + parseFloat(a.amount), 0);
     } else {
       manualSum = manualSumsByGoal.get(goal.id) || 0;
@@ -413,10 +431,10 @@ export async function recalculateAllUserGoals(userId: string): Promise<GoalRecor
   if (dirtyGoals.length > 0) {
     await Promise.all(
       dirtyGoals.map(g =>
-        supabase
-          .from('financial_goals')
-          .update({ current_amount: g.current_amount, updated_at: now })
-          .eq('id', g.id)
+        query(
+          'UPDATE financial_goals SET current_amount = $1, updated_at = $2 WHERE id = $3',
+          [g.current_amount, now, g.id]
+        )
       )
     );
   }
@@ -430,58 +448,64 @@ export async function recalculateAllUserGoals(userId: string): Promise<GoalRecor
 async function expireOverdueGoals(userId: string): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
 
-  const { data: expired } = await supabase
-    .from('financial_goals')
-    .select('id, name, user_id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .lt('target_date', today);
+  const expiredResult = await query(
+    'SELECT id, name, user_id FROM financial_goals WHERE user_id = $1 AND status = $2 AND target_date < $3',
+    [userId, 'active', today]
+  );
+  const expired = expiredResult.rows;
 
-  if (!expired || expired.length === 0) return;
+  if (expired.length === 0) return;
 
   const now = new Date().toISOString();
 
   // Update all expired goals
-  await supabase
-    .from('financial_goals')
-    .update({ status: 'expired', expired_at: now, updated_at: now })
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .lt('target_date', today);
+  await query(
+    'UPDATE financial_goals SET status = $1, expired_at = $2, updated_at = $3 WHERE user_id = $4 AND status = $5 AND target_date < $6',
+    ['expired', now, now, userId, 'active', today]
+  );
 
-  // Create expiration notifications
-  const notifications = expired.map(g => ({
-    user_id: g.user_id,
-    type: 'goal_expired',
-    title: 'Goal expired',
-    message: `Your "${g.name}" goal has passed its target date. You can view it in your goal history.`,
-    metadata: { goal_id: g.id },
-  }));
-
-  await supabase.from('in_app_notifications').insert(notifications);
+  // Create expiration notifications — build multi-row VALUES clause
+  const values: any[] = [];
+  const valueClauses: string[] = [];
+  let paramIdx = 1;
+  for (const g of expired) {
+    valueClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4})`);
+    values.push(
+      g.user_id,
+      'goal_expired',
+      'Goal expired',
+      `Your "${g.name}" goal has passed its target date. You can view it in your goal history.`,
+      JSON.stringify({ goal_id: g.id })
+    );
+    paramIdx += 5;
+  }
+  await query(
+    `INSERT INTO in_app_notifications (user_id, type, title, message, metadata) VALUES ${valueClauses.join(', ')}`,
+    values
+  );
 
   // Send expiration emails (fire-and-forget)
   for (const g of expired) {
     // Fetch full goal data for email
-    const { data: fullGoal } = await supabase
-      .from('financial_goals')
-      .select('target_date, current_amount, target_amount')
-      .eq('id', g.id)
-      .single();
+    const fullGoalResult = await query(
+      'SELECT target_date, current_amount, target_amount FROM financial_goals WHERE id = $1',
+      [g.id]
+    );
+    const fullGoal = fullGoalResult.rows[0];
     if (!fullGoal) continue;
 
-    const progressPct = (fullGoal as any).target_amount > 0
-      ? Math.round(((fullGoal as any).current_amount / (fullGoal as any).target_amount) * 100)
+    const progressPct = fullGoal.target_amount > 0
+      ? Math.round((fullGoal.current_amount / fullGoal.target_amount) * 100)
       : 0;
     const userName = await getUserDisplayName(g.user_id);
 
     sendNotificationEmail(g.user_id, 'goal_expired', {
       userName,
       goalName: g.name,
-      targetDate: (fullGoal as any).target_date,
+      targetDate: fullGoal.target_date,
       progressPct,
-      currentAmount: (fullGoal as any).current_amount,
-      targetAmount: (fullGoal as any).target_amount,
+      currentAmount: fullGoal.current_amount,
+      targetAmount: fullGoal.target_amount,
     }).catch(() => {});
   }
 }

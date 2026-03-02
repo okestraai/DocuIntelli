@@ -4,12 +4,7 @@
  * calculates payoff scenarios, and generates refinancing recommendations.
  */
 
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { query } from '../services/db';
 
 const ANALYSIS_CACHE_TTL_DAYS = 7;
 
@@ -64,14 +59,12 @@ export async function analyzeLoanDocument(
   estimatedPayment: number
 ): Promise<LoanAnalysisResult> {
   // Fetch document text from chunks
-  const { data: chunks } = await supabase
-    .from('document_chunks')
-    .select('chunk_text, chunk_index')
-    .eq('document_id', documentId)
-    .order('chunk_index', { ascending: true })
-    .limit(20);
+  const chunksResult = await query(
+    'SELECT chunk_text, chunk_index FROM document_chunks WHERE document_id = $1 ORDER BY chunk_index ASC LIMIT 20',
+    [documentId]
+  );
 
-  const documentText = (chunks || [])
+  const documentText = (chunksResult.rows || [])
     .map((c: any) => c.chunk_text)
     .join('\n\n')
     .slice(0, 8000); // Cap to avoid exceeding token limits
@@ -433,22 +426,23 @@ async function cacheAnalysis(
 
   try {
     // Delete old analyses for this loan
-    await supabase
-      .from('loan_analyses')
-      .delete()
-      .eq('detected_loan_id', detectedLoanId);
+    await query('DELETE FROM loan_analyses WHERE detected_loan_id = $1', [detectedLoanId]);
 
-    await supabase.from('loan_analyses').insert({
-      user_id: userId,
-      detected_loan_id: detectedLoanId,
-      document_id: documentId,
-      extracted_data: result.extracted_data,
-      analysis_text: result.analysis_text,
-      payoff_timeline: result.payoff_timeline,
-      refinancing_analysis: result.refinancing_analysis,
-      generated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
-    });
+    await query(
+      `INSERT INTO loan_analyses (user_id, detected_loan_id, document_id, extracted_data, analysis_text, payoff_timeline, refinancing_analysis, generated_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        userId,
+        detectedLoanId,
+        documentId,
+        JSON.stringify(result.extracted_data),
+        result.analysis_text,
+        result.payoff_timeline ? JSON.stringify(result.payoff_timeline) : null,
+        result.refinancing_analysis ? JSON.stringify(result.refinancing_analysis) : null,
+        new Date().toISOString(),
+        expiresAt.toISOString(),
+      ]
+    );
   } catch (err) {
     console.error('Failed to cache loan analysis:', err);
   }

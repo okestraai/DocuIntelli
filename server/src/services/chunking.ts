@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { processDocumentVLLMEmbeddings as processDocumentEmbeddings } from './vllmEmbeddings';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -8,6 +9,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase configuration for chunking service');
 }
 
+// Keep Supabase client solely for storage operations (file download)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export class TextChunker {
@@ -140,14 +142,14 @@ export async function processDocument(documentId: string): Promise<{
     console.log(`📄 Processing document: ${documentId}`);
 
     // Fetch document from database
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('id, user_id, name, processed, file_path, type')
-      .eq('id', documentId)
-      .single();
+    const docResult = await query(
+      'SELECT id, user_id, name, processed, file_path, type FROM documents WHERE id = $1',
+      [documentId]
+    );
+    const document = docResult.rows[0];
 
-    if (docError || !document) {
-      console.error('Document not found:', docError);
+    if (!document) {
+      console.error('Document not found');
       return { success: false, error: 'Document not found' };
     }
 
@@ -156,7 +158,7 @@ export async function processDocument(documentId: string): Promise<{
       return { success: true, chunksProcessed: 0 };
     }
 
-    // Download file from storage
+    // Download file from storage (still uses Supabase storage client)
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('documents')
       .download(document.file_path);
@@ -186,36 +188,28 @@ export async function processDocument(documentId: string): Promise<{
       return { success: false, error: 'No valid text chunks could be created' };
     }
 
-    // Prepare chunks for insertion
-    const documentChunks = textChunks.map((chunkText, i) => ({
-      document_id: document.id,
-      user_id: document.user_id,
-      chunk_index: i,
-      chunk_text: chunkText,
-      embedding: null,
-    }));
-
-    // Insert chunks into database
-    const { data: insertedChunks, error: insertError } = await supabase
-      .from('document_chunks')
-      .insert(documentChunks)
-      .select('id');
-
-    if (insertError) {
-      console.error('Chunk insert error:', insertError);
-      return {
-        success: false,
-        error: `Failed to save document chunks: ${insertError.message}`,
-      };
+    // Build multi-row VALUES clause for batch insert
+    const values: any[] = [];
+    const valueClauses: string[] = [];
+    let paramIdx = 1;
+    for (let i = 0; i < textChunks.length; i++) {
+      valueClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4})`);
+      values.push(document.id, document.user_id, i, textChunks[i], null);
+      paramIdx += 5;
     }
 
-    console.log(`✅ Inserted ${insertedChunks?.length || 0} chunks`);
+    const insertResult = await query(
+      `INSERT INTO document_chunks (document_id, user_id, chunk_index, chunk_text, embedding)
+       VALUES ${valueClauses.join(', ')}
+       RETURNING id`,
+      values
+    );
+
+    const insertedCount = insertResult.rows.length;
+    console.log(`✅ Inserted ${insertedCount} chunks`);
 
     // Mark document as processed
-    await supabase
-      .from('documents')
-      .update({ processed: true })
-      .eq('id', document.id);
+    await query('UPDATE documents SET processed = true WHERE id = $1', [document.id]);
 
     console.log('✅ Document chunking completed');
 
@@ -261,7 +255,7 @@ export async function processDocument(documentId: string): Promise<{
 
     return {
       success: true,
-      chunksProcessed: insertedChunks?.length || 0,
+      chunksProcessed: insertedCount,
       embeddingStatus,
     };
   } catch (error) {
@@ -280,18 +274,12 @@ export async function processUnprocessedDocuments(): Promise<{
 }> {
   try {
     // Find all unprocessed documents
-    const { data: documents, error } = await supabase
-      .from('documents')
-      .select('id, name')
-      .eq('processed', false)
-      .order('created_at', { ascending: true });
+    const docsResult = await query(
+      'SELECT id, name FROM documents WHERE processed = false ORDER BY created_at ASC'
+    );
+    const documents = docsResult.rows;
 
-    if (error) {
-      console.error('Error fetching unprocessed documents:', error);
-      return { processed: 0, failed: 0, errors: [error.message] };
-    }
-
-    if (!documents || documents.length === 0) {
+    if (documents.length === 0) {
       console.log('No unprocessed documents found');
       return { processed: 0, failed: 0, errors: [] };
     }

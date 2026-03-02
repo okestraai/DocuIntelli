@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 
 const router = Router();
@@ -13,6 +14,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase configuration in user profile routes');
 }
 
+// Keep Supabase client ONLY for auth.admin operations (Phase 2 migration)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 /**
@@ -23,19 +25,12 @@ router.get('/profile', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    const result = await query(
+      `SELECT * FROM user_profiles WHERE id = $1`,
+      [userId]
+    );
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('❌ Get profile error:', error);
-      res.status(500).json({ success: false, error: 'Failed to fetch profile' });
-      return;
-    }
-
-    res.json({ success: true, profile: data || null });
+    res.json({ success: true, profile: result.rows[0] || null });
   } catch (err: any) {
     console.error('❌ Profile error:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch profile' });
@@ -52,6 +47,7 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     const updates = req.body;
 
     // Update auth metadata for display_name, bio, full_name, phone
+    // (uses Supabase auth admin — Phase 2 migration)
     if (updates.display_name !== undefined || updates.bio !== undefined ||
         updates.full_name !== undefined || updates.phone !== undefined) {
       const metadataUpdate: Record<string, string | undefined> = {};
@@ -70,18 +66,61 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Upsert user_profiles table
-    const { error: profileError } = await supabase
-      .from('user_profiles')
-      .upsert({
-        id: userId,
-        ...updates,
-        updated_at: new Date().toISOString(),
-      });
+    // Build dynamic column list from updates object
+    const allowedColumns = [
+      'display_name', 'bio', 'full_name', 'phone', 'avatar_url',
+      'email_notifications', 'document_reminders', 'security_alerts',
+      'expo_push_token',
+    ];
 
-    if (profileError) {
-      console.error('❌ Profile upsert error:', profileError);
-      res.status(500).json({ success: false, error: 'Failed to update profile' });
-      return;
+    const setClauses: string[] = [];
+    const values: any[] = [userId]; // $1 = id
+    let paramIndex = 2;
+
+    for (const col of allowedColumns) {
+      if (updates[col] !== undefined) {
+        setClauses.push(`${col} = $${paramIndex}`);
+        values.push(updates[col]);
+        paramIndex++;
+      }
+    }
+
+    // Always update updated_at
+    setClauses.push(`updated_at = $${paramIndex}`);
+    values.push(new Date().toISOString());
+    paramIndex++;
+
+    if (setClauses.length > 1) {
+      // Try UPDATE first, fall back to INSERT if no row exists
+      const updateResult = await query(
+        `UPDATE user_profiles SET ${setClauses.join(', ')} WHERE id = $1`,
+        values
+      );
+
+      if (updateResult.rowCount === 0) {
+        // No existing profile — insert
+        const insertCols = ['id'];
+        const insertPlaceholders = ['$1'];
+        const insertValues: any[] = [userId];
+        let insertIdx = 2;
+
+        for (const col of allowedColumns) {
+          if (updates[col] !== undefined) {
+            insertCols.push(col);
+            insertPlaceholders.push(`$${insertIdx}`);
+            insertValues.push(updates[col]);
+            insertIdx++;
+          }
+        }
+        insertCols.push('updated_at');
+        insertPlaceholders.push(`$${insertIdx}`);
+        insertValues.push(new Date().toISOString());
+
+        await query(
+          `INSERT INTO user_profiles (${insertCols.join(', ')}) VALUES (${insertPlaceholders.join(', ')})`,
+          insertValues
+        );
+      }
     }
 
     res.json({ success: true });
@@ -105,18 +144,17 @@ router.post('/push-token', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const { error } = await supabase
-      .from('user_profiles')
-      .upsert({
-        id: userId,
-        expo_push_token: token,
-        updated_at: new Date().toISOString(),
-      });
+    // Upsert: try UPDATE first, then INSERT
+    const updateResult = await query(
+      `UPDATE user_profiles SET expo_push_token = $1, updated_at = $2 WHERE id = $3`,
+      [token, new Date().toISOString(), userId]
+    );
 
-    if (error) {
-      console.error('❌ Push token upsert error:', error);
-      res.status(500).json({ success: false, error: 'Failed to save push token' });
-      return;
+    if (updateResult.rowCount === 0) {
+      await query(
+        `INSERT INTO user_profiles (id, expo_push_token, updated_at) VALUES ($1, $2, $3)`,
+        [userId, token, new Date().toISOString()]
+      );
     }
 
     res.json({ success: true });
@@ -134,19 +172,10 @@ router.delete('/push-token', async (req: Request, res: Response): Promise<void> 
   try {
     const userId = req.userId!;
 
-    const { error } = await supabase
-      .from('user_profiles')
-      .update({
-        expo_push_token: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId);
-
-    if (error) {
-      console.error('❌ Clear push token error:', error);
-      res.status(500).json({ success: false, error: 'Failed to clear push token' });
-      return;
-    }
+    await query(
+      `UPDATE user_profiles SET expo_push_token = NULL, updated_at = $1 WHERE id = $2`,
+      [new Date().toISOString(), userId]
+    );
 
     res.json({ success: true });
   } catch (err: any) {
