@@ -1,13 +1,13 @@
 /**
  * Frontend API helpers for the Engagement Engine
  */
-import { supabase } from './supabase';
+import { auth } from './auth';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const BACKEND_URL = `${API_BASE}/api/engagement`;
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
   return {
     'Authorization': `Bearer ${session.access_token}`,

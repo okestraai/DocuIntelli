@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getDocuments, SupabaseDocument, supabase } from '../lib/supabase';
+import { getDocuments, SupabaseDocument, auth } from '../lib/auth';
 import { uploadDocumentWithMetadata, processURLContent, processManualContent, DocumentUploadRequest } from '../lib/api';
 import type { Document } from '../App';
 
@@ -83,7 +83,7 @@ export function useDocuments(isAuthenticated: boolean) {
       console.log(`🗑️ Deleting document: ${id}`);
       
       // Delete via backend API (which handles both COS and database)
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) {
         throw new Error('User not authenticated');
       }

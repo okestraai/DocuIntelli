@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, CreditCard, Bell, Shield, Trash2, Calendar, FileText, BarChart3, Compass, Activity, Smartphone, Monitor, Tablet, X, Loader2 } from 'lucide-react';
-import { supabase, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/supabase';
+import { auth, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
 import { formatUTCDate } from '../lib/dateUtils';
 import { BillingPage } from './BillingPage';
@@ -277,7 +277,7 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
 
     setIsUpdating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -292,7 +292,7 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
       }
 
       feedback.showSuccess('Account deleted', 'Your account and all data have been permanently deleted');
-      await supabase.auth.signOut();
+      await auth.signOut();
     } catch (error) {
       feedback.showError('Delete failed', error instanceof Error ? error.message : 'Failed to delete account');
     } finally {

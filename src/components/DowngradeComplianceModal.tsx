@@ -3,7 +3,7 @@ import {
   X, AlertTriangle, FileText, CheckCircle, Search,
   Shield, ArrowLeft, Loader2, Tag, Calendar
 } from 'lucide-react';
-import { getDocuments, SupabaseDocument } from '../lib/supabase';
+import { getDocuments, SupabaseDocument } from '../lib/auth';
 import { downgradeSubscription } from '../lib/api';
 import { PLAN_LIMITS, type PlanId } from '../lib/planLimits';
 import { formatUTCDate } from '../lib/dateUtils';

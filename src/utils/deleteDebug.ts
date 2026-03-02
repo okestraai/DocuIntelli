@@ -2,10 +2,10 @@
  * Debug helper for document deletion
  *
  * Call this from browser console:
- * window.debugDelete = () => { ... }
+ * window.debugDelete("document-id-here")
  */
 
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -15,12 +15,7 @@ export async function debugDelete(documentId: string) {
 
   // 1. Check authentication
   console.log('\n1️⃣ Checking authentication...');
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-  if (sessionError) {
-    console.error('❌ Session error:', sessionError);
-    return { error: 'session_error', details: sessionError };
-  }
+  const { data: { session } } = await auth.getSession();
 
   if (!session) {
     console.error('❌ No active session');
@@ -33,53 +28,8 @@ export async function debugDelete(documentId: string) {
   console.log('   Token exists:', !!session.access_token);
   console.log('   Token length:', session.access_token.length);
 
-  // 2. Check document ownership
-  console.log('\n2️⃣ Checking document ownership...');
-  const { data: doc, error: docError } = await supabase
-    .from('documents')
-    .select('id, name, user_id, file_path')
-    .eq('id', documentId)
-    .maybeSingle();
-
-  if (docError) {
-    console.error('❌ Database error:', docError);
-    return { error: 'db_error', details: docError };
-  }
-
-  if (!doc) {
-    console.error('❌ Document not found');
-    return { error: 'not_found' };
-  }
-
-  console.log('✅ Document found:');
-  console.log('   Name:', doc.name);
-  console.log('   Owner:', doc.user_id);
-  console.log('   Current user:', session.user.id);
-  console.log('   Ownership match:', doc.user_id === session.user.id);
-
-  if (doc.user_id !== session.user.id) {
-    console.error('❌ Permission denied: Document belongs to different user');
-    return { error: 'permission_denied' };
-  }
-
-  // 3. Check related data
-  console.log('\n3️⃣ Checking related data...');
-
-  const { count: chunkCount } = await supabase
-    .from('document_chunks')
-    .select('id', { count: 'exact', head: true })
-    .eq('document_id', documentId);
-
-  const { count: chatCount } = await supabase
-    .from('document_chats')
-    .select('id', { count: 'exact', head: true })
-    .eq('document_id', documentId);
-
-  console.log('   Document chunks:', chunkCount);
-  console.log('   Chat messages:', chatCount);
-
-  // 4. Test DELETE API call
-  console.log('\n4️⃣ Testing DELETE API call...');
+  // 2. Test DELETE API call
+  console.log('\n2️⃣ Testing DELETE API call...');
   const apiUrl = `${API_BASE}/api/documents/${documentId}`;
   console.log('   URL:', apiUrl);
   console.log('   Method: DELETE');
@@ -115,39 +65,6 @@ export async function debugDelete(documentId: string) {
     const result = await response.json();
     console.log('✅ DELETE successful!');
     console.log('   Response:', result);
-
-    // 5. Verify deletion
-    console.log('\n5️⃣ Verifying deletion...');
-
-    const { data: deletedDoc } = await supabase
-      .from('documents')
-      .select('id')
-      .eq('id', documentId)
-      .maybeSingle();
-
-    if (deletedDoc) {
-      console.error('❌ Document still exists in database!');
-      return { error: 'deletion_incomplete', details: 'Document still in database' };
-    } else {
-      console.log('✅ Document removed from database');
-    }
-
-    const { count: remainingChunks } = await supabase
-      .from('document_chunks')
-      .select('id', { count: 'exact', head: true })
-      .eq('document_id', documentId);
-
-    const { count: remainingChats } = await supabase
-      .from('document_chats')
-      .select('id', { count: 'exact', head: true })
-      .eq('document_id', documentId);
-
-    console.log('   Remaining chunks:', remainingChunks);
-    console.log('   Remaining chats:', remainingChats);
-
-    if (remainingChunks === 0 && remainingChats === 0) {
-      console.log('✅ All related data removed');
-    }
 
     console.log('\n' + '─'.repeat(60));
     console.log('✅ Delete operation completed successfully!');

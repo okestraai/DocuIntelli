@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CreditCard, X, Clock, Trash2, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 import { openCustomerPortal } from '../lib/api';
 import type { Page } from '../App';
 
@@ -32,7 +32,7 @@ export function DunningBanner({ onNavigate }: DunningBannerProps) {
 
   const fetchDunningStatus = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) return;
 
       const res = await fetch(`${API_BASE}/api/dunning/status`, {

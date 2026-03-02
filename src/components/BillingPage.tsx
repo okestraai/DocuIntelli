@@ -17,7 +17,7 @@ import {
   Calendar,
   Upload
 } from 'lucide-react';
-import { supabase, getDocuments } from '../lib/supabase';
+import { auth, getDocuments } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
 import { useSubscription } from '../hooks/useSubscription';
 import {
@@ -100,7 +100,7 @@ export function BillingPage({ onClose, onSubscriptionChange }: BillingPageProps)
   const loadBillingData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) return;
 
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';

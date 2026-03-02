@@ -1,13 +1,13 @@
 /**
  * Frontend API helpers for Life Events feature
  */
-import { supabase } from './supabase';
+import { auth } from './auth';
 
 const SERVER_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const API_BASE = `${SERVER_BASE}/api/life-events`;
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
   return {
     Authorization: `Bearer ${session.access_token}`,

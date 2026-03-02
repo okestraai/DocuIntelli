@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Calendar, AlertCircle } from 'lucide-react';
-import { updateUserProfile, getUserProfile } from '../lib/supabase';
+import { updateUserProfile, getUserProfile } from '../lib/auth';
 import { PhoneInput } from './PhoneInput';
 
 interface OnboardingModalProps {

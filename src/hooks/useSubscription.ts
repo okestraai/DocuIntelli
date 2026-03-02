@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -41,7 +41,7 @@ interface UseSubscriptionReturn {
 }
 
 async function getAuthHeaders(): Promise<Record<string, string> | null> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) return null;
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${session.access_token}`,
@@ -156,7 +156,7 @@ export function useSubscription(): UseSubscriptionReturn {
     fetchSubscription();
 
     // Re-fetch when auth state changes (e.g., impersonation session established)
-    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription: authSub } } = auth.onAuthStateChange(
       (event) => {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           fetchSubscription();
@@ -168,25 +168,14 @@ export function useSubscription(): UseSubscriptionReturn {
       }
     );
 
-    // Keep realtime channel — it just triggers an API refetch
-    const channel = supabase
-      .channel('subscription-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_subscriptions',
-        },
-        () => {
-          fetchSubscription();
-        }
-      )
-      .subscribe();
+    // Poll subscription changes every 60s (replaces Supabase Realtime)
+    const pollInterval = setInterval(() => {
+      fetchSubscription();
+    }, 60_000);
 
     return () => {
       authSub.unsubscribe();
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
   }, []);
 

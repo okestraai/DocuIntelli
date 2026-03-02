@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, FileText, MessageSquare, Bell, Lock, Smartphone, ArrowRight, CheckCircle, Sparkles, Shield, LogIn } from 'lucide-react';
-import { signInWithGoogle } from '../lib/supabase';
+import { signInWithGoogle } from '../lib/auth';
 
 interface LandingPageProps {
   onGetStarted: () => void;

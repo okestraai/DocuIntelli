@@ -14,7 +14,7 @@ import { useDocuments } from './hooks/useDocuments';
 import { useSubscription } from './hooks/useSubscription';
 import { DocumentUploadRequest, createCheckoutSession, openCustomerPortal, upgradeSubscription, previewUpgrade, syncBillingData } from './lib/api';
 import { linkRelatedDocuments } from './lib/engagementApi';
-import { supabase, signOut, getUserProfile, isOnboardingComplete } from './lib/supabase';
+import { auth, signOut, getUserProfile, isOnboardingComplete } from './lib/auth';
 import { useFeedback } from './hooks/useFeedback';
 import { OnboardingModal } from './components/OnboardingModal';
 import { ToastContainer } from './components/Toast';
@@ -235,7 +235,7 @@ function App() {
     }
 
     // Set the session with the pre-made tokens — no OTP verification needed
-    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+    auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
       .then(({ error }) => {
         if (error) console.error('Impersonation session failed:', error);
       });
@@ -244,7 +244,7 @@ function App() {
   // Check for existing session on app load
   useEffect(() => {
     // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = auth.onAuthStateChange(
       async (event, session) => {
         setIsLoading(false);
         if (event === 'SIGNED_IN' && session?.user) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, User, Lock, Settings, Eye, EyeOff, AlertCircle, CheckCircle, CreditCard } from 'lucide-react';
-import { supabase, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/supabase';
+import { auth, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
 import { formatUTCDate } from '../lib/dateUtils';
 import { BillingPage } from './BillingPage';
@@ -185,7 +185,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
     setIsUpdating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -200,7 +200,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       }
 
       feedback.showSuccess('Account deleted', 'Your account and all data have been permanently deleted');
-      await supabase.auth.signOut();
+      await auth.signOut();
     } catch (error) {
       feedback.showError('Delete failed', error instanceof Error ? error.message : 'Failed to delete account');
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { supabase, changePassword } from '../lib/supabase';
+import { auth, changePassword } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
 
 export function ResetPasswordPage() {
@@ -15,7 +15,7 @@ export function ResetPasswordPage() {
   useEffect(() => {
     // Check if we have a valid session from the reset link
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) {
         feedback.showError('Invalid reset link', 'This password reset link is invalid or has expired');
       }

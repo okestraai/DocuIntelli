@@ -1,7 +1,7 @@
 // src/lib/adminApi.ts
 // Admin API client helpers
 
-import { supabase } from './supabase';
+import { auth } from './auth';
 import { getDeviceId } from './deviceId';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -15,7 +15,7 @@ function backendHeaders(accessToken: string): Record<string, string> {
 }
 
 async function getToken(): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
   return session.access_token;
 }

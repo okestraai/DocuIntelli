@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { User } from '@supabase/supabase-js';
 import { X, ShieldCheck, Mail, Lock, Eye, EyeOff, KeyRound, Clock } from 'lucide-react';
-import { supabase, sendSignupOTP, verifySignupOTP, signIn, signInWithGoogle, resetPasswordWithOTP, verifyOTP, resendOTP } from '../lib/supabase';
+import { auth, sendSignupOTP, verifySignupOTP, signIn, signInWithGoogle, resetPasswordWithOTP, verifyOTP, resendOTP } from '../lib/auth';
+import type { AuthUser } from '../lib/auth';
 
 interface AuthModalProps {
   onClose: () => void;
-  onAuth: (user: User) => void;
+  onAuth: (user: AuthUser) => void;
 }
 
 type AuthStep = 'auth' | 'verify-signup' | 'verify-reset' | 'set-new-password';
@@ -200,7 +200,7 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
         if (result.token_hash) {
           // Auto-login via magic link token
-          const { data, error: verifyError } = await supabase.auth.verifyOtp({
+          const { data, error: verifyError } = await auth.verifyOtp({
             token_hash: result.token_hash,
             type: 'magiclink',
           });
@@ -305,10 +305,10 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
     setIsLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      const { error: updateError } = await auth.updateUser({ password: newPassword });
       if (updateError) throw updateError;
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await auth.getUser();
       if (user) {
         onAuth(user);
       }

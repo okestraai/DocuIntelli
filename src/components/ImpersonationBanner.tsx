@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Eye, X } from 'lucide-react';
-import { supabase, signOut } from '../lib/supabase';
+import { auth, signOut } from '../lib/auth';
 
 /**
  * Persistent red banner shown when the app is being viewed as an impersonated user.
@@ -28,7 +28,7 @@ export function ImpersonationBanner() {
     if (sessionStorage.getItem('docuintelli_impersonated') === 'true') {
       setImpersonating(true);
       // Get current user email
-      supabase.auth.getUser().then(({ data: { user } }) => {
+      auth.getUser().then(({ data: { user } }) => {
         if (user?.email) setEmail(user.email);
       });
     }
