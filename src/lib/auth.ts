@@ -871,10 +871,10 @@ export const signUp = async (email: string, password: string) => {
 
 /**
  * Send a signup verification OTP code.
- * POST /api/auth/signup-send-otp
+ * POST /api/auth/signup — creates user (if needed) and sends OTP.
  */
 export const sendSignupOTP = async (email: string, password: string) => {
-  const res = await fetch(`${API_BASE}/api/auth/signup-send-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -888,14 +888,14 @@ export const sendSignupOTP = async (email: string, password: string) => {
 };
 
 /**
- * Verify a signup OTP code and create the user account.
- * POST /api/auth/signup-verify-otp
+ * Verify a signup OTP code and confirm the user account.
+ * POST /api/auth/verify-otp — verifies OTP, confirms email, returns tokens.
  */
 export const verifySignupOTP = async (
   email: string,
   otp: string
 ): Promise<{ success: boolean; token_hash: string | null; message: string }> => {
-  const res = await fetch(`${API_BASE}/api/auth/signup-verify-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, otp }),
@@ -905,6 +905,15 @@ export const verifySignupOTP = async (
   if (!res.ok) {
     throw new Error(data.error || 'Verification failed');
   }
+
+  // If verify-otp returns tokens (signup flow), store them
+  if (data.access_token) {
+    const user = userFromToken(data.access_token);
+    if (user) {
+      storeTokens(data.access_token, data.refresh_token || '', user);
+    }
+  }
+
   return data;
 };
 
@@ -920,11 +929,11 @@ export const resetPassword = async (email: string) => {
 };
 
 /**
- * Send a password reset OTP via the custom backend endpoint.
- * POST /api/auth/password-reset-otp
+ * Send a password reset OTP via the backend.
+ * POST /api/auth/send-otp — sends a generic OTP to the email.
  */
 export const resetPasswordWithOTP = async (email: string) => {
-  const res = await fetch(`${API_BASE}/api/auth/password-reset-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -960,7 +969,7 @@ export const resendOTP = async (email: string, type: 'signup' | 'recovery') => {
   if (type === 'signup') {
     // The signup resend needs the password, but the Supabase version of resend
     // for signup didn't need it because Supabase had the pending user.
-    // In our backend flow, the signup-send-otp endpoint is re-called.
+    // In our backend flow, the signup endpoint is re-called.
     // The caller should pass the password if needed, but for backward compat
     // with the existing resend flow, we call the generic send-otp endpoint.
     const { error } = await auth.resend({ type: 'signup', email });

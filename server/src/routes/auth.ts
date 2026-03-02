@@ -665,6 +665,77 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ─── POST /api/auth/update-user ────────────────────────────────────────────
+
+router.post('/update-user', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      res.status(401).json({ error: 'No authorization header' });
+      return;
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    let decoded: { userId: string; email: string };
+    try {
+      decoded = verifyAccessToken(token);
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+
+    const { password, user_metadata } = req.body;
+
+    // Update password if provided
+    if (password) {
+      if (password.length < 8) {
+        res.status(400).json({ error: 'Password must be at least 8 characters' });
+        return;
+      }
+
+      const passwordHash = await hashPassword(password);
+      await query(
+        `UPDATE auth_users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+        [passwordHash, decoded.userId]
+      );
+
+      // Revoke all refresh tokens except current session (force re-login on other devices)
+      await revokeAllUserTokens(decoded.userId);
+    }
+
+    // Update user metadata if provided
+    if (user_metadata && typeof user_metadata === 'object') {
+      await query(
+        `UPDATE auth_users
+         SET raw_user_meta_data = raw_user_meta_data || $1::jsonb, updated_at = NOW()
+         WHERE id = $2`,
+        [JSON.stringify(user_metadata), decoded.userId]
+      );
+
+      // Also update user_profiles if display_name is being changed
+      if (user_metadata.display_name !== undefined) {
+        await query(
+          `UPDATE user_profiles SET display_name = $1 WHERE id = $2`,
+          [user_metadata.display_name, decoded.userId]
+        );
+      }
+    }
+
+    // Issue new tokens (password change invalidates old ones)
+    const newAccessToken = generateAccessToken(decoded.userId, decoded.email);
+    const newRefreshToken = await generateRefreshToken(decoded.userId);
+
+    res.json({
+      success: true,
+      access_token: newAccessToken,
+      refresh_token: newRefreshToken,
+    });
+  } catch (err) {
+    console.error('Update user error:', err);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
 // ─── GET /api/auth/me ───────────────────────────────────────────────────────
 
 router.get('/me', async (req: Request, res: Response): Promise<void> => {

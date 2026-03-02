@@ -910,7 +910,7 @@ export const isOnboardingComplete = (profile: UserProfile | null): boolean => {
 
 /** Custom OTP signup — sends a 6-digit code, does NOT create the user yet */
 export const sendSignupOTP = async (email: string, password: string) => {
-  const res = await fetch(`${API_BASE}/api/auth/signup-send-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -928,7 +928,7 @@ export const verifySignupOTP = async (
   email: string,
   otp: string
 ): Promise<{ success: boolean; token_hash: string | null; message: string }> => {
-  const res = await fetch(`${API_BASE}/api/auth/signup-verify-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, otp }),
@@ -996,7 +996,7 @@ export const getCurrentUser = async () => {
 
 /** Send a password reset OTP via the custom backend endpoint */
 export const resetPasswordWithOTP = async (email: string) => {
-  const res = await fetch(`${API_BASE}/api/auth/password-reset-otp`, {
+  const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
