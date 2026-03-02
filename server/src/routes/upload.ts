@@ -20,13 +20,9 @@ const router = Router();
 // Apply subscription loading to ALL routes
 router.use(loadSubscription);
 
-// Supabase URL and service key are still needed for edge function calls (process-document, generate-embeddings)
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration in upload routes (needed for edge functions)');
-}
+// Import services for document processing and embeddings (was edge function calls)
+import { processDocumentVLLMEmbeddings } from '../services/vllmEmbeddings';
+import { processDocument as reprocessDocument } from '../services/chunking';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -203,36 +199,16 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
           console.warn(`⚠️ Local text extraction failed: ${localErr.message}. Will try edge function fallback...`);
         }
 
-        // Attempt 2: Fallback to process-document edge function if local extraction yielded 0 chunks
+        // Attempt 2: Fallback to chunking service if local extraction yielded 0 chunks
         if (chunksCreated === 0) {
-          console.log(`⚠️ Local extraction yielded 0 chunks for ${documentData.id}, falling back to edge function...`);
+          console.log(`⚠️ Local extraction yielded 0 chunks for ${documentData.id}, falling back to chunking service...`);
           try {
-            const processUrl = `${supabaseUrl}/functions/v1/process-document`;
-            // Reset processed flag so edge function can re-process
-            await query(
-              `UPDATE documents SET processed = false WHERE id = $1`,
-              [documentData.id]
-            );
-
-            const processResponse = await fetch(processUrl, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${supabaseServiceKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ document_id: documentData.id }),
-            });
-
-            if (processResponse.ok) {
-              const processResult = await processResponse.json() as { success: boolean; data?: { chunks_processed: number } };
-              chunksCreated = processResult.data?.chunks_processed || 0;
-              console.log(`🔄 Edge function fallback: ${chunksCreated} chunks processed`);
-            } else {
-              const errData = await processResponse.json().catch(() => ({}));
-              console.error('⚠️ Edge function fallback failed:', errData);
-            }
+            await query('UPDATE documents SET processed = false WHERE id = $1', [documentData.id]);
+            const processResult = await reprocessDocument(documentData.id);
+            chunksCreated = processResult.chunksProcessed || 0;
+            console.log(`🔄 Chunking service fallback: ${chunksCreated} chunks processed`);
           } catch (fallbackErr: any) {
-            console.error('⚠️ Edge function fallback error:', fallbackErr.message);
+            console.error('⚠️ Chunking service fallback error:', fallbackErr.message);
           }
         }
 
@@ -252,33 +228,19 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
             }
           });
 
-          // Trigger embedding generation
+          // Trigger embedding generation directly
           console.log(`🔄 Triggering embedding generation for: ${documentData.id}`);
-          try {
-            const embeddingUrl = `${supabaseUrl}/functions/v1/generate-embeddings`;
-            const embeddingResponse = await fetch(embeddingUrl, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${supabaseServiceKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                document_id: documentData.id,
-                limit: 3,
-                continue_processing: true,
-              }),
+          processDocumentVLLMEmbeddings(documentData.id)
+            .then(result => {
+              if (result.success) {
+                console.log(`✅ Embeddings generated: ${result.processed} chunks processed`);
+              } else {
+                console.error('⚠️ Embedding generation failed:', result.error);
+              }
+            })
+            .catch(embErr => {
+              console.error('⚠️ Failed to trigger embedding generation:', embErr.message);
             });
-
-            if (!embeddingResponse.ok) {
-              const errorData = await embeddingResponse.json();
-              console.error('⚠️ Embedding generation failed:', errorData);
-            } else {
-              const result = await embeddingResponse.json() as { updated: number, remaining: number };
-              console.log(`✅ Embeddings started: ${result.updated} chunks updated, ${result.remaining} remaining`);
-            }
-          } catch (embErr: any) {
-            console.error('⚠️ Failed to trigger embedding generation:', embErr.message);
-          }
         } else {
           // Both extraction methods failed — notify user
           console.error(`❌ All extraction methods failed for ${documentData.id} (0 chunks). Document may be empty or unreadable.`);

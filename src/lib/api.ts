@@ -1,10 +1,9 @@
 // src/lib/api.ts
 // Frontend API helpers
-import { supabase } from './supabase';
+import { auth } from './auth';
 import { getDeviceId } from './deviceId';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 /** Get the impersonation proof token from sessionStorage (if in impersonation tab) */
 function getImpersonationProof(): string | null {
@@ -15,19 +14,7 @@ function getImpersonationProof(): string | null {
   }
 }
 
-/** Standard headers for Supabase Edge Function calls (requires apikey for project routing) */
-function edgeFunctionHeaders(accessToken: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-    'apikey': SUPABASE_ANON_KEY,
-  };
-  const proof = getImpersonationProof();
-  if (proof) headers['X-Impersonation-Proof'] = proof;
-  return headers;
-}
-
-/** Standard headers for backend API calls (includes device ID for multi-device tracking) */
+/** Standard headers for API calls (includes device ID for multi-device tracking) */
 function backendHeaders(accessToken: string, contentType: string = 'application/json'): Record<string, string> {
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${accessToken}`,
@@ -37,6 +24,13 @@ function backendHeaders(accessToken: string, contentType: string = 'application/
   const proof = getImpersonationProof();
   if (proof) headers['X-Impersonation-Proof'] = proof;
   return headers;
+}
+
+/** Helper to get access token from auth */
+async function getAccessToken(): Promise<string> {
+  const { data: { session } } = await auth.getSession();
+  if (!session) throw new Error('User not authenticated');
+  return session.access_token;
 }
 
 export interface UploadResponse {
@@ -87,19 +81,18 @@ export async function processURLContent(
   try {
     console.log('🔗 Processing URL:', { url, name, category });
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    const token = await getAccessToken().catch(() => null);
+    if (!token) {
       return { success: false, error: 'User not authenticated' };
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const apiUrl = `${supabaseUrl}/functions/v1/process-url-content`;
+    const apiUrl = `${API_BASE}/api/documents/process-url`;
 
-    console.log('📡 Calling edge function:', apiUrl);
+    console.log('📡 Calling API:', apiUrl);
 
     const res = await fetch(apiUrl, {
       method: 'POST',
-      headers: edgeFunctionHeaders(session.access_token),
+      headers: backendHeaders(token),
       body: JSON.stringify({
         url,
         name,
@@ -151,17 +144,16 @@ export async function processManualContent(
   try {
     console.log('📝 Processing manual content:', { name, category, contentLength: content.length });
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    const token = await getAccessToken().catch(() => null);
+    if (!token) {
       return { success: false, error: 'User not authenticated' };
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const apiUrl = `${supabaseUrl}/functions/v1/process-manual-content`;
+    const apiUrl = `${API_BASE}/api/documents/process-manual`;
 
     const res = await fetch(apiUrl, {
       method: 'POST',
-      headers: edgeFunctionHeaders(session.access_token),
+      headers: backendHeaders(token),
       body: JSON.stringify({
         content,
         name,
@@ -203,7 +195,7 @@ export async function uploadDocumentWithMetadata(
     console.log('📤 Starting upload for:', { name, category, fileSize: file.size, fileType: file.type });
 
     // Get auth token
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       console.error('❌ No session found');
       return { success: false, error: 'User not authenticated' };
@@ -264,17 +256,11 @@ export async function uploadDocumentWithMetadata(
  * Returns the final result with full answer + sources.
  */
 /**
- * Warm up the chat edge function to eliminate cold start latency.
+ * Warm up the chat endpoint to eliminate cold start latency.
  * Fire-and-forget — call when user opens a chat view.
  */
 export function warmupChatFunction(): void {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  if (!supabaseUrl) return;
-  fetch(`${supabaseUrl}/functions/v1/chat-document`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-    body: JSON.stringify({ warmup: true }),
-  }).catch(() => {});
+  // No-op: Express routes don't have cold starts like edge functions
 }
 
 export async function chatWithDocument(
@@ -282,21 +268,19 @@ export async function chatWithDocument(
   question: string,
   onChunk?: (content: string) => void
 ): Promise<{ success: boolean; answer: string; sources: any[] }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const apiUrl = `${supabaseUrl}/functions/v1/chat-document`;
+  const apiUrl = `${API_BASE}/api/chat`;
 
   const res = await fetch(apiUrl, {
     method: 'POST',
-    headers: edgeFunctionHeaders(session.access_token),
+    headers: backendHeaders(session.access_token),
     body: JSON.stringify({
       document_id: documentId,
       question,
-      user_id: session.user.id,
     }),
   });
 
@@ -356,7 +340,7 @@ export async function chatWithDocument(
  * Load chat history for a document
  */
 export async function loadChatHistory(documentId: string) {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
@@ -378,7 +362,7 @@ export async function loadChatHistory(documentId: string) {
  * Create a Stripe checkout session for subscription
  */
 export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<{ url: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
@@ -393,15 +377,14 @@ export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<{ 
     throw new Error(`Price ID not configured for ${plan} plan. Please add VITE_STRIPE_${plan.toUpperCase()}_PRICE_ID to your environment variables.`);
   }
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const apiUrl = `${supabaseUrl}/functions/v1/stripe-checkout`;
+  const apiUrl = `${API_BASE}/api/stripe/checkout`;
 
   const successUrl = `${window.location.origin}/dashboard?checkout=success`;
   const cancelUrl = `${window.location.origin}/dashboard?checkout=cancel`;
 
   const res = await fetch(apiUrl, {
     method: 'POST',
-    headers: edgeFunctionHeaders(session.access_token),
+    headers: backendHeaders(session.access_token),
     body: JSON.stringify({
       price_id: priceId,
       success_url: successUrl,
@@ -423,19 +406,18 @@ export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<{ 
  * Open Stripe Customer Portal for managing subscriptions
  */
 export async function openCustomerPortal(): Promise<{ url: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const apiUrl = `${supabaseUrl}/functions/v1/stripe-customer-portal`;
+  const apiUrl = `${API_BASE}/api/stripe/customer-portal`;
 
   const returnUrl = `${window.location.origin}/dashboard?portal=return`;
 
   const res = await fetch(apiUrl, {
     method: 'POST',
-    headers: edgeFunctionHeaders(session.access_token),
+    headers: backendHeaders(session.access_token),
     body: JSON.stringify({
       return_url: returnUrl,
     }),
@@ -455,21 +437,17 @@ export async function openCustomerPortal(): Promise<{ url: string }> {
  */
 export async function syncBillingData(): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const apiUrl = `${supabaseUrl}/functions/v1/stripe-sync-billing`;
+    const apiUrl = `${API_BASE}/api/stripe/sync-billing`;
 
-    // Call edge function with user_id only — it resolves the customer ID server-side
     const res = await fetch(apiUrl, {
       method: 'POST',
-      headers: edgeFunctionHeaders(session.access_token),
-      body: JSON.stringify({
-        user_id: session.user.id,
-      }),
+      headers: backendHeaders(session.access_token),
+      body: JSON.stringify({}),
     });
 
     if (!res.ok) {
@@ -493,7 +471,7 @@ export async function syncBillingData(): Promise<{ success: boolean; message?: s
  */
 export async function cancelSubscription(): Promise<{ success: boolean; message?: string; cancel_at?: string; error?: string }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
@@ -525,7 +503,7 @@ export async function cancelSubscription(): Promise<{ success: boolean; message?
  */
 export async function reactivateSubscription(): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
@@ -568,7 +546,7 @@ export async function previewUpgrade(newPlan: 'starter' | 'pro'): Promise<{
   error?: string;
 }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
@@ -609,7 +587,7 @@ export async function upgradeSubscription(newPlan: 'starter' | 'pro'): Promise<{
   error?: string
 }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
@@ -655,20 +633,19 @@ export async function createUpgradeCheckout(): Promise<{
   current_plan: string;
   new_plan: string;
 }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const apiUrl = `${supabaseUrl}/functions/v1/create-upgrade-checkout`;
+  const apiUrl = `${API_BASE}/api/stripe/create-upgrade`;
 
   const successUrl = `${window.location.origin}/dashboard?upgrade=success`;
   const cancelUrl = `${window.location.origin}/dashboard?upgrade=cancel`;
 
   const res = await fetch(apiUrl, {
     method: 'POST',
-    headers: edgeFunctionHeaders(session.access_token),
+    headers: backendHeaders(session.access_token),
     body: JSON.stringify({
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -696,7 +673,7 @@ export async function downgradeSubscription(
   error?: string
 }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) {
       throw new Error('User not authenticated');
     }
@@ -731,7 +708,7 @@ export async function downgradeSubscription(
 
 async function callEmailApi(endpoint: string, body?: Record<string, any>): Promise<{ success: boolean; sent?: boolean; error?: string }> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'Not authenticated' };
 
     const res = await fetch(`${API_BASE}/api/email/${endpoint}`, {
@@ -847,7 +824,7 @@ export async function globalSearch(
   query: string,
   options?: { category?: string; tags?: string[]; limit?: number }
 ): Promise<GlobalSearchResponse> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
@@ -893,7 +870,7 @@ export async function globalChatStream(
   question: string,
   onChunk?: (content: string) => void
 ): Promise<{ success: boolean; answer: string; sources: GlobalChatSource[] }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
@@ -967,7 +944,7 @@ export async function loadGlobalChatHistory(): Promise<Array<{
   sources?: GlobalChatSource[];
   created_at: string;
 }>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) return [];
 
   try {
@@ -1009,7 +986,7 @@ export interface DeviceListResponse {
 }
 
 export async function listDevices(): Promise<DeviceListResponse> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
   const res = await fetch(`${API_BASE}/api/devices`, {
@@ -1025,7 +1002,7 @@ export async function listDevices(): Promise<DeviceListResponse> {
 }
 
 export async function removeDevice(rowId: string): Promise<{ success: boolean }> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
   const res = await fetch(`${API_BASE}/api/devices/${rowId}`, {
@@ -1052,7 +1029,7 @@ export function logClientError(
   error: string,
   context?: Record<string, unknown>
 ): void {
-  supabase.auth.getSession().then(({ data: { session } }) => {
+  auth.getSession().then(({ data: { session } }) => {
     if (!session) return;
     fetch(`${API_BASE}/api/errors/log`, {
       method: 'POST',

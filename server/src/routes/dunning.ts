@@ -34,7 +34,7 @@ router.get('/status', loadSubscription, async (req: Request, res: Response): Pro
 router.post('/run', async (req: Request, res: Response): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    const cronSecret = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const cronSecret = process.env.CRON_SECRET || process.env.JWT_SECRET;
 
     if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
       res.status(401).json({ success: false, error: 'Unauthorized' });

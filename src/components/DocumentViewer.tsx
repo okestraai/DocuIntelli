@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, ArrowRight, Download, FileText, Image, AlertCircle, Loader2, PanelRightOpen, PanelRightClose, Crown, RefreshCw, MessageSquare } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/auth';
 import { fetchDocumentRelationships } from '../lib/engagementApi';
 import { DocumentHealthPanel } from './DocumentHealthPanel';
 
@@ -94,20 +94,19 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         setIsConverting(true);
 
         try {
-          const { data: { session } } = await supabase.auth.getSession();
+          const { data: { session } } = await auth.getSession();
           if (!session) {
             throw new Error('Not authenticated');
           }
 
-          const conversionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/convert-to-pdf`;
+          const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+          const conversionUrl = `${API_BASE}/api/documents/convert-to-pdf`;
 
-          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
           const conversionResponse = await fetch(conversionUrl, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${session.access_token}`,
               'Content-Type': 'application/json',
-              'apikey': supabaseAnonKey,
             },
             body: JSON.stringify({ filePath }),
           });

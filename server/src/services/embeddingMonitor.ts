@@ -1,8 +1,9 @@
 import { query } from '../services/db';
 import { processDocumentVLLMEmbeddings as processDocumentEmbeddings } from './vllmEmbeddings';
-
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { generateDocumentTags } from './tagGeneration';
+import { downloadFromStorage } from './storage';
+import { TextExtractor } from './textExtractor';
+import { TextChunker } from './chunking';
 
 interface EmbeddingCheckResult {
   totalDocuments: number;
@@ -53,45 +54,38 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
       const chunks = chunksResult.rows;
 
       if (chunks.length === 0) {
-        console.log(`⚠️  ${doc.name}: No chunks found — attempting recovery via edge function...`);
+        console.log(`⚠️  ${doc.name}: No chunks found — attempting recovery...`);
         try {
-          // Reset processed flag so edge function can re-process
+          // Reset processed flag and re-process locally
           await query('UPDATE documents SET processed = false WHERE id = $1', [doc.id]);
 
-          const processResponse = await fetch(`${supabaseUrl}/functions/v1/process-document`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ document_id: doc.id }),
-          });
-
-          if (processResponse.ok) {
-            const processResult = await processResponse.json() as { success: boolean; data?: { chunks_processed: number } };
-            const recovered = processResult.data?.chunks_processed || 0;
-            if (recovered > 0) {
-              console.log(`   ✅ Recovered ${doc.name}: ${recovered} chunks extracted`);
+          // Get document file path to re-extract text
+          const docInfoResult = await query('SELECT file_path, type FROM documents WHERE id = $1', [doc.id]);
+          const docInfo = docInfoResult.rows[0];
+          if (docInfo?.file_path) {
+            const buffer = await downloadFromStorage(docInfo.file_path);
+            const text = await TextExtractor.extractText(buffer, docInfo.type || 'application/pdf');
+            if (text && text.trim().length > 0) {
+              const textChunks = TextChunker.chunkText(text);
+              for (let i = 0; i < textChunks.length; i++) {
+                await query(
+                  'INSERT INTO document_chunks (document_id, chunk_text, chunk_index) VALUES ($1, $2, $3)',
+                  [doc.id, textChunks[i], i]
+                );
+              }
+              await query('UPDATE documents SET processed = true WHERE id = $1', [doc.id]);
+              console.log(`   ✅ Recovered ${doc.name}: ${textChunks.length} chunks extracted`);
               result.documentsProcessed++;
               // Trigger embeddings for newly extracted chunks
               try {
-                await fetch(`${supabaseUrl}/functions/v1/generate-embeddings`, {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${supabaseKey}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({ document_id: doc.id, limit: 10, continue_processing: true }),
-                });
-                console.log(`   🔄 Embedding generation triggered for ${doc.name}`);
+                await processDocumentEmbeddings(doc.id);
+                console.log(`   🔄 Embeddings generated for ${doc.name}`);
               } catch (embErr: any) {
-                console.warn(`   ⚠️  Could not trigger embeddings for ${doc.name}:`, embErr.message);
+                console.warn(`   ⚠️  Could not generate embeddings for ${doc.name}:`, embErr.message);
               }
             } else {
-              console.log(`   ⚠️  ${doc.name}: Edge function also extracted 0 chunks (file may be empty/unreadable)`);
+              console.log(`   ⚠️  ${doc.name}: Extracted 0 text (file may be empty/unreadable)`);
             }
-          } else {
-            console.warn(`   ⚠️  ${doc.name}: Edge function returned ${processResponse.status}`);
           }
         } catch (recoverErr: any) {
           console.error(`   ❌ ${doc.name}: Recovery failed:`, recoverErr.message);
@@ -143,25 +137,9 @@ export async function checkAndProcessMissingEmbeddings(): Promise<EmbeddingCheck
         if (needsTags) {
           console.log(`🏷️  ${doc.name}: Generating tags...`);
           try {
-            const tagResponse = await fetch(`${supabaseUrl}/functions/v1/generate-tags`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
-                'apikey': supabaseKey,
-              },
-              body: JSON.stringify({
-                document_id: doc.id,
-              }),
-            });
-
-            if (tagResponse.ok) {
-              const tagResult = (await tagResponse.json()) as any;
-              if (tagResult.success && tagResult.tags) {
-                console.log(`   ✅ Tags generated: ${tagResult.tags.join(', ')}`);
-              }
-            } else {
-              console.warn(`   ⚠️  Tag generation returned ${tagResponse.status}`);
+            const tagResult = await generateDocumentTags(doc.id);
+            if (tagResult && tagResult.tags) {
+              console.log(`   ✅ Tags generated: ${tagResult.tags.join(', ')}`);
             }
           } catch (tagError: any) {
             console.warn(`   ⚠️  Could not generate tags:`, tagError.message);

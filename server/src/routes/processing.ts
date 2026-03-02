@@ -71,46 +71,23 @@ router.post('/generate-embeddings', async (req: Request, res: Response): Promise
   try {
     console.log('🧮 API: Triggering embedding generation');
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const { processAllVLLMEmbeddings } = await import('../services/vllmEmbeddings');
+    const result = await processAllVLLMEmbeddings();
 
-    if (!supabaseUrl || !supabaseServiceKey) {
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Embedding generation completed',
+        processed: result.processed,
+        errors: result.errors,
+      });
+    } else {
       res.status(500).json({
         success: false,
-        error: 'Missing Supabase configuration',
-      });
-      return;
-    }
-
-    const embeddingUrl = `${supabaseUrl}/functions/v1/generate-embeddings`;
-    const response = await fetch(embeddingUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseServiceKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        limit: 10,
-        continue_processing: true,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      res.status(response.status).json({
-        success: false,
         error: 'Embedding generation failed',
-        details: result,
+        errors: result.errors,
       });
-      return;
     }
-
-    res.json({
-      success: true,
-      message: 'Embedding generation started',
-      data: result,
-    });
   } catch (error) {
     console.error('API error:', error);
     res.status(500).json({

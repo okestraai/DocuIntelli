@@ -29,6 +29,9 @@ import chatHistoryRoutes from "./routes/chatHistory";
 import userProfileRoutes from "./routes/userProfile";
 import adminRoutes from "./routes/admin";
 import authRoutes from "./routes/auth";
+import chatRoutes from "./routes/chat";
+import stripeRoutes from "./routes/stripe";
+import documentProcessingRoutes from "./routes/documentProcessing";
 import errorLogRoutes from "./routes/errorLog";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
@@ -44,9 +47,10 @@ let embeddingMonitorInterval: NodeJS.Timeout | null = null;
 app.set('trust proxy', 2);
 
 console.log("🔧 Environment Check:", {
-  SUPABASE_URL: process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing",
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? "✓ Set" : "✗ Missing",
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set" : "✗ Missing",
+  DATABASE_URL: process.env.DATABASE_URL ? "✓ Set" : "✗ Missing",
+  JWT_SECRET: process.env.JWT_SECRET ? "✓ Set" : "✗ Missing",
+  AZURE_STORAGE_CONNECTION_STRING: process.env.AZURE_STORAGE_CONNECTION_STRING ? "✓ Set" : "✗ Missing",
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "✓ Set" : "✗ Missing",
 });
 
 // ── Bootstrap (async so Redis can connect before rate limiters are built) ──
@@ -135,7 +139,11 @@ console.log("🔧 Environment Check:", {
   }));
 
   // 5. Body parsing with size limits
-  app.use(express.json({ limit: "10mb" }));
+  // Skip JSON parsing for Stripe webhook (needs raw body for signature verification)
+  app.use((req, res, next) => {
+    if (req.path === '/api/stripe/webhook') return next();
+    express.json({ limit: "10mb" })(req, res, next);
+  });
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
   // 6. Apply rate limiting to API routes
@@ -466,9 +474,11 @@ console.log("🔧 Environment Check:", {
   // 7. Routes — specific paths first, catch-all last
   // Auth routes first — no loadSubscription middleware needed
   app.use("/api/auth", authRoutes);
+  app.use("/api/stripe", stripeRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/account", accountRoutes);
   app.use("/api/billing", billingRoutes);
+  app.use("/api/chat", chatRoutes);
   app.use("/api/chat", chatHistoryRoutes);
   app.use("/api/user", userProfileRoutes);
   app.use("/api/life-events", lifeEventsRoutes);
@@ -484,6 +494,7 @@ console.log("🔧 Environment Check:", {
   app.use("/api/plaid-webhook", plaidWebhookRoutes);
   app.use("/api/dunning", dunningRoutes);
   app.use("/api/errors", errorLogRoutes);
+  app.use("/api/documents", documentProcessingRoutes);
   app.use("/api/documents", processingRoutes);
   app.use("/api", uploadRoutes);
 
@@ -517,7 +528,7 @@ console.log("🔧 Environment Check:", {
   const server = app.listen(PORT, () => {
     console.log(`🚀 Backend server running on port ${PORT}`);
     console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`🔐 Auth: Handled by Supabase Auth (frontend)`);
+    console.log(`🔐 Auth: Custom JWT (Express)`);
 
     // Start automatic embedding monitor (checks every 30 minutes)
     console.log('');

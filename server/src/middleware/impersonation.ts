@@ -21,8 +21,8 @@ const IMPERSONATION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
  * Called by the admin impersonate endpoint.
  */
 export function generateImpersonationProof(adminId: string, targetUserId: string): string {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!secret) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for impersonation');
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is required for impersonation');
 
   const timestamp = Date.now().toString();
   const payload = `${adminId}:${targetUserId}:${timestamp}`;
@@ -39,7 +39,7 @@ function verifyImpersonationProof(
   authenticatedUserId: string
 ): { valid: boolean; adminId?: string; targetUserId?: string } {
   try {
-    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const secret = process.env.JWT_SECRET;
     if (!secret) return { valid: false };
 
     const decoded = Buffer.from(token, 'base64').toString();
