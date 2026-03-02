@@ -1,33 +1,23 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
 import { listBlobs, deleteFromStorage } from '../services/storage';
+import { revokeAllUserTokens } from '../services/authService';
 
 const router = Router();
 
 router.use(loadSubscription);
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration in account routes');
-}
-
-// Keep Supabase client ONLY for auth.admin.deleteUser (auth management)
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
 /**
  * DELETE /api/account
- * Cascading account deletion: chunks → storage → documents → profile → subscription → auth user
+ * Cascading account deletion: chunks -> storage -> documents -> profile -> subscription -> refresh tokens -> auth user
  */
 router.delete('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
-    console.log(`🗑️ Account deletion requested for user: ${userId}`);
+    console.log(`Account deletion requested for user: ${userId}`);
 
     // Resolve user info for email BEFORE deleting anything
     const userInfo = await resolveUserInfo(userId);
@@ -46,7 +36,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
         [userId]
       );
     } catch (chunksErr) {
-      console.error('⚠️ Error deleting document chunks:', chunksErr);
+      console.error('Error deleting document chunks:', chunksErr);
     }
 
     // 3. Delete storage files (Azure Blob Storage)
@@ -81,7 +71,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
         [userId]
       );
     } catch (docsErr) {
-      console.error('⚠️ Error deleting documents:', docsErr);
+      console.error('Error deleting documents:', docsErr);
     }
 
     // 5. Delete user profile
@@ -91,7 +81,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
         [userId]
       );
     } catch (profileErr) {
-      console.error('⚠️ Error deleting user profile:', profileErr);
+      console.error('Error deleting user profile:', profileErr);
     }
 
     // 6. Delete user subscription
@@ -101,7 +91,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
         [userId]
       );
     } catch (subErr) {
-      console.error('⚠️ Error deleting user subscription:', subErr);
+      console.error('Error deleting user subscription:', subErr);
     }
 
     // 7. Send account deletion email (before deleting auth user)
@@ -114,21 +104,29 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
           deletedAt: new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
         });
       } catch (emailErr) {
-        console.error('⚠️ Account deletion email failed:', emailErr);
+        console.error('Account deletion email failed:', emailErr);
       }
     }
 
-    // 8. Delete the auth user (Supabase auth admin)
-    const { error: authError } = await supabase.auth.admin.deleteUser(userId);
-    if (authError) {
-      console.error('⚠️ Error deleting auth user:', authError);
+    // 8. Revoke all refresh tokens
+    try {
+      await revokeAllUserTokens(userId);
+    } catch (tokenErr) {
+      console.error('Error revoking refresh tokens:', tokenErr);
     }
 
-    console.log(`✅ Account fully deleted for user: ${userId}`);
+    // 9. Delete the auth user from auth_users table
+    try {
+      await query('DELETE FROM auth_users WHERE id = $1', [userId]);
+    } catch (authErr) {
+      console.error('Error deleting auth user:', authErr);
+    }
+
+    console.log(`Account fully deleted for user: ${userId}`);
 
     res.json({ success: true });
   } catch (err: any) {
-    console.error('❌ Account deletion error:', err);
+    console.error('Account deletion error:', err);
     res.status(500).json({ success: false, error: 'Failed to delete account' });
   }
 });

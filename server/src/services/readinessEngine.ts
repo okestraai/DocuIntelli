@@ -5,17 +5,12 @@
  * All results are persisted so we never re-run expensive passes needlessly.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { query } from './db';
 import {
   getTemplateById,
   EventRequirement,
   LifeEventTemplate,
 } from '../config/lifeEventTemplates';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,23 +80,21 @@ export async function computeReadiness(
   userId: string
 ): Promise<ReadinessResult> {
   // 1. Load the event
-  const { data: event, error: evErr } = await supabase
-    .from('life_events')
-    .select('*')
-    .eq('id', eventId)
-    .eq('user_id', userId)
-    .single();
-
-  if (evErr || !event) throw new Error('Life event not found');
+  const { rows: eventRows } = await query(
+    'SELECT * FROM life_events WHERE id = $1 AND user_id = $2',
+    [eventId, userId]
+  );
+  const event = eventRows[0];
+  if (!event) throw new Error('Life event not found');
 
   const template = getTemplateById(event.template_id);
   if (!template) throw new Error(`Template "${event.template_id}" not found`);
 
   // 2. Load user documents
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, name, category, type, tags, expiration_date, status, original_name')
-    .eq('user_id', userId);
+  const { rows: docs } = await query(
+    'SELECT id, name, category, type, tags, expiration_date, status, original_name FROM documents WHERE user_id = $1',
+    [userId]
+  );
 
   const userDocs: UserDoc[] = (docs || []).map((d: any) => ({
     ...d,
@@ -109,15 +102,15 @@ export async function computeReadiness(
   }));
 
   // 3. Load existing matches & statuses
-  const { data: existingMatches } = await supabase
-    .from('life_event_requirement_matches')
-    .select('*')
-    .eq('life_event_id', eventId);
+  const { rows: existingMatches } = await query(
+    'SELECT * FROM life_event_requirement_matches WHERE life_event_id = $1',
+    [eventId]
+  );
 
-  const { data: existingStatuses } = await supabase
-    .from('life_event_requirement_status')
-    .select('*')
-    .eq('life_event_id', eventId);
+  const { rows: existingStatuses } = await query(
+    'SELECT * FROM life_event_requirement_status WHERE life_event_id = $1',
+    [eventId]
+  );
 
   const manualMatches = new Map<string, any[]>();
   const naStatuses = new Map<string, string>();
@@ -219,38 +212,27 @@ export async function computeReadiness(
   // 6. Persist matches (upsert)
   if (allNewMatches.length > 0) {
     // Delete old non-manual matches first, then insert fresh ones
-    await supabase
-      .from('life_event_requirement_matches')
-      .delete()
-      .eq('life_event_id', eventId)
-      .neq('match_method', 'manual');
+    await query(
+      'DELETE FROM life_event_requirement_matches WHERE life_event_id = $1 AND match_method != $2',
+      [eventId, 'manual']
+    );
 
-    await supabase
-      .from('life_event_requirement_matches')
-      .insert(
-        allNewMatches.map((m) => ({
-          life_event_id: eventId,
-          requirement_id: m.requirementId,
-          document_id: m.documentId,
-          confidence: m.confidence,
-          match_method: m.method,
-        }))
+    for (const m of allNewMatches) {
+      await query(
+        'INSERT INTO life_event_requirement_matches (life_event_id, requirement_id, document_id, confidence, match_method) VALUES ($1, $2, $3, $4, $5)',
+        [eventId, m.requirementId, m.documentId, m.confidence, m.method]
       );
+    }
   }
 
   // 7. Persist requirement statuses (upsert)
   for (const r of reqResults) {
-    await supabase
-      .from('life_event_requirement_status')
-      .upsert(
-        {
-          life_event_id: eventId,
-          requirement_id: r.requirementId,
-          status: r.status,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'life_event_id,requirement_id' }
-      );
+    await query(
+      `INSERT INTO life_event_requirement_status (life_event_id, requirement_id, status, updated_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (life_event_id, requirement_id) DO UPDATE SET status = $3, updated_at = $4`,
+      [eventId, r.requirementId, r.status, new Date().toISOString()]
+    );
   }
 
   // 8. Include custom requirements
@@ -268,10 +250,10 @@ export async function computeReadiness(
   const score = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100 * 100) / 100 : 0;
 
   // 10. Update event readiness score
-  await supabase
-    .from('life_events')
-    .update({ readiness_score: score })
-    .eq('id', eventId);
+  await query(
+    'UPDATE life_events SET readiness_score = $1 WHERE id = $2',
+    [score, eventId]
+  );
 
   // 11. Determine next best action
   const nextBestAction = findNextBestAction(reqResults, template.requirements);
@@ -490,11 +472,10 @@ async function loadCustomRequirements(
   eventId: string,
   userDocs: UserDoc[]
 ): Promise<{ reqStatuses: RequirementStatus[]; weightAdded: number; completedAdded: number }> {
-  const { data: customReqs } = await supabase
-    .from('life_event_custom_requirements')
-    .select('*')
-    .eq('life_event_id', eventId)
-    .order('created_at', { ascending: true });
+  const { rows: customReqs } = await query(
+    'SELECT * FROM life_event_custom_requirements WHERE life_event_id = $1 ORDER BY created_at ASC',
+    [eventId]
+  );
 
   const reqStatuses: RequirementStatus[] = [];
   let weightAdded = 0;
@@ -536,35 +517,33 @@ export async function getReadinessSnapshot(
   eventId: string,
   userId: string
 ): Promise<ReadinessResult> {
-  const { data: event, error: evErr } = await supabase
-    .from('life_events')
-    .select('*')
-    .eq('id', eventId)
-    .eq('user_id', userId)
-    .single();
-
-  if (evErr || !event) throw new Error('Life event not found');
+  const { rows: snapshotEventRows } = await query(
+    'SELECT * FROM life_events WHERE id = $1 AND user_id = $2',
+    [eventId, userId]
+  );
+  const event = snapshotEventRows[0];
+  if (!event) throw new Error('Life event not found');
 
   const template = getTemplateById(event.template_id);
   if (!template) throw new Error(`Template "${event.template_id}" not found`);
 
   // Load user docs (for names, tags, expiration)
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, name, category, type, tags, expiration_date, status, original_name')
-    .eq('user_id', userId);
+  const { rows: docs } = await query(
+    'SELECT id, name, category, type, tags, expiration_date, status, original_name FROM documents WHERE user_id = $1',
+    [userId]
+  );
   const userDocs: UserDoc[] = (docs || []).map((d: any) => ({ ...d, tags: d.tags || [] }));
 
   // Load current matches & statuses from DB
-  const { data: existingMatches } = await supabase
-    .from('life_event_requirement_matches')
-    .select('*')
-    .eq('life_event_id', eventId);
+  const { rows: existingMatches } = await query(
+    'SELECT * FROM life_event_requirement_matches WHERE life_event_id = $1',
+    [eventId]
+  );
 
-  const { data: existingStatuses } = await supabase
-    .from('life_event_requirement_status')
-    .select('*')
-    .eq('life_event_id', eventId);
+  const { rows: existingStatuses } = await query(
+    'SELECT * FROM life_event_requirement_status WHERE life_event_id = $1',
+    [eventId]
+  );
 
   const intakeAnswers: Record<string, string> = event.intake_answers || {};
   const naStatuses = new Set<string>();
@@ -639,10 +618,10 @@ export async function getReadinessSnapshot(
   const score = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100 * 100) / 100 : 0;
 
   // Update the stored score
-  await supabase
-    .from('life_events')
-    .update({ readiness_score: score })
-    .eq('id', eventId);
+  await query(
+    'UPDATE life_events SET readiness_score = $1 WHERE id = $2',
+    [score, eventId]
+  );
 
   return {
     eventId,

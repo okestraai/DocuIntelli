@@ -8,17 +8,13 @@
  * Model: intfloat/e5-mistral-7b-instruct (4096 dimensions)
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { query } from './db';
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const vllmEmbedderUrl = process.env.VLLM_EMBEDDER_URL || 'https://embedder.affinityecho.com';
 const cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID!;
 const cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET!;
 const embeddingModel = 'intfloat/e5-mistral-7b-instruct';
 const embeddingDimensions = 4096;
-
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Format input text with instruction prefix for better embeddings
@@ -193,21 +189,10 @@ export async function processDocumentVLLMEmbeddings(
     console.log(`🔄 Processing embeddings for document: ${documentId}`);
 
     // Get all chunks for the document
-    const { data: chunks, error: fetchError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_text, embedding')
-      .eq('document_id', documentId)
-      .order('chunk_index', { ascending: true });
-
-    if (fetchError) {
-      console.error('❌ Error fetching chunks:', fetchError);
-      return {
-        success: false,
-        processed: 0,
-        skipped: 0,
-        error: fetchError.message,
-      };
-    }
+    const { rows: chunks } = await query(
+      'SELECT id, chunk_text, embedding FROM document_chunks WHERE document_id = $1 ORDER BY chunk_index ASC',
+      [documentId]
+    );
 
     if (!chunks || chunks.length === 0) {
       console.log('⚠️  No chunks found for document');
@@ -254,16 +239,14 @@ export async function processDocumentVLLMEmbeddings(
 
       // Update database with embeddings
       for (let j = 0; j < batch.length; j++) {
-        // Pass the array directly - Supabase client converts to pgvector format
-        const { error: updateError } = await supabase
-          .from('document_chunks')
-          .update({ embedding: embeddings[j] })
-          .eq('id', batch[j].id);
-
-        if (updateError) {
-          console.error(`❌ Error updating chunk ${batch[j].id}:`, updateError);
-        } else {
+        try {
+          await query(
+            'UPDATE document_chunks SET embedding = $1 WHERE id = $2',
+            [JSON.stringify(embeddings[j]), batch[j].id]
+          );
           totalProcessed++;
+        } catch (updateErr: any) {
+          console.error(`❌ Error updating chunk ${batch[j].id}:`, updateErr.message);
         }
       }
 
@@ -290,28 +273,13 @@ export async function processDocumentVLLMEmbeddings(
     if (completionPercentage >= 60) {
       console.log('🏷️  Triggering automatic tag generation...');
       try {
-        // Call Supabase Edge Function to generate tags
-        const tagResponse = await fetch(`${supabaseUrl}/functions/v1/generate-tags`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey,
-          },
-          body: JSON.stringify({
-            document_id: documentId,
-          }),
-        });
-
-        if (tagResponse.ok) {
-          const tagResult = (await tagResponse.json()) as any;
-          if (tagResult.success && tagResult.tags) {
-            console.log(`✅ Tags auto-generated: ${tagResult.tags.join(', ')}`);
-          } else {
-            console.log('ℹ️  Tag generation response:', tagResult.message || 'No tags generated');
-          }
+        // Call local tag generation service (was Supabase Edge Function)
+        const { generateDocumentTags } = await import('./tagGeneration');
+        const tagResult = await generateDocumentTags(documentId);
+        if (tagResult && tagResult.tags) {
+          console.log(`✅ Tags auto-generated: ${tagResult.tags.join(', ')}`);
         } else {
-          console.warn(`⚠️  Tag generation returned ${tagResponse.status}, will retry later`);
+          console.log('ℹ️  Tag generation: No tags generated');
         }
       } catch (tagError: any) {
         console.warn('⚠️  Could not trigger tag generation:', tagError.message);
@@ -350,20 +318,9 @@ export async function processAllVLLMEmbeddings(): Promise<{
     console.log('🧮 Processing all chunks without embeddings...\n');
 
     // Get all chunks without embeddings
-    const { data: chunks, error: fetchError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_text, document_id')
-      .is('embedding', null)
-      .order('created_at', { ascending: true });
-
-    if (fetchError) {
-      console.error('❌ Error fetching chunks:', fetchError);
-      return {
-        success: false,
-        processed: 0,
-        errors: [fetchError.message],
-      };
-    }
+    const { rows: chunks } = await query(
+      'SELECT id, chunk_text, document_id FROM document_chunks WHERE embedding IS NULL ORDER BY created_at ASC'
+    );
 
     if (!chunks || chunks.length === 0) {
       console.log('✅ No chunks need embeddings');
@@ -398,17 +355,15 @@ export async function processAllVLLMEmbeddings(): Promise<{
 
         // Update database
         for (let j = 0; j < batch.length; j++) {
-          // Pass the array directly - Supabase client converts to pgvector format
-          const { error: updateError} = await supabase
-            .from('document_chunks')
-            .update({ embedding: embeddings[j] })
-            .eq('id', batch[j].id);
-
-          if (updateError) {
-            console.error(`❌ Error updating chunk ${batch[j].id}:`, updateError);
-            errors.push(`Chunk ${batch[j].id}: ${updateError.message}`);
-          } else {
+          try {
+            await query(
+              'UPDATE document_chunks SET embedding = $1 WHERE id = $2',
+              [JSON.stringify(embeddings[j]), batch[j].id]
+            );
             totalProcessed++;
+          } catch (updateErr: any) {
+            console.error(`❌ Error updating chunk ${batch[j].id}:`, updateErr.message);
+            errors.push(`Chunk ${batch[j].id}: ${updateErr.message}`);
           }
         }
 

@@ -1,17 +1,9 @@
 // Local embedding service using e5-mistral-7b-instruct
-import { createClient } from '@supabase/supabase-js';
+import { query } from './db';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const embeddingApiUrl = process.env.EMBEDDING_API_URL || 'http://localhost:8001/v1/embeddings';
 const embeddingModel = process.env.EMBEDDING_MODEL || 'intfloat/e5-mistral-7b-instruct';
 const embeddingDimensions = parseInt(process.env.EMBEDDING_DIMENSIONS || '4096');
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration for local embeddings service');
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 console.log('🧮 Local Embedding Service Configuration:');
 console.log(`   API URL: ${embeddingApiUrl}`);
@@ -142,16 +134,10 @@ export async function processDocumentEmbeddings(documentId: string): Promise<{
     console.log(`🧮 Processing embeddings for document: ${documentId}`);
 
     // Get all chunks for this document without embeddings
-    const { data: chunks, error: fetchError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_text')
-      .eq('document_id', documentId)
-      .is('embedding', null)
-      .order('chunk_index');
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch chunks: ${fetchError.message}`);
-    }
+    const { rows: chunks } = await query(
+      'SELECT id, chunk_text FROM document_chunks WHERE document_id = $1 AND embedding IS NULL ORDER BY chunk_index',
+      [documentId]
+    );
 
     if (!chunks || chunks.length === 0) {
       console.log('   ℹ️  No chunks need embedding');
@@ -182,15 +168,14 @@ export async function processDocumentEmbeddings(documentId: string): Promise<{
         const chunk = batch[j];
         const embedding = result.embeddings[j];
 
-        const { error: updateError } = await supabase
-          .from('document_chunks')
-          .update({ embedding })
-          .eq('id', chunk.id);
-
-        if (updateError) {
-          console.error(`   ❌ Failed to update chunk ${chunk.id}: ${updateError.message}`);
-        } else {
+        try {
+          await query(
+            'UPDATE document_chunks SET embedding = $1 WHERE id = $2',
+            [JSON.stringify(embedding), chunk.id]
+          );
           processed++;
+        } catch (updateErr: any) {
+          console.error(`   ❌ Failed to update chunk ${chunk.id}: ${updateErr.message}`);
         }
       }
 
@@ -221,15 +206,9 @@ export async function processAllEmbeddings(): Promise<{
     console.log('🧮 Processing all chunks without embeddings');
 
     // Get all chunks without embeddings
-    const { data: chunks, error: fetchError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_text, document_id')
-      .is('embedding', null)
-      .order('created_at');
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch chunks: ${fetchError.message}`);
-    }
+    const { rows: chunks } = await query(
+      'SELECT id, chunk_text, document_id FROM document_chunks WHERE embedding IS NULL ORDER BY created_at'
+    );
 
     if (!chunks || chunks.length === 0) {
       console.log('✅ All chunks already have embeddings');
@@ -263,16 +242,15 @@ export async function processAllEmbeddings(): Promise<{
         const chunk = batch[j];
         const embedding = result.embeddings[j];
 
-        const { error: updateError } = await supabase
-          .from('document_chunks')
-          .update({ embedding })
-          .eq('id', chunk.id);
-
-        if (updateError) {
-          console.error(`❌ Chunk ${chunk.id}: ${updateError.message}`);
-          errors.push(`Chunk ${chunk.id}: ${updateError.message}`);
-        } else {
+        try {
+          await query(
+            'UPDATE document_chunks SET embedding = $1 WHERE id = $2',
+            [JSON.stringify(embedding), chunk.id]
+          );
           processed++;
+        } catch (updateErr: any) {
+          console.error(`❌ Chunk ${chunk.id}: ${updateErr.message}`);
+          errors.push(`Chunk ${chunk.id}: ${updateErr.message}`);
         }
       }
 

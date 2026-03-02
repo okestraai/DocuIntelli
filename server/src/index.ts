@@ -28,6 +28,7 @@ import billingRoutes from "./routes/billing";
 import chatHistoryRoutes from "./routes/chatHistory";
 import userProfileRoutes from "./routes/userProfile";
 import adminRoutes from "./routes/admin";
+import authRoutes from "./routes/auth";
 import errorLogRoutes from "./routes/errorLog";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
@@ -463,6 +464,8 @@ console.log("🔧 Environment Check:", {
   });
 
   // 7. Routes — specific paths first, catch-all last
+  // Auth routes first — no loadSubscription middleware needed
+  app.use("/api/auth", authRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/account", accountRoutes);
   app.use("/api/billing", billingRoutes);

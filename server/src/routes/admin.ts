@@ -7,20 +7,14 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import { requireAdmin } from '../middleware/requireAdmin';
 import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { generateImpersonationProof } from '../middleware/impersonation';
+import { generateAccessToken, generateRefreshToken } from '../services/authService';
 import { query } from '../services/db';
 
 const router = Router();
-
-// Supabase client ONLY for auth admin operations (Phase 3 will replace these)
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const DASHBOARD_CACHE_TTL = 60; // 1 minute
 
@@ -52,21 +46,20 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
     const statsResult = await query('SELECT * FROM admin_dashboard_stats()');
     const stats = statsResult.rows[0] || {};
 
-    // Get recent signups (last 10)
-    const { data: recentUsers } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 10,
-    });
+    // Get recent signups (last 10) from auth_users
+    const recentUsersResult = await query(
+      `SELECT id, email, created_at, updated_at
+       FROM auth_users
+       ORDER BY created_at DESC
+       LIMIT 10`
+    );
 
-    const recentSignups = (recentUsers?.users || [])
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 10)
-      .map(u => ({
-        id: u.id,
-        email: u.email,
-        createdAt: u.created_at,
-        lastSignInAt: u.last_sign_in_at,
-      }));
+    const recentSignups = recentUsersResult.rows.map((u: any) => ({
+      id: u.id,
+      email: u.email,
+      createdAt: u.created_at,
+      lastSignInAt: u.updated_at,
+    }));
 
     const dashboard = {
       ...stats,
@@ -168,12 +161,16 @@ router.post('/users/:userId/update-plan', async (req: Request, res: Response) =>
       return;
     }
 
-    // Get target user email for audit log (auth admin call — kept)
-    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
-    if (!targetUser) {
+    // Get target user email for audit log
+    const targetUserResult = await query(
+      'SELECT id, email FROM auth_users WHERE id = $1',
+      [userId]
+    );
+    if (targetUserResult.rows.length === 0) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
+    const targetUser = targetUserResult.rows[0];
 
     // Update subscription plan — the set_subscription_defaults trigger
     // will automatically update limits and feature_flags
@@ -206,11 +203,15 @@ router.post('/users/:userId/reset-ai-questions', async (req: Request, res: Respo
     const { userId } = req.params;
     const adminId = req.userId!;
 
-    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
-    if (!targetUser) {
+    const targetUserResult = await query(
+      'SELECT id, email FROM auth_users WHERE id = $1',
+      [userId]
+    );
+    if (targetUserResult.rows.length === 0) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
+    const targetUser = targetUserResult.rows[0];
 
     await query(
       'UPDATE user_subscriptions SET ai_questions_used = 0, updated_at = $1 WHERE user_id = $2',
@@ -252,7 +253,11 @@ router.post('/users/:userId/unblock-device', async (req: Request, res: Response)
 
     await cacheDel(`device_count:${userId}`);
 
-    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
+    const targetUserResult = await query(
+      'SELECT id, email FROM auth_users WHERE id = $1',
+      [userId]
+    );
+    const targetUser = targetUserResult.rows[0];
 
     await query(
       'INSERT INTO admin_audit_log (admin_id, action, target_user_id, target_email, details, ip_address) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -280,53 +285,22 @@ router.post('/impersonate/:userId', async (req: Request, res: Response) => {
       return;
     }
 
-    const { data: { user: targetUser }, error: userError } = await supabase.auth.admin.getUserById(userId);
-    if (userError || !targetUser) {
+    // Find target user
+    const targetUserResult = await query(
+      'SELECT id, email FROM auth_users WHERE id = $1',
+      [userId]
+    );
+
+    if (targetUserResult.rows.length === 0) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
-    // Step 1: Generate a magic link to get a one-time token
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: targetUser.email!,
-    });
+    const targetUser = targetUserResult.rows[0];
 
-    if (linkError || !linkData.properties?.hashed_token) {
-      console.error('Generate impersonation link error:', linkError);
-      res.status(500).json({ error: 'Failed to generate impersonation token' });
-      return;
-    }
-
-    // Step 2: Exchange the token hash for real session tokens server-side
-    // by calling the Supabase auth /verify endpoint directly.
-    // This gives us access_token + refresh_token without any browser redirects.
-    const verifyRes = await fetch(`${process.env.SUPABASE_URL}/auth/v1/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
-      },
-      body: JSON.stringify({
-        token_hash: linkData.properties.hashed_token,
-        type: 'magiclink',
-      }),
-    });
-
-    if (!verifyRes.ok) {
-      const errBody = await verifyRes.text();
-      console.error('Token exchange failed:', verifyRes.status, errBody);
-      res.status(500).json({ error: 'Failed to create impersonation session' });
-      return;
-    }
-
-    const sessionData = await verifyRes.json() as { access_token?: string; refresh_token?: string };
-
-    if (!sessionData.access_token || !sessionData.refresh_token) {
-      console.error('Token exchange returned no tokens:', sessionData);
-      res.status(500).json({ error: 'Failed to create impersonation session — no tokens returned' });
-      return;
-    }
+    // Generate access and refresh tokens for the target user
+    const accessToken = generateAccessToken(targetUser.id, targetUser.email);
+    const refreshToken = await generateRefreshToken(targetUser.id);
 
     // Audit log — always log impersonation events
     await query(
@@ -335,15 +309,13 @@ router.post('/impersonate/:userId', async (req: Request, res: Response) => {
     );
 
     // Generate HMAC-signed proof token so the impersonation tab can prove its
-    // legitimacy to both the Express backend and Edge Functions. This prevents
-    // regular users from faking impersonation to bypass quota limits.
+    // legitimacy to both the Express backend and Edge Functions.
     const impersonation_proof = generateImpersonationProof(adminId, userId);
 
-    // Return the session tokens — the frontend will use setSession() in an isolated tab
     res.json({
       success: true,
-      access_token: sessionData.access_token,
-      refresh_token: sessionData.refresh_token,
+      access_token: accessToken,
+      refresh_token: refreshToken,
       impersonation_proof,
       user: {
         id: targetUser.id,
@@ -397,19 +369,20 @@ router.get('/activity', async (req: Request, res: Response) => {
     );
     const violations = violationsResult.rows;
 
-    // Enrich usage logs with emails (batch lookup)
+    // Enrich usage logs with emails (batch lookup from auth_users)
     const userIds = new Set<string>();
     usageLogs.forEach((log: any) => userIds.add(log.user_id));
     violations.forEach((v: any) => userIds.add(v.user_id));
 
     const emailMap: Record<string, string> = {};
     if (userIds.size > 0) {
-      // Also get emails from admin API (batch)
-      for (const uid of userIds) {
-        try {
-          const { data: { user } } = await supabase.auth.admin.getUserById(uid);
-          if (user?.email) emailMap[uid] = user.email;
-        } catch { /* skip */ }
+      const uidArray = Array.from(userIds);
+      const emailsResult = await query(
+        'SELECT id, email FROM auth_users WHERE id = ANY($1)',
+        [uidArray]
+      );
+      for (const row of emailsResult.rows) {
+        emailMap[row.id] = row.email;
       }
     }
 
@@ -580,14 +553,17 @@ router.get('/audit-log', async (req: Request, res: Response) => {
     const countResult = await query('SELECT COUNT(*) AS count FROM admin_audit_log');
     const count = parseInt(countResult.rows[0]?.count || '0');
 
-    // Enrich with admin emails
-    const adminIds = new Set(logs.map((l: any) => l.admin_id));
+    // Enrich with admin emails from auth_users
+    const adminIds = [...new Set(logs.map((l: any) => l.admin_id))];
     const adminEmails: Record<string, string> = {};
-    for (const aid of adminIds) {
-      try {
-        const { data: { user } } = await supabase.auth.admin.getUserById(aid);
-        if (user?.email) adminEmails[aid] = user.email;
-      } catch { /* skip */ }
+    if (adminIds.length > 0) {
+      const emailsResult = await query(
+        'SELECT id, email FROM auth_users WHERE id = ANY($1)',
+        [adminIds]
+      );
+      for (const row of emailsResult.rows) {
+        adminEmails[row.id] = row.email;
+      }
     }
 
     res.json({

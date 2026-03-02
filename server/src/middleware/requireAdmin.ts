@@ -1,23 +1,18 @@
 /**
  * Admin Authorization Middleware
  *
- * Verifies the authenticated user has role='admin' in their Supabase
- * app_metadata. Must be placed AFTER loadSubscription in the middleware chain.
+ * Verifies the authenticated user has role='admin' in their auth_users
+ * raw_user_meta_data. Must be placed AFTER loadSubscription in the middleware chain.
  *
- * Admin status is determined by auth.users.app_metadata.role — this field
- * cannot be modified by users themselves (only service_role or Admin API).
+ * Admin status is determined by auth_users.raw_user_meta_data->>'role' = 'admin'.
+ * This field can only be set via direct database access (service_role / admin CLI).
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { query } from '../services/db';
 import { cacheGet, cacheSet } from '../services/redisClient';
 
 const ADMIN_CACHE_TTL = 60; // 1 minute — short TTL since admin status rarely changes
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function requireAdmin(
   req: Request,
@@ -31,7 +26,7 @@ export async function requireAdmin(
   }
 
   try {
-    // Check Redis cache first to avoid hitting Supabase Admin API on every request
+    // Check Redis cache first to avoid hitting the database on every request
     const cacheKey = `admin:${userId}`;
     const cached = await cacheGet<boolean>(cacheKey);
 
@@ -45,15 +40,19 @@ export async function requireAdmin(
       return;
     }
 
-    // Cache miss — verify via Supabase Admin API
-    const { data: { user }, error } = await supabase.auth.admin.getUserById(userId);
+    // Cache miss — verify via auth_users table
+    const result = await query(
+      'SELECT id, email, raw_user_meta_data FROM auth_users WHERE id = $1',
+      [userId]
+    );
 
-    if (error || !user) {
+    if (result.rows.length === 0) {
       res.status(401).json({ error: 'User not found' });
       return;
     }
 
-    const isAdmin = user.app_metadata?.role === 'admin';
+    const user = result.rows[0];
+    const isAdmin = user.raw_user_meta_data?.role === 'admin';
     await cacheSet(cacheKey, isAdmin, ADMIN_CACHE_TTL);
 
     if (!isAdmin) {

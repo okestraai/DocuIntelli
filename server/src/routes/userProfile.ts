@@ -1,21 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 
 const router = Router();
 
 router.use(loadSubscription);
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration in user profile routes');
-}
-
-// Keep Supabase client ONLY for auth.admin operations (Phase 2 migration)
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 /**
  * GET /api/user/profile
@@ -32,22 +21,21 @@ router.get('/profile', async (req: Request, res: Response): Promise<void> => {
 
     res.json({ success: true, profile: result.rows[0] || null });
   } catch (err: any) {
-    console.error('❌ Profile error:', err);
+    console.error('Profile error:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch profile' });
   }
 });
 
 /**
  * PUT /api/user/profile
- * Updates user profile + auth metadata
+ * Updates user profile + auth_users metadata
  */
 router.put('/profile', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const updates = req.body;
 
-    // Update auth metadata for display_name, bio, full_name, phone
-    // (uses Supabase auth admin — Phase 2 migration)
+    // Update auth_users metadata for display_name, bio, full_name, phone
     if (updates.display_name !== undefined || updates.bio !== undefined ||
         updates.full_name !== undefined || updates.phone !== undefined) {
       const metadataUpdate: Record<string, string | undefined> = {};
@@ -56,12 +44,16 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
       if (updates.full_name !== undefined) metadataUpdate.full_name = updates.full_name;
       if (updates.phone !== undefined) metadataUpdate.phone = updates.phone;
 
-      const { error: authError } = await supabase.auth.admin.updateUserById(userId, {
-        user_metadata: metadataUpdate,
-      });
-
-      if (authError) {
-        console.error('⚠️ Auth metadata update error:', authError);
+      try {
+        await query(
+          `UPDATE auth_users
+           SET raw_user_meta_data = raw_user_meta_data || $1::jsonb,
+               updated_at = NOW()
+           WHERE id = $2`,
+          [JSON.stringify(metadataUpdate), userId]
+        );
+      } catch (authErr) {
+        console.error('Auth metadata update error:', authErr);
       }
     }
 
@@ -125,7 +117,7 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
 
     res.json({ success: true });
   } catch (err: any) {
-    console.error('❌ Profile update error:', err);
+    console.error('Profile update error:', err);
     res.status(500).json({ success: false, error: 'Failed to update profile' });
   }
 });
@@ -159,7 +151,7 @@ router.post('/push-token', async (req: Request, res: Response): Promise<void> =>
 
     res.json({ success: true });
   } catch (err: any) {
-    console.error('❌ Push token error:', err);
+    console.error('Push token error:', err);
     res.status(500).json({ success: false, error: 'Failed to save push token' });
   }
 });
@@ -179,7 +171,7 @@ router.delete('/push-token', async (req: Request, res: Response): Promise<void> 
 
     res.json({ success: true });
   } catch (err: any) {
-    console.error('❌ Clear push token error:', err);
+    console.error('Clear push token error:', err);
     res.status(500).json({ success: false, error: 'Failed to clear push token' });
   }
 });

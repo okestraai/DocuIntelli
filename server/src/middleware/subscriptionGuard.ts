@@ -5,10 +5,10 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { verifyAccessToken } from '../services/authService';
 import { query } from '../services/db';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
-import { cacheGet, cacheSet, cacheDel, cacheIncr, cacheDecr } from '../services/redisClient';
+import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 
 const SUB_CACHE_TTL = 300;      // 5 minutes
 const DOC_COUNT_CACHE_TTL = 120; // 2 minutes
@@ -20,11 +20,6 @@ const DEVICE_LIMITS: Record<string, number> = {
   pro: 5,
 };
 
-// Supabase client kept ONLY for auth.getUser() — will be removed in Phase 3
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export interface FeatureFlags {
   url_ingestion: boolean;
@@ -94,15 +89,16 @@ export async function loadSubscription(
 
     const token = authHeader.replace('Bearer ', '');
 
-    // Verify token and get user — still uses Supabase Auth (Phase 3)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
+    // Verify JWT access token (custom auth)
+    let decoded: { userId: string; email: string };
+    try {
+      decoded = verifyAccessToken(token);
+    } catch {
       res.status(401).json({ error: 'Invalid authentication token' });
       return;
     }
 
-    req.userId = user.id;
+    req.userId = decoded.userId;
 
     // Capture device ID from header (if present)
     const deviceId = req.headers['x-device-id'] as string | undefined;
@@ -111,7 +107,7 @@ export async function loadSubscription(
     }
 
     // Load subscription — try Redis cache first
-    const cacheKey = `sub:${user.id}`;
+    const cacheKey = `sub:${decoded.userId}`;
     const cached = await cacheGet<SubscriptionInfo>(cacheKey);
 
     if (cached) {
@@ -119,7 +115,7 @@ export async function loadSubscription(
     } else {
       const subResult = await query(
         'SELECT * FROM user_subscriptions WHERE user_id = $1',
-        [user.id]
+        [decoded.userId]
       );
 
       if (subResult.rows.length === 0) {
@@ -129,7 +125,7 @@ export async function loadSubscription(
             `INSERT INTO user_subscriptions (user_id, plan, status)
              VALUES ($1, $2, $3)
              RETURNING *`,
-            [user.id, 'free', 'active']
+            [decoded.userId, 'free', 'active']
           );
 
           const newSub = insertResult.rows[0];
@@ -137,12 +133,12 @@ export async function loadSubscription(
           await cacheSet(cacheKey, newSub, SUB_CACHE_TTL);
 
           // New user — send welcome email (non-blocking)
-          resolveUserInfo(user.id).then(userInfo => {
+          resolveUserInfo(decoded.userId).then(userInfo => {
             if (userInfo) {
-              sendNotificationEmail(user.id, 'welcome', {
+              sendNotificationEmail(decoded.userId, 'welcome', {
                 userName: userInfo.userName,
                 email: userInfo.email,
-              }).catch(err => console.error('📧 Welcome email failed:', err));
+              }).catch(err => console.error('Welcome email failed:', err));
             }
           });
         } catch (createErr) {
