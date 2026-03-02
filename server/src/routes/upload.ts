@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { createClient } from '@supabase/supabase-js';
 import { query } from '../services/db';
 import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
 import { TextExtractor } from '../services/textExtractor';
@@ -21,15 +20,13 @@ const router = Router();
 // Apply subscription loading to ALL routes
 router.use(loadSubscription);
 
+// Supabase URL and service key are still needed for edge function calls (process-document, generate-embeddings)
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration in upload routes');
+  throw new Error('Missing Supabase configuration in upload routes (needed for edge functions)');
 }
-
-// Keep Supabase client ONLY for storage operations (Phase 2 migration)
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -420,24 +417,9 @@ router.get('/documents/:id/preview-url', async (req: Request, res: Response): Pr
       return;
     }
 
-    // Create signed URL (3600s / 1 hour expiry) — uses Supabase storage client (Phase 2 migration)
-    const { data: signedUrlData, error: signedUrlError } = await supabase
-      .storage
-      .from('documents')
-      .createSignedUrl(filePath, 3600);
-
-    if (signedUrlError || !signedUrlData) {
-      // Fallback to public URL
-      const { data: publicUrlData } = supabase
-        .storage
-        .from('documents')
-        .getPublicUrl(filePath);
-
-      res.json({ success: true, url: publicUrlData.publicUrl, filePath });
-      return;
-    }
-
-    res.json({ success: true, url: signedUrlData.signedUrl, filePath });
+    // Create signed URL (3600s / 1 hour expiry) via Azure Blob Storage SAS
+    const signedUrl = await getSignedUrl(filePath, 3600);
+    res.json({ success: true, url: signedUrl, filePath });
   } catch (err: any) {
     console.error('❌ Preview URL error:', err);
     res.status(500).json({ success: false, error: 'Failed to generate preview URL' });

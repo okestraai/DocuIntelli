@@ -1,18 +1,50 @@
-import { createClient } from '@supabase/supabase-js';
+import {
+  BlobServiceClient,
+  ContainerClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
+  SASProtocol,
+} from '@azure/storage-blob';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const containerName = process.env.AZURE_STORAGE_CONTAINER || 'documents';
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('❌ Missing Supabase configuration:', {
-    SUPABASE_URL: supabaseUrl ? '✓ Set' : '✗ Missing',
-    SUPABASE_SERVICE_ROLE_KEY: supabaseServiceKey ? '✓ Set' : '✗ Missing'
-  });
-  throw new Error('Missing Supabase configuration');
+if (!connectionString) {
+  console.error('Missing Azure Storage configuration: AZURE_STORAGE_CONNECTION_STRING');
+  throw new Error('Missing AZURE_STORAGE_CONNECTION_STRING environment variable');
 }
 
-console.log('✓ Supabase client initialized for storage operations');
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Parse account name and key from connection string for SAS generation
+function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const parts = connStr.split(';').reduce((acc: Record<string, string>, part) => {
+    const idx = part.indexOf('=');
+    if (idx > -1) {
+      acc[part.substring(0, idx)] = part.substring(idx + 1);
+    }
+    return acc;
+  }, {});
+  return {
+    accountName: parts['AccountName'] || '',
+    accountKey: parts['AccountKey'] || '',
+  };
+}
+
+const { accountName, accountKey } = parseConnectionString(connectionString);
+const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+
+const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+const containerClient: ContainerClient = blobServiceClient.getContainerClient(containerName);
+
+// Ensure container exists on startup
+(async () => {
+  try {
+    await containerClient.createIfNotExists();
+    console.log(`Azure Blob Storage initialized: container '${containerName}' ready`);
+  } catch (err) {
+    console.error('Failed to initialize Azure Blob Storage container:', err);
+  }
+})();
 
 export interface UploadResult {
   success: boolean;
@@ -32,75 +64,99 @@ export async function uploadToStorage(
     const sanitizedName = originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filePath = `${userId}/${timestamp}-${sanitizedName}`;
 
-    console.log(`📤 Uploading to Supabase Storage: ${filePath}`);
+    console.log(`Uploading to Azure Blob Storage: ${filePath}`);
 
-    const { data, error } = await supabase.storage
-      .from('documents')
-      .upload(filePath, file, {
-        contentType: mimeType,
-        upsert: false,
-      });
+    const blockBlobClient = containerClient.getBlockBlobClient(filePath);
+    await blockBlobClient.upload(file, file.length, {
+      blobHTTPHeaders: { blobContentType: mimeType },
+    });
 
-    if (error) {
-      console.error('❌ Storage upload error:', error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-
-    const { data: urlData } = supabase.storage
-      .from('documents')
-      .getPublicUrl(filePath);
-
-    console.log(`✅ File uploaded successfully: ${filePath}`);
+    console.log(`File uploaded successfully: ${filePath}`);
 
     return {
       success: true,
-      filePath: data.path,
-      publicUrl: urlData.publicUrl,
+      filePath,
+      publicUrl: blockBlobClient.url,
     };
-  } catch (error: any) {
-    console.error('❌ Upload error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Upload failed';
+    console.error('Upload error:', error);
     return {
       success: false,
-      error: error.message || 'Upload failed',
+      error: message,
     };
   }
 }
 
 export async function deleteFromStorage(filePath: string): Promise<boolean> {
   try {
-    const { error } = await supabase.storage
-      .from('documents')
-      .remove([filePath]);
-
-    if (error) {
-      console.error('❌ Storage delete error:', error);
-      return false;
-    }
-
-    console.log(`✅ File deleted: ${filePath}`);
+    const blockBlobClient = containerClient.getBlockBlobClient(filePath);
+    await blockBlobClient.deleteIfExists();
+    console.log(`File deleted: ${filePath}`);
     return true;
-  } catch (error: any) {
-    console.error('❌ Delete error:', error);
+  } catch (error: unknown) {
+    console.error('Delete error:', error);
     return false;
   }
 }
 
 export async function getSignedUrl(filePath: string, expiresIn: number = 3600): Promise<string> {
   try {
-    const { data, error } = await supabase.storage
-      .from('documents')
-      .createSignedUrl(filePath, expiresIn);
+    const blobClient = containerClient.getBlobClient(filePath);
 
-    if (error) {
-      throw new Error(`Failed to generate signed URL: ${error.message}`);
+    const startsOn = new Date();
+    const expiresOn = new Date(startsOn.getTime() + expiresIn * 1000);
+
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName,
+        blobName: filePath,
+        permissions: BlobSASPermissions.parse('r'),
+        startsOn,
+        expiresOn,
+        protocol: SASProtocol.Https,
+      },
+      sharedKeyCredential
+    ).toString();
+
+    return `${blobClient.url}?${sasToken}`;
+  } catch (error: unknown) {
+    console.error('Signed URL error:', error);
+    throw error;
+  }
+}
+
+export async function downloadFromStorage(filePath: string): Promise<Buffer> {
+  try {
+    const blockBlobClient = containerClient.getBlockBlobClient(filePath);
+    const downloadResponse = await blockBlobClient.download(0);
+
+    if (!downloadResponse.readableStreamBody) {
+      throw new Error('No readable stream returned from blob download');
     }
 
-    return data.signedUrl;
-  } catch (error: any) {
-    console.error('❌ Signed URL error:', error);
+    // Collect the stream into a Buffer
+    const chunks: Buffer[] = [];
+    for await (const chunk of downloadResponse.readableStreamBody) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    return Buffer.concat(chunks);
+  } catch (error: unknown) {
+    console.error('Download error:', error);
+    throw error;
+  }
+}
+
+export async function listBlobs(prefix: string): Promise<string[]> {
+  try {
+    const blobNames: string[] = [];
+    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+      blobNames.push(blob.name);
+    }
+    return blobNames;
+  } catch (error: unknown) {
+    console.error('List blobs error:', error);
     throw error;
   }
 }

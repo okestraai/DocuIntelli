@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
+import { listBlobs, deleteFromStorage } from '../services/storage';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase configuration in account routes');
 }
 
-// Keep Supabase client ONLY for auth.admin and storage operations (Phase 2 migration)
+// Keep Supabase client ONLY for auth.admin.deleteUser (auth management)
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 /**
@@ -48,34 +49,28 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       console.error('⚠️ Error deleting document chunks:', chunksErr);
     }
 
-    // 3. Delete storage files (uses Supabase storage — Phase 2 migration)
+    // 3. Delete storage files (Azure Blob Storage)
     if (documents && documents.length > 0) {
       const filePaths = documents
         .map((d: any) => d.file_path)
         .filter((p: string | null): p is string => !!p);
 
-      if (filePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('documents')
-          .remove(filePaths);
-
-        if (storageError) {
-          console.error('⚠️ Error deleting storage files:', storageError);
+      for (const fp of filePaths) {
+        try {
+          await deleteFromStorage(fp);
+        } catch (e) {
+          console.error(`Warning: Error deleting storage file ${fp}:`, e);
         }
       }
 
-      // Also try listing and deleting from user folder
+      // Also try listing and deleting any remaining blobs in user folder
       try {
-        const { data: folderFiles } = await supabase.storage
-          .from('documents')
-          .list(userId);
-
-        if (folderFiles && folderFiles.length > 0) {
-          const folderPaths = folderFiles.map(f => `${userId}/${f.name}`);
-          await supabase.storage.from('documents').remove(folderPaths);
+        const blobs = await listBlobs(userId + '/');
+        for (const blobName of blobs) {
+          await deleteFromStorage(blobName);
         }
       } catch (e) {
-        console.error('⚠️ Error cleaning user storage folder:', e);
+        console.error('Warning: Error cleaning user storage folder:', e);
       }
     }
 
@@ -123,7 +118,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // 8. Delete the auth user (uses Supabase auth admin — Phase 2 migration)
+    // 8. Delete the auth user (Supabase auth admin)
     const { error: authError } = await supabase.auth.admin.deleteUser(userId);
     if (authError) {
       console.error('⚠️ Error deleting auth user:', authError);

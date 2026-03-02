@@ -1,16 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { query } from '../services/db';
+import { downloadFromStorage } from './storage';
 import { processDocumentVLLMEmbeddings as processDocumentEmbeddings } from './vllmEmbeddings';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase configuration for chunking service');
-}
-
-// Keep Supabase client solely for storage operations (file download)
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export class TextChunker {
   private static readonly CHUNK_SIZE = 1000;
@@ -158,18 +148,17 @@ export async function processDocument(documentId: string): Promise<{
       return { success: true, chunksProcessed: 0 };
     }
 
-    // Download file from storage (still uses Supabase storage client)
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from('documents')
-      .download(document.file_path);
-
-    if (downloadError || !fileData) {
+    // Download file from Azure Blob Storage
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = await downloadFromStorage(document.file_path);
+    } catch (downloadError) {
       console.error('Failed to download file:', downloadError);
       return { success: false, error: 'Failed to download file from storage' };
     }
 
     // Extract text from file
-    const text = await fileData.text();
+    const text = fileBuffer.toString('utf-8');
     const sanitizedText = TextChunker.sanitizeText(text);
 
     if (!sanitizedText || sanitizedText.trim().length === 0) {
