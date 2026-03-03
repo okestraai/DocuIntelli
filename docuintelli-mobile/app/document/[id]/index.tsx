@@ -12,6 +12,8 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useToast } from '../../../src/contexts/ToastContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
@@ -32,6 +34,8 @@ import {
   X,
   AlertCircle,
   Maximize2,
+  Share2,
+  RefreshCw,
 } from 'lucide-react-native';
 import { auth, deleteDocument } from '../../../src/lib/auth';
 import type { SupabaseDocument } from '../../../src/lib/auth';
@@ -42,6 +46,7 @@ import Badge from '../../../src/components/ui/Badge';
 import GradientIcon from '../../../src/components/ui/GradientIcon';
 import LoadingSpinner from '../../../src/components/ui/LoadingSpinner';
 import DocumentHealthPanel from '../../../src/components/documents/DocumentHealthPanel';
+import { fetchDocumentRelationships } from '../../../src/lib/engagementApi';
 import { colors } from '../../../src/theme/colors';
 import { typography } from '../../../src/theme/typography';
 import { spacing, borderRadius } from '../../../src/theme/spacing';
@@ -131,6 +136,11 @@ export default function DocumentViewerScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  // Renewal chain state
+  const [newerVersion, setNewerVersion] = useState<{ id: string; name: string } | null>(null);
+  const [olderVersion, setOlderVersion] = useState<{ id: string; name: string } | null>(null);
 
   // Inline preview state — auto-loads when document loads
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -165,6 +175,28 @@ export default function DocumentViewerScreen() {
         setLoadError(err instanceof Error ? err.message : 'Failed to load document');
       } finally {
         setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  // Load renewal chain relationships
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const data = await fetchDocumentRelationships(id);
+        // incoming: documents that supersede this one (newer versions)
+        const newer = data.incoming?.find((r: any) => r.relationship_type === 'supersedes');
+        if (newer) {
+          setNewerVersion({ id: newer.document_id, name: newer.document_name || 'Newer Version' });
+        }
+        // outgoing: documents this one supersedes (older versions)
+        const older = data.outgoing?.find((r: any) => r.relationship_type === 'supersedes');
+        if (older) {
+          setOlderVersion({ id: older.related_document_id, name: older.related_document_name || 'Older Version' });
+        }
+      } catch {
+        // Non-critical — silently ignore
       }
     })();
   }, [id]);
@@ -282,6 +314,44 @@ export default function DocumentViewerScreen() {
     }
   };
 
+  const handleShare = async () => {
+    if (!doc) return;
+    setSharing(true);
+    try {
+      const { data: { session } } = await auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      // Get signed download URL
+      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/preview-url`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) throw new Error('Failed to get download URL');
+      const { url } = await res.json();
+
+      // Determine file extension from original name or mime type
+      const fileName = doc.original_name || doc.name || 'document';
+      const localPath = `${FileSystem.cacheDirectory}${fileName}`;
+
+      // Download to temp directory
+      const download = await FileSystem.downloadAsync(url, localPath);
+
+      // Open native share sheet
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(download.uri, {
+          mimeType: doc.type || 'application/octet-stream',
+          dialogTitle: `Share ${doc.name}`,
+        });
+      } else {
+        showToast('Sharing is not available on this device', 'error');
+      }
+    } catch (err) {
+      console.error('Error sharing document:', err);
+      showToast(err instanceof Error ? err.message : 'Failed to share document', 'error');
+    } finally {
+      setSharing(false);
+    }
+  };
+
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -358,6 +428,34 @@ export default function DocumentViewerScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Renewal Chain Banners */}
+        {newerVersion && (
+          <TouchableOpacity
+            style={styles.renewalBanner}
+            onPress={() => router.push({ pathname: '/document/[id]', params: { id: newerVersion.id } })}
+            activeOpacity={0.7}
+          >
+            <RefreshCw size={16} color={colors.primary[600]} />
+            <Text style={styles.renewalBannerText}>
+              Newer version available: <Text style={styles.renewalBannerBold}>{newerVersion.name}</Text>
+            </Text>
+            <ArrowLeft size={16} color={colors.primary[400]} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        )}
+        {olderVersion && (
+          <TouchableOpacity
+            style={[styles.renewalBanner, styles.renewalBannerMuted]}
+            onPress={() => router.push({ pathname: '/document/[id]', params: { id: olderVersion.id } })}
+            activeOpacity={0.7}
+          >
+            <RefreshCw size={16} color={colors.slate[500]} />
+            <Text style={styles.renewalBannerMutedText}>
+              This replaces: <Text style={styles.renewalBannerBold}>{olderVersion.name}</Text>
+            </Text>
+            <ArrowLeft size={16} color={colors.slate[400]} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        )}
+
         {/* ====== INLINE DOCUMENT PREVIEW ====== */}
         {previewLoading && (
           <Card style={styles.previewCard}>
@@ -577,15 +675,30 @@ export default function DocumentViewerScreen() {
             icon={<MessageSquare size={20} color={colors.white} />}
             fullWidth
           />
-          <Button
-            title="Delete Document"
-            onPress={handleDelete}
-            variant="danger"
-            size="lg"
-            loading={deleting}
-            icon={!deleting ? <Trash2 size={20} color={colors.white} /> : undefined}
-            fullWidth
-          />
+          <View style={styles.bottomActionsRow}>
+            <View style={styles.bottomActionHalf}>
+              <Button
+                title={sharing ? 'Sharing...' : 'Share'}
+                onPress={handleShare}
+                variant="outline"
+                size="lg"
+                loading={sharing}
+                icon={!sharing ? <Share2 size={20} color={colors.slate[700]} /> : undefined}
+                fullWidth
+              />
+            </View>
+            <View style={styles.bottomActionHalf}>
+              <Button
+                title="Delete"
+                onPress={handleDelete}
+                variant="danger"
+                size="lg"
+                loading={deleting}
+                icon={!deleting ? <Trash2 size={20} color={colors.white} /> : undefined}
+                fullWidth
+              />
+            </View>
+          </View>
         </View>
       </View>
 
@@ -742,6 +855,36 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
 
+  /* Renewal Chain Banners */
+  renewalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  renewalBannerMuted: {
+    backgroundColor: colors.slate[50],
+    borderColor: colors.slate[200],
+  },
+  renewalBannerText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.primary[700],
+  },
+  renewalBannerMutedText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[600],
+  },
+  renewalBannerBold: {
+    fontWeight: typography.fontWeight.semibold,
+  },
+
   /* Status Row */
   statusRow: {
     flexDirection: 'row',
@@ -869,6 +1012,13 @@ const styles = StyleSheet.create({
   },
   bottomActionsInner: {
     gap: spacing.md,
+  },
+  bottomActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  bottomActionHalf: {
+    flex: 1,
   },
 
   /* Not Found */

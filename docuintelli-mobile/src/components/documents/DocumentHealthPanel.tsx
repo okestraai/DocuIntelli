@@ -267,7 +267,14 @@ export default function DocumentHealthPanel({
               variant="outline"
               size="sm"
               icon={<Upload size={14} color={colors.slate[700]} />}
-              onPress={() => router.push('/upload')}
+              onPress={() => router.push({
+                pathname: '/upload',
+                params: {
+                  renewalDocId: documentId,
+                  renewalName: data?.metadata?.issuer || 'document',
+                  renewalCategory: category,
+                },
+              })}
             />
           )}
           {isMetadataIncomplete && (

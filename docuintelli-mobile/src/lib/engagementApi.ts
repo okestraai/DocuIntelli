@@ -174,3 +174,20 @@ export async function dismissGapSuggestion(
     body: JSON.stringify({ sourceCategory, markedAsUploaded }),
   });
 }
+
+export async function linkRelatedDocuments(
+  documentId: string,
+  relatedDocumentId: string,
+  relationshipType: string = 'related'
+): Promise<{ success: boolean }> {
+  return fetchApi(`/documents/${documentId}/link-related`, {
+    method: 'POST',
+    body: JSON.stringify({ relatedDocumentId, relationshipType }),
+  });
+}
+
+export async function fetchDocumentRelationships(
+  documentId: string
+): Promise<{ success: boolean; outgoing: any[]; incoming: any[] }> {
+  return fetchApi(`/documents/${documentId}/relationships`);
+}

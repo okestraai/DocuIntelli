@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useToast } from '../src/contexts/ToastContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '../src/utils/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
@@ -15,7 +15,7 @@ import * as Print from 'expo-print';
 import {
   Upload, FileText, Link, Camera, X, Calendar,
   AlertTriangle, CheckCircle, Plus, Trash2, Image as ImageIcon,
-  Lock, Zap,
+  Lock, Zap, RefreshCw,
 } from 'lucide-react-native';
 import { useAuth } from '../src/hooks/useAuth';
 import { useDocuments } from '../src/hooks/useDocuments';
@@ -30,6 +30,7 @@ import { colors } from '../src/theme/colors';
 import { typography } from '../src/theme/typography';
 import { spacing, borderRadius } from '../src/theme/spacing';
 import { DOCUMENT_CATEGORIES, type DocumentCategory } from '../src/types/document';
+import { linkRelatedDocuments } from '../src/lib/engagementApi';
 
 type UploadTab = 'file' | 'scan' | 'url';
 
@@ -53,9 +54,20 @@ export default function UploadScreen() {
   const { uploadDocuments } = useDocuments(isAuthenticated);
   const { subscription, loading: subLoading, canUploadDocument, incrementMonthlyUploads, documentCount, isStarterOrAbove } = useSubscription();
   const { showToast } = useToast();
+
+  // Renewal context from DocumentHealthPanel
+  const { renewalDocId, renewalName, renewalCategory } = useLocalSearchParams<{
+    renewalDocId?: string;
+    renewalName?: string;
+    renewalCategory?: string;
+  }>();
+  const isRenewal = !!renewalDocId;
+
   const [tab, setTab] = useState<UploadTab>('file');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<DocumentCategory>('other');
+  const [category, setCategory] = useState<DocumentCategory>(
+    (renewalCategory as DocumentCategory) || 'other'
+  );
   const [expirationDate, setExpirationDate] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -217,13 +229,15 @@ export default function UploadScreen() {
 
     setLoading(true);
     try {
+      let uploadedIds: string[] = [];
+
       if (tab === 'file') {
         if (!fileUri) {
           showToast('Please select a file', 'warning');
           setLoading(false);
           return;
         }
-        await uploadDocuments([{
+        uploadedIds = await uploadDocuments([{
           type: 'file', name: name.trim(), category, fileUri, fileName, mimeType,
           expirationDate: expirationDate || undefined,
         }]);
@@ -233,7 +247,7 @@ export default function UploadScreen() {
           setLoading(false);
           return;
         }
-        await uploadDocuments([{
+        uploadedIds = await uploadDocuments([{
           type: 'file', name: name.trim(), category,
           fileUri: scanPdfUri,
           fileName: `${name.trim().replace(/\s+/g, '_')}.pdf`,
@@ -246,14 +260,26 @@ export default function UploadScreen() {
           setLoading(false);
           return;
         }
-        await uploadDocuments([{
+        uploadedIds = await uploadDocuments([{
           type: 'url', name: name.trim(), category, url: url.trim(),
           expirationDate: expirationDate || undefined,
         }]);
       }
 
       await incrementMonthlyUploads();
-      showToast('Document uploaded successfully', 'success');
+
+      // If this was a renewal upload, link the new document to the original
+      if (isRenewal && renewalDocId && uploadedIds.length > 0) {
+        try {
+          for (const newDocId of uploadedIds) {
+            await linkRelatedDocuments(newDocId, renewalDocId, 'supersedes');
+          }
+        } catch (linkErr) {
+          console.error('Failed to link renewal:', linkErr);
+        }
+      }
+
+      showToast(isRenewal ? 'Renewal uploaded successfully' : 'Document uploaded successfully', 'success');
       goBack('/(tabs)/vault');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed', 'error');
@@ -342,21 +368,31 @@ export default function UploadScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Upload Document', headerShown: true, presentation: 'modal' }} />
+      <Stack.Screen options={{ title: isRenewal ? 'Upload Renewal' : 'Upload Document', headerShown: true, presentation: 'modal' }} />
       <SafeAreaView style={styles.safe} edges={['bottom']}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Renewal Banner */}
+          {isRenewal && (
+            <View style={styles.renewalBanner}>
+              <RefreshCw size={16} color={colors.primary[600]} />
+              <Text style={styles.renewalBannerText}>
+                Uploading renewal for <Text style={styles.renewalBannerBold}>{renewalName}</Text>
+              </Text>
+            </View>
+          )}
+
           {/* Header */}
           <View style={styles.header}>
             <GradientIcon size={48}>
               <Upload size={24} color={colors.white} />
             </GradientIcon>
-            <Text style={styles.headerTitle}>Upload Document</Text>
+            <Text style={styles.headerTitle}>{isRenewal ? 'Upload Renewal' : 'Upload Document'}</Text>
             <Text style={styles.headerSubtitle}>
-              Add a new document to your vault
+              {isRenewal ? 'Upload a new version of this document' : 'Add a new document to your vault'}
             </Text>
           </View>
 
@@ -680,8 +716,8 @@ export default function UploadScreen() {
             </View>
           </Card>
 
-          {/* Upload Limit Warning */}
-          {isFree && !canUploadDocument && (
+          {/* Upload Limit Warning — all plans */}
+          {!canUploadDocument && (
             <Card style={styles.warningCard}>
               <View style={styles.warningRow}>
                 <View style={styles.warningIconWrap}>
@@ -690,24 +726,37 @@ export default function UploadScreen() {
                 <View style={styles.warningContent}>
                   <Text style={styles.warningTitle}>Upload Limit Reached</Text>
                   <Text style={styles.warningText}>
-                    Free plan allows {subscription?.document_limit ?? 3} documents and{' '}
-                    {subscription?.monthly_upload_limit ?? 3} uploads/month. Upgrade to continue.
+                    Your {subscription?.plan || 'current'} plan allows {subscription?.document_limit ?? 3} documents and{' '}
+                    {subscription?.monthly_upload_limit ?? 3} uploads/month.{' '}
+                    {isFree ? 'Upgrade to continue.' : 'You have reached your limit for this period.'}
                   </Text>
                 </View>
               </View>
-              <Button
-                title="Upgrade Plan"
-                onPress={() => router.push('/billing')}
-                variant="primary"
-                size="sm"
-                fullWidth
-                style={{ marginTop: spacing.md }}
-              />
+              {isFree && (
+                <Button
+                  title="Upgrade Plan"
+                  onPress={() => router.push('/billing')}
+                  variant="primary"
+                  size="sm"
+                  fullWidth
+                  style={{ marginTop: spacing.md }}
+                />
+              )}
             </Card>
           )}
 
-          {/* Free tier usage indicator */}
-          {isFree && canUploadDocument && (
+          {/* Approaching limit warning — all plans */}
+          {canUploadDocument && subscription && (subscription.monthly_uploads_used ?? 0) >= (subscription.monthly_upload_limit ?? 3) * 0.8 && (
+            <View style={styles.approachingLimitRow}>
+              <AlertTriangle size={14} color={colors.warning[600]} />
+              <Text style={styles.approachingLimitText}>
+                Approaching upload limit: {subscription.monthly_uploads_used} / {subscription.monthly_upload_limit} uploads this month
+              </Text>
+            </View>
+          )}
+
+          {/* Usage indicator — all plans */}
+          {canUploadDocument && (
             <View style={styles.usageRow}>
               <View style={styles.usageDot} />
               <Text style={styles.usageText}>
@@ -747,6 +796,27 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+
+  // Renewal Banner
+  renewalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  renewalBannerText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.primary[800],
+  },
+  renewalBannerBold: {
+    fontWeight: typography.fontWeight.semibold,
   },
 
   // Header
@@ -1179,6 +1249,25 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     color: colors.warning[700],
     lineHeight: 18,
+  },
+
+  // Approaching Limit
+  approachingLimitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.warning[50],
+    borderWidth: 1,
+    borderColor: colors.warning[200],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  approachingLimitText: {
+    flex: 1,
+    fontSize: typography.fontSize.xs,
+    color: colors.warning[700],
+    fontWeight: typography.fontWeight.medium,
   },
 
   // Usage Row
