@@ -15,7 +15,8 @@ import {
   Receipt,
   BarChart3,
   Calendar,
-  Upload
+  Upload,
+  Ticket,
 } from 'lucide-react';
 import { auth, getDocuments } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
@@ -28,7 +29,10 @@ import {
   createCheckoutSession,
   upgradeSubscription,
   previewUpgrade,
-  syncBillingData
+  syncBillingData,
+  validateCoupon,
+  redeemCoupon,
+  type CouponInfo,
 } from '../lib/api';
 import { formatUTCDate } from '../lib/dateUtils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -264,6 +268,47 @@ function ManageSubscriptionTab({ subscription, paymentMethods, onManage, getPlan
   const [pendingDowngradePlan, setPendingDowngradePlan] = useState<PlanId | null>(null);
   const [freshDocCount, setFreshDocCount] = useState<number>(documentCount);
   const [upgradePreview, setUpgradePreview] = useState<{ prorated_amount_display?: string; new_plan_price_display?: string } | null>(null);
+
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [isRedeemingCoupon, setIsRedeemingCoupon] = useState(false);
+  const [validatedCoupon, setValidatedCoupon] = useState<CouponInfo | null>(null);
+  const [couponError, setCouponError] = useState('');
+
+  const handleValidateCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponError('');
+    setValidatedCoupon(null);
+    setIsValidatingCoupon(true);
+    try {
+      const result = await validateCoupon(couponCode);
+      if (result.valid && result.coupon) {
+        setValidatedCoupon(result.coupon);
+      } else {
+        setCouponError(result.reason || 'Invalid coupon code');
+      }
+    } catch (err: any) {
+      setCouponError(err.message || 'Failed to validate coupon');
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  const handleRedeemCoupon = async () => {
+    if (!validatedCoupon) return;
+    setIsRedeemingCoupon(true);
+    setCouponError('');
+    try {
+      const result = await redeemCoupon(validatedCoupon.code);
+      if (result.url) {
+        window.location.href = result.url;
+      }
+    } catch (err: any) {
+      setCouponError(err.message || 'Failed to redeem coupon');
+      setIsRedeemingCoupon(false);
+    }
+  };
 
   const isCanceling = subscription?.status === 'canceling';
 
@@ -529,6 +574,73 @@ function ManageSubscriptionTab({ subscription, paymentMethods, onManage, getPlan
           </div>
         </div>
       </div>
+
+      {/* Coupon Code Section — only for free plan users */}
+      {currentPlan === 'free' && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="bg-gradient-to-br from-violet-100 to-purple-100 p-2 rounded-lg">
+              <Ticket className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Have a coupon code?</h3>
+              <p className="text-sm text-slate-500">Redeem a coupon for free trial access to a paid plan</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={couponCode}
+              onChange={e => { setCouponCode(e.target.value.toUpperCase()); setValidatedCoupon(null); setCouponError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleValidateCoupon(); }}
+              placeholder="Enter coupon code"
+              className="flex-1 px-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 uppercase tracking-wider font-mono"
+            />
+            <button
+              onClick={handleValidateCoupon}
+              disabled={!couponCode.trim() || isValidatingCoupon}
+              className="px-5 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isValidatingCoupon ? 'Checking...' : 'Apply'}
+            </button>
+          </div>
+
+          {/* Validated coupon details */}
+          {validatedCoupon && (
+            <div className="mt-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-emerald-900">
+                    {validatedCoupon.description || validatedCoupon.code}
+                  </p>
+                  <p className="text-sm text-emerald-700 mt-1">
+                    {validatedCoupon.trial_days} days free on the <span className="font-semibold capitalize">{validatedCoupon.plan}</span> plan
+                  </p>
+                  <p className="text-xs text-emerald-600 mt-1">
+                    You'll enter your payment details. No charge until the trial ends.
+                  </p>
+                </div>
+                <CheckCircle className="h-6 w-6 text-emerald-500 flex-shrink-0 mt-0.5" />
+              </div>
+              <button
+                onClick={handleRedeemCoupon}
+                disabled={isRedeemingCoupon}
+                className="mt-3 w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 py-2.5 rounded-lg font-medium transition-all shadow-md hover:shadow-lg disabled:opacity-50 text-sm"
+              >
+                {isRedeemingCoupon ? 'Redirecting to checkout...' : 'Redeem & Start Free Trial'}
+              </button>
+            </div>
+          )}
+
+          {/* Coupon error */}
+          {couponError && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+              <XCircle className="h-4 w-4 flex-shrink-0" />
+              {couponError}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Status Alerts */}
       {subscription?.status === 'past_due' && (

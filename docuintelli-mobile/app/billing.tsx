@@ -9,6 +9,7 @@ import {
   Platform,
   Modal,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,6 +28,9 @@ import {
   ExternalLink,
   Info,
   X,
+  Ticket,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react-native';
 import InAppBrowser from '../src/components/ui/InAppBrowser';
 import { useSubscription } from '../src/hooks/useSubscription';
@@ -47,6 +51,9 @@ import {
   createCheckoutSession,
   getCustomerPortalUrl,
   getBillingData,
+  validateCoupon,
+  redeemCoupon,
+  type CouponInfo,
 } from '../src/lib/subscriptionApi';
 import { useToast } from '../src/contexts/ToastContext';
 import { API_BASE } from '../src/lib/config';
@@ -166,6 +173,13 @@ export default function BillingScreen() {
 
   // Action loading states
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [isRedeemingCoupon, setIsRedeemingCoupon] = useState(false);
+  const [validatedCoupon, setValidatedCoupon] = useState<CouponInfo | null>(null);
+  const [couponError, setCouponError] = useState('');
 
   // Confirm modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -513,6 +527,43 @@ export default function BillingScreen() {
     </ScrollView>
   );
 
+  // ---- Coupon handlers ----
+  const handleValidateCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponError('');
+    setValidatedCoupon(null);
+    setIsValidatingCoupon(true);
+    try {
+      const result = await validateCoupon(couponCode);
+      if (result.valid && result.coupon) {
+        setValidatedCoupon(result.coupon);
+      } else {
+        setCouponError(result.reason || 'Invalid coupon code');
+      }
+    } catch (err: any) {
+      setCouponError(err.message || 'Failed to validate coupon');
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  const handleRedeemCoupon = async () => {
+    if (!validatedCoupon) return;
+    setIsRedeemingCoupon(true);
+    setCouponError('');
+    try {
+      const url = await redeemCoupon(validatedCoupon.code);
+      openStripePopup(url, 'Checkout');
+      // Reset coupon state after opening checkout
+      setCouponCode('');
+      setValidatedCoupon(null);
+    } catch (err: any) {
+      setCouponError(err.message || 'Failed to redeem coupon');
+    } finally {
+      setIsRedeemingCoupon(false);
+    }
+  };
+
   // ---- Tab 1: Subscription ----
   const renderSubscriptionTab = () => {
     if (!subscription) return null;
@@ -573,6 +624,80 @@ export default function BillingScreen() {
             </View>
           </View>
         </Card>
+
+        {/* Coupon Code Section — free plan only */}
+        {currentPlan === 'free' && (
+          <Card style={styles.couponCard}>
+            <View style={styles.couponHeader}>
+              <View style={styles.couponIconWrap}>
+                <Ticket size={20} color={colors.primary[600]} strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.couponTitle}>Have a coupon code?</Text>
+                <Text style={styles.couponSubtext}>Redeem for free trial access to a paid plan</Text>
+              </View>
+            </View>
+
+            <View style={styles.couponInputRow}>
+              <TextInput
+                value={couponCode}
+                onChangeText={(text) => { setCouponCode(text.toUpperCase()); setValidatedCoupon(null); setCouponError(''); }}
+                onSubmitEditing={handleValidateCoupon}
+                placeholder="Enter coupon code"
+                placeholderTextColor={colors.slate[400]}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                style={styles.couponInput}
+                returnKeyType="go"
+              />
+              <Button
+                title={isValidatingCoupon ? 'Checking...' : 'Apply'}
+                onPress={handleValidateCoupon}
+                variant="primary"
+                size="sm"
+                disabled={!couponCode.trim() || isValidatingCoupon}
+                loading={isValidatingCoupon}
+              />
+            </View>
+
+            {/* Validated coupon details */}
+            {validatedCoupon && (
+              <View style={styles.couponValidated}>
+                <View style={styles.couponValidatedRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.couponValidatedTitle}>
+                      {validatedCoupon.description || validatedCoupon.code}
+                    </Text>
+                    <Text style={styles.couponValidatedDetail}>
+                      {validatedCoupon.trial_days} days free on the {capitalize(validatedCoupon.plan)} plan
+                    </Text>
+                    <Text style={styles.couponValidatedNote}>
+                      You'll enter payment details. No charge until the trial ends.
+                    </Text>
+                  </View>
+                  <CheckCircle size={24} color={colors.success[500]} strokeWidth={2} />
+                </View>
+                <Button
+                  title={isRedeemingCoupon ? 'Opening checkout...' : 'Redeem & Start Free Trial'}
+                  onPress={handleRedeemCoupon}
+                  variant="primary"
+                  size="md"
+                  disabled={isRedeemingCoupon}
+                  loading={isRedeemingCoupon}
+                  fullWidth
+                />
+              </View>
+            )}
+
+            {/* Coupon error */}
+            {couponError ? (
+              <View style={styles.couponErrorRow}>
+                <XCircle size={16} color={colors.error[600]} strokeWidth={2} />
+                <Text style={styles.couponErrorText}>{couponError}</Text>
+              </View>
+            ) : null}
+          </Card>
+        )}
 
         {/* Status alerts */}
         {subscription.status === 'canceling' ||
@@ -1394,6 +1519,95 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold,
     color: colors.primary[600],
+  },
+
+  // Coupon section
+  couponCard: {
+    gap: spacing.md,
+  },
+  couponHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  couponIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.primary[50],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.slate[900],
+  },
+  couponSubtext: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[500],
+    marginTop: 2,
+  },
+  couponInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  couponInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderColor: colors.slate[200],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.slate[900],
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  } as any,
+  couponValidated: {
+    backgroundColor: colors.success[50],
+    borderWidth: 1,
+    borderColor: colors.success[200],
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  couponValidatedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  couponValidatedTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.success[900],
+  },
+  couponValidatedDetail: {
+    fontSize: typography.fontSize.xs,
+    color: colors.success[700],
+    marginTop: spacing.xs,
+  },
+  couponValidatedNote: {
+    fontSize: typography.fontSize.xs,
+    color: colors.success[600],
+    marginTop: spacing.xs,
+    lineHeight: 18,
+  },
+  couponErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.error[50],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  couponErrorText: {
+    flex: 1,
+    fontSize: typography.fontSize.xs,
+    color: colors.error[700],
   },
 
   // Empty state

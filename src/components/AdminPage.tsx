@@ -1,13 +1,14 @@
 import React, { useState, Suspense } from 'react';
-import { Shield, BarChart3, Users, Activity, Server, ScrollText } from 'lucide-react';
+import { Shield, BarChart3, Users, Activity, Server, ScrollText, Ticket } from 'lucide-react';
 
 const AdminDashboard = React.lazy(() => import('./admin/AdminDashboard'));
 const AdminUsers = React.lazy(() => import('./admin/AdminUsers'));
 const AdminActivity = React.lazy(() => import('./admin/AdminActivity'));
 const AdminSystemHealth = React.lazy(() => import('./admin/AdminSystemHealth'));
 const AdminAuditLog = React.lazy(() => import('./admin/AdminAuditLog'));
+const AdminCoupons = React.lazy(() => import('./admin/AdminCoupons'));
 
-type AdminTab = 'overview' | 'users' | 'activity' | 'system' | 'audit';
+type AdminTab = 'overview' | 'users' | 'activity' | 'system' | 'audit' | 'coupons';
 
 const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -15,6 +16,7 @@ const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'activity', label: 'Activity', icon: Activity },
   { id: 'system', label: 'System Health', icon: Server },
   { id: 'audit', label: 'Audit Log', icon: ScrollText },
+  { id: 'coupons', label: 'Coupons', icon: Ticket },
 ];
 
 function TabSkeleton() {
@@ -76,6 +78,7 @@ export function AdminPage() {
         {activeTab === 'activity' && <AdminActivity />}
         {activeTab === 'system' && <AdminSystemHealth />}
         {activeTab === 'audit' && <AdminAuditLog />}
+        {activeTab === 'coupons' && <AdminCoupons />}
       </Suspense>
     </div>
   );

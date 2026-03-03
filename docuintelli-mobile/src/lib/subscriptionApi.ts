@@ -165,6 +165,47 @@ export async function createUpgradeCheckout(): Promise<string> {
   return url;
 }
 
+// ── Coupon API ─────────────────────────────────────────────────────────
+
+export interface CouponInfo {
+  code: string;
+  description: string | null;
+  plan: string;
+  trial_days: number;
+}
+
+// Validate a coupon code without redeeming
+export async function validateCoupon(code: string): Promise<{
+  valid: boolean;
+  reason?: string;
+  coupon?: CouponInfo;
+}> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/coupons/validate`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Validation failed'); }
+  return res.json();
+}
+
+// Redeem a coupon (creates Stripe checkout with trial period)
+export async function redeemCoupon(code: string): Promise<string> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/coupons/redeem`, {
+    method: 'POST', headers,
+    body: JSON.stringify({
+      code,
+      success_url: `${APP_SCHEME}://checkout/success`,
+      cancel_url: `${APP_SCHEME}://checkout/cancel`,
+    }),
+  });
+  if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Redemption failed'); }
+  const data = await res.json();
+  if (!data.url) throw new Error('No checkout URL returned');
+  return data.url;
+}
+
 // Get billing data (payment methods, invoices, transactions) from API
 export async function getBillingData() {
   const headers = await getAuthHeaders();

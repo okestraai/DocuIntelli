@@ -1038,3 +1038,51 @@ export function logClientError(
     }).catch(() => { /* swallow — best-effort logging */ });
   }).catch(() => {});
 }
+
+// ─── Coupon API ─────────────────────────────────────────────────────────
+
+export interface CouponInfo {
+  code: string;
+  description: string | null;
+  plan: string;
+  trial_days: number;
+}
+
+export async function validateCoupon(code: string): Promise<{
+  valid: boolean;
+  reason?: string;
+  coupon?: CouponInfo;
+}> {
+  const token = await getAccessToken();
+  const res = await fetch(`${API_BASE}/api/coupons/validate`, {
+    method: 'POST',
+    headers: backendHeaders(token),
+    body: JSON.stringify({ code }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({ error: 'Validation failed' }));
+    throw new Error(errData.error || 'Failed to validate coupon');
+  }
+
+  return res.json();
+}
+
+export async function redeemCoupon(code: string): Promise<{ success: boolean; url: string }> {
+  const token = await getAccessToken();
+  const successUrl = `${window.location.origin}/dashboard?checkout=success&coupon=${encodeURIComponent(code)}`;
+  const cancelUrl = `${window.location.origin}/dashboard?checkout=cancel`;
+
+  const res = await fetch(`${API_BASE}/api/coupons/redeem`, {
+    method: 'POST',
+    headers: backendHeaders(token),
+    body: JSON.stringify({ code, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({ error: 'Redemption failed' }));
+    throw new Error(errData.error || 'Failed to redeem coupon');
+  }
+
+  return res.json();
+}

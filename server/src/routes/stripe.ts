@@ -980,6 +980,25 @@ async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
     const sessionData = stripeData as unknown as Stripe.Checkout.Session;
     isSubscription = sessionData.mode === 'subscription';
     console.info(`Processing ${isSubscription ? 'subscription' : 'one-time payment'} checkout session`);
+
+    // Link coupon redemption to the Stripe subscription
+    if (sessionData.metadata?.coupon_id && sessionData.subscription) {
+      try {
+        await query(
+          `UPDATE coupon_redemptions
+           SET stripe_subscription_id = $1
+           WHERE coupon_id = $2::uuid AND user_id = $3::uuid`,
+          [
+            sessionData.subscription as string,
+            sessionData.metadata.coupon_id,
+            sessionData.metadata.user_id,
+          ],
+        );
+        console.info(`[COUPON] Linked redemption: coupon=${sessionData.metadata.coupon_code}, subscription=${sessionData.subscription}`);
+      } catch (err) {
+        console.error('[COUPON] Failed to update redemption record:', err);
+      }
+    }
   }
 
   // Log subscription update events
@@ -1229,9 +1248,14 @@ async function syncCustomerFromStripe(customerId: string): Promise<void> {
     }
 
     // Assumes a customer can only have a single subscription
-    // Cast to any because Stripe v20 types removed some properties that still exist at runtime
+    // Cast to any because Stripe v20 types moved some properties (e.g. current_period_start/end)
     const subscription = subscriptions.data[0] as any;
-    const priceId = subscription.items.data[0].price.id as string;
+    const firstItem = subscription.items.data[0];
+    const priceId = firstItem.price.id as string;
+
+    // Stripe SDK v20 moved current_period_start/end from Subscription to SubscriptionItem
+    const periodStart = firstItem.current_period_start ?? subscription.current_period_start;
+    const periodEnd = firstItem.current_period_end ?? subscription.current_period_end;
 
     console.info(`Environment price IDs: starter=${STRIPE_STARTER_PRICE_ID}, pro=${STRIPE_PRO_PRICE_ID}, actual=${priceId}`);
 
@@ -1273,8 +1297,8 @@ async function syncCustomerFromStripe(customerId: string): Promise<void> {
         customerId,
         subscription.id,
         priceId,
-        subscription.current_period_start,
-        subscription.current_period_end,
+        periodStart,
+        periodEnd,
         subscription.cancel_at_period_end,
         pmBrand,
         pmLast4,
@@ -1306,8 +1330,8 @@ async function syncCustomerFromStripe(customerId: string): Promise<void> {
         customerId,
         subscription.id,
         priceId,
-        new Date(subscription.current_period_start * 1000).toISOString(),
-        new Date(subscription.current_period_end * 1000).toISOString(),
+        new Date(periodStart * 1000).toISOString(),
+        new Date(periodEnd * 1000).toISOString(),
         subscription.cancel_at_period_end,
         planDetails.documentLimit,
         planDetails.aiQuestionsLimit,

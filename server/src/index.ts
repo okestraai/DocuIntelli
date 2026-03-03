@@ -33,6 +33,8 @@ import chatRoutes from "./routes/chat";
 import stripeRoutes from "./routes/stripe";
 import documentProcessingRoutes from "./routes/documentProcessing";
 import errorLogRoutes from "./routes/errorLog";
+import couponAdminRoutes from "./routes/couponAdmin";
+import couponRoutes from "./routes/coupon";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
 import { initRedis, getRedisClient } from "./services/redisClient";
@@ -497,6 +499,8 @@ console.log("🔧 Environment Check:", {
   app.use("/api/plaid-webhook", plaidWebhookRoutes);
   app.use("/api/dunning", dunningRoutes);
   app.use("/api/errors", errorLogRoutes);
+  app.use("/api/admin/coupons", couponAdminRoutes);
+  app.use("/api/coupons", couponRoutes);
   app.use("/api/documents", documentProcessingRoutes);
   app.use("/api/documents", processingRoutes);
   app.use("/api", uploadRoutes);

@@ -60,7 +60,7 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     // Upsert user_profiles table
     // Build dynamic column list from updates object
     const allowedColumns = [
-      'display_name', 'bio', 'full_name', 'phone', 'avatar_url',
+      'display_name', 'bio', 'full_name', 'date_of_birth', 'phone', 'avatar_url',
       'email_notifications', 'document_reminders', 'security_alerts',
       'expo_push_token',
     ];

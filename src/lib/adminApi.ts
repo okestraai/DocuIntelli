@@ -366,3 +366,93 @@ export async function triggerCronJobs(job?: string, userId?: string): Promise<{ 
   });
   return res.data;
 }
+
+// ── Coupon Types ─────────────────────────────────────────────
+
+export interface Coupon {
+  id: string;
+  code: string;
+  description: string | null;
+  plan: 'starter' | 'pro';
+  trial_days: number;
+  max_uses: number | null;
+  current_uses: number;
+  expires_at: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_by_email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CouponRedemption {
+  id: string;
+  coupon_id: string;
+  user_id: string;
+  user_email: string;
+  redeemed_at: string;
+  stripe_checkout_session_id: string | null;
+  stripe_subscription_id: string | null;
+}
+
+export interface CouponListResponse {
+  coupons: Coupon[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// ── Coupon API calls ─────────────────────────────────────────
+
+export async function getAdminCoupons(params: {
+  page?: number;
+  limit?: number;
+  search?: string;
+}): Promise<CouponListResponse> {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', String(params.page));
+  if (params.limit) query.set('limit', String(params.limit));
+  if (params.search) query.set('search', params.search);
+  const res = await adminFetch<{ data: CouponListResponse }>(`/coupons?${query}`);
+  return res.data;
+}
+
+export async function createCoupon(data: {
+  code: string;
+  description?: string;
+  plan?: string;
+  trial_days?: number;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}): Promise<Coupon> {
+  const res = await adminFetch<{ success: boolean; data: Coupon }>('/coupons', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return res.data;
+}
+
+export async function updateCoupon(id: string, data: {
+  description?: string;
+  max_uses?: number | null;
+  is_active?: boolean;
+  expires_at?: string | null;
+}): Promise<Coupon> {
+  const res = await adminFetch<{ success: boolean; data: Coupon }>(`/coupons/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  return res.data;
+}
+
+export async function deactivateCoupon(id: string): Promise<void> {
+  await adminFetch(`/coupons/${id}`, { method: 'DELETE' });
+}
+
+export async function getCouponRedemptions(id: string): Promise<{
+  redemptions: CouponRedemption[];
+  total: number;
+}> {
+  const res = await adminFetch<{ data: { redemptions: CouponRedemption[]; total: number } }>(`/coupons/${id}/redemptions`);
+  return res.data;
+}
