@@ -1723,7 +1723,9 @@ $$;
 ALTER TABLE user_profiles
   ADD COLUMN IF NOT EXISTS full_name TEXT,
   ADD COLUMN IF NOT EXISTS date_of_birth DATE,
-  ADD COLUMN IF NOT EXISTS phone TEXT;
+  ADD COLUMN IF NOT EXISTS phone TEXT,
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT,
+  ADD COLUMN IF NOT EXISTS expo_push_token TEXT;
 
 -- NOTE: handle_new_user() trigger on auth.users skipped — we have our own auth_users table.
 
@@ -1759,6 +1761,8 @@ CREATE TABLE IF NOT EXISTS plaid_accounts (
   subtype text,
   mask text,
   initial_balance numeric(14,2),
+  current_balance numeric(14,2) DEFAULT 0,
+  available_balance numeric(14,2) DEFAULT 0,
   currency text NOT NULL DEFAULT 'USD',
   synced_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),

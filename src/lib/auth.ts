@@ -73,6 +73,12 @@ export interface AuthUser {
   id: string;
   email: string;
   user_metadata?: Record<string, any>;
+  created_at?: string;
+  email_confirmed?: boolean;
+  email_confirmed_at?: string;
+  display_name?: string;
+  full_name?: string;
+  last_sign_in_at?: string;
 }
 
 export interface AuthSession {
@@ -390,10 +396,17 @@ export const auth = {
       }
 
       const data = await res.json();
+      const u = data.user || data;
       const user: AuthUser = {
-        id: data.user?.id || data.id || session.user.id,
-        email: data.user?.email || data.email || session.user.email,
-        user_metadata: data.user?.user_metadata || data.user_metadata || {},
+        id: u.id || session.user.id,
+        email: u.email || session.user.email,
+        user_metadata: u.user_metadata || {},
+        created_at: u.created_at,
+        email_confirmed: u.email_confirmed,
+        email_confirmed_at: u.email_confirmed_at,
+        display_name: u.display_name,
+        full_name: u.full_name,
+        last_sign_in_at: u.last_sign_in_at || u.updated_at,
       };
 
       return { data: { user }, error: null };
@@ -936,7 +949,7 @@ export const resetPasswordWithOTP = async (email: string) => {
   const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, type: 'recovery' }),
   });
 
   const data = await res.json();
@@ -1112,6 +1125,47 @@ export const updateUserPassword = async (newPassword: string) => {
 //
 
 (function initAuth() {
+  // Check if this is an OAuth callback with tokens in the URL
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlAccessToken = params.get('access_token');
+    const urlRefreshToken = params.get('refresh_token');
+
+    if (urlAccessToken && urlRefreshToken) {
+      const user = userFromToken(urlAccessToken);
+      if (user) {
+        storeTokens(urlAccessToken, urlRefreshToken, user);
+        startAutoRefresh();
+
+        // Clean tokens from URL without triggering a page reload
+        params.delete('access_token');
+        params.delete('refresh_token');
+        const cleanUrl = params.toString()
+          ? `${window.location.pathname}?${params.toString()}`
+          : window.location.pathname;
+        window.history.replaceState(null, '', cleanUrl);
+
+        // Fire SIGNED_IN event after a tick so listeners registered in App.tsx can catch it
+        const session: AuthSession = { access_token: urlAccessToken, refresh_token: urlRefreshToken, user };
+        setTimeout(() => fireEvent('SIGNED_IN', session), 10);
+        return;
+      }
+    }
+
+    // Check for auth errors from OAuth callback
+    const authError = params.get('auth_error');
+    if (authError) {
+      console.error('[auth] OAuth error:', authError);
+      params.delete('auth_error');
+      const cleanUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  } catch {
+    // URL parsing failed — continue with normal init
+  }
+
   const { accessToken } = readTokens();
   if (accessToken) {
     startAutoRefresh();

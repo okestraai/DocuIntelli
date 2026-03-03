@@ -165,7 +165,9 @@ router.post('/signup', async (req: Request, res: Response): Promise<void> => {
 
 router.post('/verify-otp', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, otp } = req.body;
+    // Accept both 'otp' and 'token' field names for compatibility
+    const { email, otp: otpField, token: tokenField } = req.body;
+    const otp = otpField || tokenField;
 
     if (!email || !otp) {
       res.status(400).json({ error: 'Email and verification code are required' });
@@ -313,11 +315,19 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const user = userResult.rows[0];
 
-    // Check if user signed up via OAuth only
+    // No password hash — either OAuth-only user or migrated user whose hash wasn't transferred
     if (!user.password_hash) {
-      res.status(401).json({
-        error: `This account uses ${user.provider} sign-in. Please sign in with ${user.provider}.`,
-      });
+      if (user.provider && user.provider !== 'email') {
+        res.status(401).json({
+          error: `This account uses ${user.provider} sign-in. Please sign in with ${user.provider}.`,
+        });
+      } else {
+        // Migrated email user without a password — prompt them to reset
+        res.status(401).json({
+          error: 'Your password needs to be reset. Please use "Forgot Password" to set a new password.',
+          code: 'PASSWORD_RESET_REQUIRED',
+        });
+      }
       return;
     }
 
@@ -543,6 +553,212 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
   }
 });
 
+// ─── GET /api/auth/google — Initiate OAuth redirect ─────────────────────────
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const APP_URL = process.env.APP_URL || 'https://docuintelli.com';
+
+router.get('/google', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!GOOGLE_CLIENT_ID) {
+      res.status(500).json({ error: 'Google OAuth is not configured' });
+      return;
+    }
+
+    const redirectTo = (req.query.redirect_to as string) || APP_URL;
+    const accessType = (req.query.access_type as string) || 'offline';
+    const prompt = (req.query.prompt as string) || 'consent';
+
+    // Encode redirect_to into state parameter (signed JWT to prevent CSRF)
+    const jwt = await import('jsonwebtoken');
+    const state = jwt.default.sign(
+      { redirect_to: redirectTo },
+      process.env.JWT_SECRET!,
+      { expiresIn: '10m' }
+    );
+
+    const callbackUrl = `${APP_URL}/api/auth/google/callback`;
+
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: callbackUrl,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      access_type: accessType,
+      prompt,
+    });
+
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  } catch (err) {
+    console.error('Google OAuth redirect error:', err);
+    res.status(500).json({ error: 'Failed to initiate Google sign-in' });
+  }
+});
+
+// ─── GET /api/auth/google/callback — Handle Google OAuth callback ───────────
+
+router.get('/google/callback', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { code, state, error: oauthError } = req.query;
+
+    if (oauthError) {
+      console.error('Google OAuth error:', oauthError);
+      res.redirect(`${APP_URL}?auth_error=${encodeURIComponent(String(oauthError))}`);
+      return;
+    }
+
+    if (!code || !state) {
+      res.redirect(`${APP_URL}?auth_error=missing_code`);
+      return;
+    }
+
+    // Verify the state parameter to prevent CSRF
+    const jwt = await import('jsonwebtoken');
+    let statePayload: { redirect_to: string };
+    try {
+      statePayload = jwt.default.verify(String(state), process.env.JWT_SECRET!) as { redirect_to: string };
+    } catch {
+      res.redirect(`${APP_URL}?auth_error=invalid_state`);
+      return;
+    }
+
+    const callbackUrl = `${APP_URL}/api/auth/google/callback`;
+
+    // Exchange authorization code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: callbackUrl,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text();
+      console.error('Google token exchange failed:', errBody);
+      res.redirect(`${APP_URL}?auth_error=token_exchange_failed`);
+      return;
+    }
+
+    const tokenData = await tokenRes.json() as { id_token?: string };
+    const idToken = tokenData.id_token;
+
+    if (!idToken) {
+      res.redirect(`${APP_URL}?auth_error=no_id_token`);
+      return;
+    }
+
+    // Verify the Google ID token
+    const googlePayload = await verifyGoogleIdToken(idToken);
+
+    if (!googlePayload.email_verified) {
+      res.redirect(`${APP_URL}?auth_error=email_not_verified`);
+      return;
+    }
+
+    const normalizedEmail = googlePayload.email.toLowerCase().trim();
+
+    // Find or create user (same logic as POST /google)
+    let user: { id: string; email: string; raw_user_meta_data: Record<string, string> };
+
+    const existingUser = await query(
+      `SELECT id, email, raw_user_meta_data FROM auth_users
+       WHERE (provider = 'google' AND provider_id = $1)
+          OR email = $2
+       ORDER BY provider = 'google' DESC
+       LIMIT 1`,
+      [googlePayload.sub, normalizedEmail]
+    );
+
+    if (existingUser.rows.length > 0) {
+      user = existingUser.rows[0];
+
+      // Update provider info if this was originally an email user
+      await query(
+        `UPDATE auth_users
+         SET provider = 'google',
+             provider_id = $1,
+             email_confirmed = true,
+             raw_user_meta_data = raw_user_meta_data || $2::jsonb,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [
+          googlePayload.sub,
+          JSON.stringify({
+            display_name: googlePayload.name || user.raw_user_meta_data?.display_name || '',
+            avatar_url: googlePayload.picture || '',
+            full_name: googlePayload.name || '',
+          }),
+          user.id,
+        ]
+      );
+    } else {
+      // Create new user
+      const metadata = {
+        display_name: googlePayload.name || '',
+        avatar_url: googlePayload.picture || '',
+        full_name: googlePayload.name || '',
+      };
+
+      const insertResult = await query(
+        `INSERT INTO auth_users (email, email_confirmed, provider, provider_id, raw_user_meta_data)
+         VALUES ($1, true, 'google', $2, $3)
+         RETURNING id, email, raw_user_meta_data`,
+        [normalizedEmail, googlePayload.sub, JSON.stringify(metadata)]
+      );
+
+      user = insertResult.rows[0];
+
+      // Create initial user_profiles and user_subscriptions
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+
+        await client.query(
+          `INSERT INTO user_profiles (id, display_name, full_name, avatar_url, email_notifications, document_reminders, security_alerts)
+           VALUES ($1, $2, $3, $4, true, true, true)
+           ON CONFLICT (id) DO NOTHING`,
+          [user.id, googlePayload.name || '', googlePayload.name || '', googlePayload.picture || '']
+        );
+
+        await client.query(
+          `INSERT INTO user_subscriptions (user_id, plan, status)
+           VALUES ($1, 'free', 'active')
+           ON CONFLICT (user_id) DO NOTHING`,
+          [user.id]
+        );
+
+        await client.query('COMMIT');
+      } catch (initErr) {
+        await client.query('ROLLBACK');
+        console.error('Error initializing Google user records:', initErr);
+      } finally {
+        client.release();
+      }
+    }
+
+    // Generate JWT tokens
+    const accessToken = generateAccessToken(user.id, user.email);
+    const refreshToken = await generateRefreshToken(user.id);
+
+    // Redirect to frontend with tokens in query params
+    const redirectUrl = new URL(statePayload.redirect_to || APP_URL);
+    redirectUrl.searchParams.set('access_token', accessToken);
+    redirectUrl.searchParams.set('refresh_token', refreshToken);
+
+    res.redirect(redirectUrl.toString());
+  } catch (err) {
+    console.error('Google OAuth callback error:', err);
+    res.redirect(`${APP_URL}?auth_error=callback_failed`);
+  }
+});
+
 // ─── POST /api/auth/google ──────────────────────────────────────────────────
 
 router.post('/google', async (req: Request, res: Response): Promise<void> => {
@@ -757,7 +973,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
     }
 
     const userResult = await query(
-      `SELECT au.id, au.email, au.email_confirmed, au.provider, au.raw_user_meta_data, au.created_at,
+      `SELECT au.id, au.email, au.email_confirmed, au.provider, au.raw_user_meta_data, au.created_at, au.updated_at,
               up.display_name, up.full_name, up.bio, up.phone, up.avatar_url
        FROM auth_users au
        LEFT JOIN user_profiles up ON up.id = au.id
@@ -785,6 +1001,9 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
         phone: user.phone || '',
         avatar_url: user.avatar_url || user.raw_user_meta_data?.avatar_url || '',
         created_at: user.created_at,
+        updated_at: user.updated_at,
+        last_sign_in_at: user.updated_at,
+        email_confirmed_at: user.email_confirmed ? user.created_at : null,
       },
     });
   } catch (err) {

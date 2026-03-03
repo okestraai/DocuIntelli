@@ -37,11 +37,27 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       ),
     ]);
 
+    // pg returns bigint columns as strings — normalize to numbers
+    const invoices = invResult.rows.map((i: any) => ({
+      ...i,
+      amount_due: Number(i.amount_due) || 0,
+      amount_paid: Number(i.amount_paid) || 0,
+      amount_remaining: Number(i.amount_remaining) || 0,
+      subtotal: Number(i.subtotal) || 0,
+      tax: Number(i.tax) || 0,
+      total: Number(i.total) || 0,
+    }));
+    const transactions = txResult.rows.map((t: any) => ({
+      ...t,
+      amount: Number(t.amount) || 0,
+      refund_amount: Number(t.refund_amount) || 0,
+    }));
+
     res.json({
       success: true,
       paymentMethods: pmResult.rows,
-      invoices: invResult.rows,
-      transactions: txResult.rows,
+      invoices,
+      transactions,
     });
   } catch (err: any) {
     console.error('❌ Billing data error:', err);

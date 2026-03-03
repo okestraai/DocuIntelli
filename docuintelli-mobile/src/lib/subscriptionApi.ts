@@ -128,6 +128,43 @@ export async function getCustomerPortalUrl(): Promise<string> {
   return url;
 }
 
+// Sync billing data from Stripe to our database
+export async function syncBillingData(): Promise<{ success: boolean; message?: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/stripe/sync-billing`, {
+    method: 'POST', headers,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Billing sync failed' }));
+    return { success: false, message: err.error };
+  }
+  return res.json();
+}
+
+// Create Stripe upgrade checkout session (Starter → Pro)
+export async function createUpgradeCheckout(): Promise<string> {
+  const { data: { session } } = await auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const res = await fetch(`${API_BASE}/api/stripe/create-upgrade`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      success_url: `${APP_SCHEME}://checkout/success`,
+      cancel_url: `${APP_SCHEME}://checkout/cancel`,
+    }),
+  });
+
+  if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Upgrade checkout failed'); }
+  const { url } = await res.json();
+  if (!url) throw new Error('No checkout URL returned');
+  return url;
+}
+
 // Get billing data (payment methods, invoices, transactions) from API
 export async function getBillingData() {
   const headers = await getAuthHeaders();

@@ -35,7 +35,7 @@ import {
 } from 'lucide-react-native';
 import { auth, deleteDocument } from '../../../src/lib/auth';
 import type { SupabaseDocument } from '../../../src/lib/auth';
-import { API_BASE, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../../src/lib/config';
+import { API_BASE } from '../../../src/lib/config';
 import Card from '../../../src/components/ui/Card';
 import Button from '../../../src/components/ui/Button';
 import Badge from '../../../src/components/ui/Badge';
@@ -183,7 +183,7 @@ export default function DocumentViewerScreen() {
       const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      // Word documents → convert to HTML via Edge Function (needs filePath from API)
+      // Word documents → convert to HTML via Express API
       if (isWordFile(mimeType, fileName)) {
         const previewRes = await fetch(`${API_BASE}/api/documents/${document.id}/preview-url`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
@@ -191,12 +191,11 @@ export default function DocumentViewerScreen() {
         if (!previewRes.ok) throw new Error('Failed to get preview URL');
         const previewData = await previewRes.json();
 
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/convert-to-pdf`, {
+        const resp = await fetch(`${API_BASE}/api/documents/convert-to-pdf`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
-            'apikey': SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ filePath: previewData.filePath }),
         });

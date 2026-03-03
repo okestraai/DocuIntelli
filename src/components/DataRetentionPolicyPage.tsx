@@ -134,7 +134,7 @@ export function DataRetentionPolicyPage({ onBack }: DataRetentionPolicyPageProps
             <ol className="list-decimal pl-6 text-slate-600 space-y-2">
               <li>User initiates deletion by typing the confirmation keyword "DELETE" in the Account Settings page.</li>
               <li>All documents owned by the user are deleted from the database, including chunks and embeddings.</li>
-              <li>All files associated with the user are permanently removed from file storage (Supabase Storage).</li>
+              <li>All files associated with the user are permanently removed from file storage (Azure Blob Storage).</li>
               <li>Subscription records and billing references are deactivated. Active Stripe subscriptions are cancelled.</li>
               <li>A confirmation email is sent to the user's registered email address.</li>
               <li>The user session is terminated immediately.</li>

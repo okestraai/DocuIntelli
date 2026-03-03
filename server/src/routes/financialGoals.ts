@@ -73,7 +73,7 @@ async function buildGoalsResponse(userId: string): Promise<any> {
     for (const a of activitiesResult.rows || []) {
       if (!goalActivityMap[a.goal_id]) goalActivityMap[a.goal_id] = { count: 0, total: 0 };
       goalActivityMap[a.goal_id].count++;
-      goalActivityMap[a.goal_id].total += parseFloat(a.amount);
+      goalActivityMap[a.goal_id].total += Number(a.amount) || 0;
     }
   }
 
@@ -234,7 +234,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Send goal created email (fire-and-forget)
     const profileResult = await query(
-      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      'SELECT display_name FROM user_profiles WHERE id = $1',
       [userId]
     );
     const profile = profileResult.rows[0];
@@ -642,12 +642,14 @@ router.post('/check-deadlines', async (req: Request, res: Response) => {
       const daysUntil = Math.ceil(
         (new Date(goal.target_date).getTime() - today.getTime()) / 86400000
       );
-      const progressPct = goal.target_amount > 0
-        ? Math.round((goal.current_amount / goal.target_amount) * 100)
+      const targetAmt = Number(goal.target_amount) || 0;
+      const currentAmt = Number(goal.current_amount) || 0;
+      const progressPct = targetAmt > 0
+        ? Math.round((currentAmt / targetAmt) * 100)
         : 0;
 
       const profileResult = await query(
-        'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+        'SELECT display_name FROM user_profiles WHERE id = $1',
         [goal.user_id]
       );
       const profile = profileResult.rows[0];
@@ -657,8 +659,8 @@ router.post('/check-deadlines', async (req: Request, res: Response) => {
         goalName: goal.name,
         daysUntil,
         progressPct,
-        currentAmount: goal.current_amount,
-        targetAmount: goal.target_amount,
+        currentAmount: currentAmt,
+        targetAmount: targetAmt,
       });
       sent++;
     }

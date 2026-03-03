@@ -4,6 +4,17 @@ import { auth } from './auth';
 import { API_BASE } from './config';
 import { getDeviceId } from './deviceId';
 
+/** Standard headers for authenticated API calls (includes device ID for multi-device tracking) */
+async function backendHeaders(accessToken: string, contentType: string = 'application/json'): Promise<Record<string, string>> {
+  const deviceId = await getDeviceId();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    'X-Device-ID': deviceId,
+  };
+  if (contentType) headers['Content-Type'] = contentType;
+  return headers;
+}
+
 export interface UploadResponse {
   success: boolean;
   data?: {
@@ -83,12 +94,10 @@ export async function processURLContent(
     const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'User not authenticated' };
 
+    const headers = await backendHeaders(session.access_token);
     const res = await fetch(`${API_BASE}/api/documents/process-url`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ url, name, category, expirationDate }),
     });
 
@@ -115,12 +124,10 @@ export async function processManualContent(
     const { data: { session } } = await auth.getSession();
     if (!session) return { success: false, error: 'User not authenticated' };
 
+    const headers = await backendHeaders(session.access_token);
     const res = await fetch(`${API_BASE}/api/documents/process-manual`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ content, name, category, expirationDate }),
     });
 
@@ -145,12 +152,10 @@ export async function chatWithDocument(
   const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
+  const chatHeaders = await backendHeaders(session.access_token);
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
+    headers: chatHeaders,
     body: JSON.stringify({ document_id: documentId, question, user_id: session.user.id }),
   });
 
@@ -231,8 +236,9 @@ export async function loadChatHistory(documentId: string) {
   const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
 
+  const histHeaders = await backendHeaders(session.access_token);
   const res = await fetch(`${API_BASE}/api/chat/document/${documentId}/history`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: histHeaders,
   });
 
   if (!res.ok) {
@@ -335,8 +341,33 @@ export async function globalChatStream(
     throw new Error(errorData.error || `Chat failed (${res.status})`);
   }
 
-  if (!res.body) throw new Error('No response body');
+  // Parse SSE lines from a full response text (for native fallback)
+  const parseSSELines = (text: string): { success: boolean; answer: string; sources: GlobalChatSource[] } => {
+    let result: { success: boolean; answer: string; sources: GlobalChatSource[] } | null = null;
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      try {
+        const data = JSON.parse(trimmed.slice(6));
+        if (data.type === 'chunk' && onChunk) onChunk(data.content);
+        else if (data.type === 'done') result = { success: true, answer: data.answer, sources: data.sources || [] };
+        else if (data.type === 'error') throw new Error(data.error);
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+    return result || { success: true, answer: '', sources: [] };
+  };
 
+  if (!res.body) {
+    // Native: no streaming support — read full response then parse
+    const text = await res.text();
+    return parseSSELines(text);
+  }
+
+  // Web: stream via ReadableStream for real-time chunks
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let result: { success: boolean; answer: string; sources: GlobalChatSource[] } | null = null;
@@ -375,8 +406,9 @@ export async function loadGlobalChatHistory(): Promise<Array<{
   if (!session) return [];
 
   try {
+    const ghHeaders = await backendHeaders(session.access_token);
     const res = await fetch(`${API_BASE}/api/chat/global/history`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: ghHeaders,
     });
 
     if (!res.ok) return [];
@@ -411,4 +443,26 @@ export async function fetchPlanPrices(): Promise<StripePrices> {
   } catch {
     return DEFAULT_PRICES;
   }
+}
+
+// ── Client Error Logging ────────────────────────────────────────────
+
+/**
+ * Log a client-side error to the backend for admin troubleshooting.
+ * Fire-and-forget — never throws.
+ */
+export function logClientError(
+  feature: string,
+  error: string,
+  context?: Record<string, unknown>
+): void {
+  auth.getSession().then(async ({ data: { session } }) => {
+    if (!session) return;
+    const headers = await backendHeaders(session.access_token);
+    fetch(`${API_BASE}/api/errors/log`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ feature, error, context }),
+    }).catch(() => { /* swallow — best-effort logging */ });
+  }).catch(() => {});
 }

@@ -16,7 +16,7 @@ router.use(loadSubscription);
 
 router.post('/log', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.userId;
     if (!userId) {
       res.status(401).json({ success: false, error: 'Not authenticated' });
       return;

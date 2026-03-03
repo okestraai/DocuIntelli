@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 // Hardcoded fallback values from app.json — used when Constants.expoConfig is
 // unavailable (common on Expo Web where the config resolution can fail silently).
 const FALLBACK_EXTRA = {
-  apiBase: 'https://app.docuintelli.com',
+  apiBase: 'https://docuintelli.com',
   stripeStarterPriceId: 'price_1SzmJJC1d2bwLolG6IatDmAT',
   stripeProPriceId: 'price_1SzmGgC1d2bwLolGhBHMtuFZ',
 };

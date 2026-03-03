@@ -1,0 +1,16 @@
+{
+  "name": "DocuIntelli AI",
+  "short_name": "DocuIntelli",
+  "description": "AI-powered document management for families. Organize, understand, and act on your important documents.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

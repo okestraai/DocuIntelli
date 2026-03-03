@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { query } from '../services/db';
-import { uploadToStorage, deleteFromStorage, getSignedUrl } from '../services/storage';
+import { uploadToStorage, deleteFromStorage, getSignedUrl, downloadFromStorage } from '../services/storage';
 import { TextExtractor } from '../services/textExtractor';
 import {
   loadSubscription,
@@ -385,6 +385,38 @@ router.get('/documents/:id/preview-url', async (req: Request, res: Response): Pr
   } catch (err: any) {
     console.error('❌ Preview URL error:', err);
     res.status(500).json({ success: false, error: 'Failed to generate preview URL' });
+  }
+});
+
+/**
+ * GET /documents/:id/content
+ * Stream document content through the backend (avoids CORS issues with Azure Blob)
+ */
+router.get('/documents/:id/content', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+
+    const docResult = await query(
+      `SELECT file_path, type, name FROM documents WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+
+    if (docResult.rows.length === 0 || !docResult.rows[0]?.file_path) {
+      res.status(404).json({ success: false, error: 'Document not found' });
+      return;
+    }
+
+    const { file_path, type, name } = docResult.rows[0];
+    const buffer = await downloadFromStorage(file_path);
+
+    res.setHeader('Content-Type', type || 'application/octet-stream');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
+    res.send(buffer);
+  } catch (err: any) {
+    console.error('❌ Document content error:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch document content' });
   }
 });
 

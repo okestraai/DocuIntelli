@@ -217,6 +217,33 @@ export interface SystemHealth {
   };
 }
 
+export interface ProblemDocument {
+  id: string;
+  name: string;
+  userId: string;
+  userEmail: string;
+  type: string;
+  createdAt: string;
+  totalChunks?: number;
+  nullEmbeddings?: number;
+}
+
+export interface ProblemDocuments {
+  unprocessed: ProblemDocument[];
+  noChunks: ProblemDocument[];
+  missingEmbeddings: ProblemDocument[];
+  summary: { unprocessed: number; noChunks: number; missingEmbeddings: number; total: number };
+}
+
+export interface CronJobResult {
+  job: string;
+  status: 'success' | 'error';
+  result?: Record<string, unknown>;
+  error?: string;
+  duration: number;
+  globalOnly?: boolean;
+}
+
 export interface AuditLogEntry {
   id: string;
   adminId: string;
@@ -317,5 +344,25 @@ export async function getAdminAuditLog(params: { page?: number; limit?: number }
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
   const res = await adminFetch<{ data: { logs: AuditLogEntry[]; total: number; page: number; limit: number } }>(`/audit-log?${query}`);
+  return res.data;
+}
+
+export async function getAdminProblemDocuments(): Promise<ProblemDocuments> {
+  const res = await adminFetch<{ data: ProblemDocuments }>('/system/problem-documents');
+  return res.data;
+}
+
+export async function reprocessDocument(documentId: string): Promise<{ success: boolean; chunks: number; embeddingsGenerated: boolean }> {
+  return adminFetch('/system/reprocess-document', {
+    method: 'POST',
+    body: JSON.stringify({ documentId }),
+  });
+}
+
+export async function triggerCronJobs(job?: string, userId?: string): Promise<{ results: CronJobResult[]; total: number; succeeded: number; failed: number }> {
+  const res = await adminFetch<{ data: { results: CronJobResult[]; total: number; succeeded: number; failed: number } }>('/system/trigger-cron', {
+    method: 'POST',
+    body: JSON.stringify({ job, userId }),
+  });
   return res.data;
 }

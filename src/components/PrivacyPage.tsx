@@ -63,13 +63,13 @@ export function PrivacyPage({ onBack }: PrivacyPageProps) {
           <section>
             <h2 className="text-xl font-semibold text-slate-900 mb-3">4. Data Storage & Security</h2>
             <p className="text-slate-600 leading-relaxed mb-3">
-              Your data is stored in Supabase (built on PostgreSQL) with the following security measures:
+              Your data is stored in Azure Database for PostgreSQL with the following security measures:
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
               <li><strong>Encryption at rest:</strong> All data is encrypted using AES-256 encryption at the database level.</li>
               <li><strong>Encryption in transit:</strong> All data is transmitted over TLS 1.2+.</li>
               <li><strong>Row-Level Security (RLS):</strong> Database policies ensure users can only access their own documents and data.</li>
-              <li><strong>File storage:</strong> Documents are stored in Supabase Storage with access controlled by authenticated signed URLs.</li>
+              <li><strong>File storage:</strong> Documents are stored in Azure Blob Storage with access controlled by authenticated signed URLs.</li>
               <li><strong>AI processing:</strong> Document content is sent to our dedicated AI infrastructure (vLLM) over encrypted connections with Cloudflare Access authentication. Your documents are not stored by the AI processing system beyond the duration of the request.</li>
             </ul>
           </section>
@@ -78,7 +78,7 @@ export function PrivacyPage({ onBack }: PrivacyPageProps) {
             <h2 className="text-xl font-semibold text-slate-900 mb-3">5. Third-Party Services</h2>
             <p className="text-slate-600 leading-relaxed mb-3">We use the following third-party services:</p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
-              <li><strong>Supabase:</strong> Database hosting, authentication, and file storage.</li>
+              <li><strong>Microsoft Azure:</strong> Database hosting (Azure Database for PostgreSQL), file storage (Azure Blob Storage), and infrastructure services.</li>
               <li><strong>Stripe:</strong> Payment processing. We do not store your full credit card details — Stripe handles all payment information under PCI-DSS Level 1 compliance.</li>
               <li><strong>Mailjet:</strong> Transactional email delivery for notifications, alerts, and weekly audits.</li>
               <li><strong>Cloudflare:</strong> CDN, security, and access control for our AI infrastructure.</li>

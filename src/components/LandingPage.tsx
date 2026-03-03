@@ -36,18 +36,20 @@ export function LandingPage({ onGetStarted, onSignIn, onViewPricing, onViewFeatu
               </span>
             </div>
             <div className="flex items-center gap-4">
-              <button
-                onClick={onViewFeatures}
+              <a
+                href="/features"
+                onClick={(e) => { e.preventDefault(); onViewFeatures(); }}
                 className="text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"
               >
                 Features
-              </button>
-              <button
-                onClick={onViewPricing}
+              </a>
+              <a
+                href="/pricing"
+                onClick={(e) => { e.preventDefault(); onViewPricing(); }}
                 className="text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"
               >
                 Pricing
-              </button>
+              </a>
               <button
                 onClick={onSignIn}
                 className="flex items-center gap-2 text-slate-700 hover:text-emerald-600 font-medium px-4 py-2 rounded-lg hover:bg-emerald-50 transition-all"

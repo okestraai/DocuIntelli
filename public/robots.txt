@@ -1,0 +1,14 @@
+# DocuIntelli AI — Crawl directives
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /vault
+Disallow: /settings
+Disallow: /audit
+Disallow: /life-events
+Disallow: /financial-insights
+Disallow: /admin
+
+# Sitemap
+Sitemap: https://docuintelli.com/sitemap.xml

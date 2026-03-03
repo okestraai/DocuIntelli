@@ -8,14 +8,15 @@ interface FooterProps {
 export function Footer({ onNavigate }: FooterProps) {
   const currentYear = new Date().getFullYear();
 
-  const navButton = (label: string, page: Page) => (
+  const navLink = (label: string, page: Page) => (
     <li>
-      <button
-        onClick={() => onNavigate(page)}
+      <a
+        href={page === 'landing' ? '/' : `/${page}`}
+        onClick={(e) => { e.preventDefault(); onNavigate(page); }}
         className="text-sm text-slate-400 hover:text-emerald-400 transition-colors"
       >
         {label}
-      </button>
+      </a>
     </li>
   );
 
@@ -69,9 +70,9 @@ export function Footer({ onNavigate }: FooterProps) {
           <div>
             <h4 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Product</h4>
             <ul className="space-y-3">
-              {navButton('Pricing', 'pricing')}
-              {navButton('Features', 'features')}
-              {navButton('System Status', 'status')}
+              {navLink('Pricing', 'pricing')}
+              {navLink('Features', 'features')}
+              {navLink('System Status', 'status')}
             </ul>
           </div>
 
@@ -79,9 +80,9 @@ export function Footer({ onNavigate }: FooterProps) {
           <div>
             <h4 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Legal</h4>
             <ul className="space-y-3">
-              {navButton('Terms & Conditions', 'terms')}
-              {navButton('Privacy Policy', 'privacy')}
-              {navButton('Cookie Policy', 'cookies')}
+              {navLink('Terms & Conditions', 'terms')}
+              {navLink('Privacy Policy', 'privacy')}
+              {navLink('Cookie Policy', 'cookies')}
             </ul>
           </div>
 
@@ -98,7 +99,7 @@ export function Footer({ onNavigate }: FooterProps) {
                   Contact Us
                 </a>
               </li>
-              {navButton('Help Center', 'help')}
+              {navLink('Help Center', 'help')}
             </ul>
           </div>
         </div>

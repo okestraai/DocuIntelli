@@ -87,7 +87,7 @@ router.post('/exchange-token', async (req: Request, res: Response) => {
     const instName = institution_name || 'Unknown Bank';
     const accountNames = (result.accounts || []).map((a: any) => a.name || a.account_id);
     const profileResult = await query(
-      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      'SELECT display_name FROM user_profiles WHERE id = $1',
       [userId]
     );
     const profile = profileResult.rows[0];
@@ -269,7 +269,7 @@ router.delete('/disconnect/:itemId', async (req: Request, res: Response) => {
 
     // Send bank disconnected email (fire-and-forget)
     const profileResult = await query(
-      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      'SELECT display_name FROM user_profiles WHERE id = $1',
       [userId]
     );
     const profile = profileResult.rows[0];
@@ -468,7 +468,12 @@ router.get('/detected-loans', async (req: Request, res: Response) => {
       'SELECT * FROM plaid_transactions WHERE user_id = $1 AND pending = false AND amount > 0 ORDER BY date DESC',
       [userId]
     );
-    const transactions = transactionsResult.rows;
+    // pg returns numeric columns as strings — normalize amounts and dates
+    const transactions = transactionsResult.rows.map((t: any) => ({
+      ...t,
+      amount: Number(t.amount) || 0,
+      date: t.date instanceof Date ? t.date.toISOString().substring(0, 10) : String(t.date),
+    }));
 
     if (!transactions || transactions.length === 0) {
       res.json({ success: true, detected_loans: [] });
@@ -600,7 +605,7 @@ router.post('/detected-loans/:id/link-document', async (req: Request, res: Respo
     );
 
     // Trigger analysis async (non-blocking)
-    analyzeLoanDocument(userId, id, document_id, loan.loan_type, loan.estimated_monthly_payment)
+    analyzeLoanDocument(userId, id, document_id, loan.loan_type, Number(loan.estimated_monthly_payment) || 0)
       .catch((err: any) => console.error('Async loan analysis failed:', err));
 
     res.json({ success: true, message: 'Document linked, analysis started' });
@@ -623,7 +628,13 @@ router.get('/analyzed-loans', async (req: Request, res: Response) => {
       [userId]
     );
 
-    res.json({ success: true, analyzed_loans: loansResult.rows || [] });
+    // Normalize numeric fields from pg strings
+    const analyzed = (loansResult.rows || []).map((l: any) => ({
+      ...l,
+      estimated_monthly_payment: Number(l.estimated_monthly_payment) || 0,
+      confidence: Number(l.confidence) || 0,
+    }));
+    res.json({ success: true, analyzed_loans: analyzed });
   } catch (error) {
     console.error('Error fetching analyzed loans:', error);
     res.status(500).json({ error: 'Failed to fetch analyzed loans' });
@@ -665,7 +676,7 @@ router.get('/loan-analysis/:detectedLoanId', async (req: Request, res: Response)
 
     // Generate analysis on-demand
     const result = await analyzeLoanDocument(
-      userId, detectedLoanId, loan.document_id, loan.loan_type, loan.estimated_monthly_payment
+      userId, detectedLoanId, loan.document_id, loan.loan_type, Number(loan.estimated_monthly_payment) || 0
     );
 
     res.json({ success: true, analysis: result });

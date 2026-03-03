@@ -97,7 +97,7 @@ function getFAQSections(plans: PlanData[]): FAQSection[] {
     items: [
       {
         question: 'Is my data secure?',
-        answer: 'Yes. All documents are encrypted at rest and in transit. We use Supabase for database storage with Row-Level Security (RLS) so your documents are only accessible to you. Our AI processing infrastructure runs on secure, dedicated servers. We never share your document contents with third parties.',
+        answer: 'Yes. All documents are encrypted at rest and in transit. We use Azure Database for PostgreSQL with Row-Level Security (RLS) so your documents are only accessible to you. Our AI processing infrastructure runs on secure, dedicated servers. We never share your document contents with third parties.',
       },
       {
         question: 'What happens to my documents if I downgrade or cancel?',

@@ -33,7 +33,7 @@ const MAILJET_API_KEY = process.env.SMTP_USER || '';
 const MAILJET_SECRET_KEY = process.env.SMTP_PASS || '';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@docuintelli.com';
 const FROM_NAME = 'DocuIntelli AI';
-const APP_URL = process.env.APP_URL || 'https://app.docuintelli.com';
+const APP_URL = process.env.APP_URL || 'https://docuintelli.com';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -321,7 +321,52 @@ router.post('/customer-portal', async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const customerId = customerResult.rows[0].customer_id;
+    let customerId = customerResult.rows[0].customer_id;
+
+    // Verify customer still exists in Stripe (may have been deleted externally)
+    try {
+      const existing = await stripe.customers.retrieve(customerId);
+      if ((existing as any).deleted) {
+        console.log(`Stripe customer ${customerId} was deleted — recreating for user ${user.userId}`);
+        const newCustomer = await stripe.customers.create({
+          email: user.email,
+          metadata: { userId: user.userId },
+        });
+        customerId = newCustomer.id;
+
+        // Update both tables with new customer ID
+        await query(
+          `UPDATE stripe_customers SET customer_id = $1, updated_at = NOW() WHERE user_id = $2`,
+          [customerId, user.userId],
+        );
+        await query(
+          `UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE user_id = $2`,
+          [customerId, user.userId],
+        );
+        console.log(`Recreated Stripe customer ${customerId} for user ${user.userId}`);
+      }
+    } catch (retrieveErr: any) {
+      if (retrieveErr.code === 'resource_missing') {
+        console.log(`Stripe customer ${customerId} not found — recreating for user ${user.userId}`);
+        const newCustomer = await stripe.customers.create({
+          email: user.email,
+          metadata: { userId: user.userId },
+        });
+        customerId = newCustomer.id;
+
+        await query(
+          `UPDATE stripe_customers SET customer_id = $1, updated_at = NOW() WHERE user_id = $2`,
+          [customerId, user.userId],
+        );
+        await query(
+          `UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE user_id = $2`,
+          [customerId, user.userId],
+        );
+        console.log(`Recreated Stripe customer ${customerId} for user ${user.userId}`);
+      } else {
+        throw retrieveErr;
+      }
+    }
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
@@ -344,11 +389,45 @@ router.post('/customer-portal', async (req: Request, res: Response): Promise<voi
 
 router.post('/sync-billing', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { customer_id, user_id, sync_type, resource_id } = req.body;
+    let { customer_id, user_id, sync_type, resource_id } = req.body;
 
+    // If customer_id/user_id not provided in body, resolve from JWT auth
     if (!customer_id || !user_id) {
-      res.status(400).json({ error: 'customer_id and user_id are required' });
-      return;
+      const user = extractUser(req);
+      if (!user) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+      user_id = user.userId;
+
+      // Look up stripe customer from user_subscriptions or stripe_customers
+      const custResult = await query(
+        `SELECT customer_id FROM stripe_customers WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [user_id]
+      );
+      if (custResult.rows.length > 0) {
+        customer_id = custResult.rows[0].customer_id;
+      } else {
+        // Fallback: check user_subscriptions for stripe_customer_id
+        const subResult = await query(
+          `SELECT stripe_customer_id FROM user_subscriptions WHERE user_id = $1`,
+          [user_id]
+        );
+        if (subResult.rows.length > 0 && subResult.rows[0].stripe_customer_id) {
+          customer_id = subResult.rows[0].stripe_customer_id;
+          // Also seed the stripe_customers table for future lookups
+          await query(
+            `INSERT INTO stripe_customers (user_id, customer_id) VALUES ($1, $2)
+             ON CONFLICT (user_id) DO UPDATE SET customer_id = $2, updated_at = NOW()`,
+            [user_id, customer_id]
+          );
+        }
+      }
+
+      if (!customer_id) {
+        res.json({ success: true, message: 'No Stripe customer found — nothing to sync' });
+        return;
+      }
     }
 
     console.log(`Starting billing data sync for customer ${customer_id}, sync_type: ${sync_type || 'full'}`);

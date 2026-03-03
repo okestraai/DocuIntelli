@@ -45,12 +45,12 @@ export function CookiePolicyPage({ onBack }: CookiePolicyPageProps) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   <tr>
-                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">sb-*-auth-token</td>
-                    <td className="px-4 py-3 text-slate-600">Authentication session managed by Supabase. Required to keep you signed in.</td>
+                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">auth-token</td>
+                    <td className="px-4 py-3 text-slate-600">Authentication session managed by custom JWT authentication. Required to keep you signed in.</td>
                     <td className="px-4 py-3 text-slate-600">Session</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">sb-*-auth-token-code-verifier</td>
+                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">auth-token-code-verifier</td>
                     <td className="px-4 py-3 text-slate-600">PKCE code verifier for secure OAuth flows (Google sign-in).</td>
                     <td className="px-4 py-3 text-slate-600">Session</td>
                   </tr>
@@ -65,7 +65,7 @@ export function CookiePolicyPage({ onBack }: CookiePolicyPageProps) {
               In addition to cookies, we use browser local storage for the following purposes:
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
-              <li><strong>Authentication tokens:</strong> Supabase stores session tokens in local storage to maintain your signed-in state across page reloads.</li>
+              <li><strong>Authentication tokens:</strong> JWT tokens are stored in local storage to maintain your signed-in state across page reloads.</li>
               <li><strong>User preferences:</strong> Notification dismissals and UI state preferences are stored locally for a smoother experience.</li>
             </ul>
           </section>

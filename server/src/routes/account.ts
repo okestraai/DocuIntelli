@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
+import Stripe from 'stripe';
 import { query } from '../services/db';
 import { loadSubscription } from '../middleware/subscriptionGuard';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
 import { listBlobs, deleteFromStorage } from '../services/storage';
 import { revokeAllUserTokens } from '../services/authService';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const router = Router();
 
@@ -11,7 +14,7 @@ router.use(loadSubscription);
 
 /**
  * DELETE /api/account
- * Cascading account deletion: chunks -> storage -> documents -> profile -> subscription -> refresh tokens -> auth user
+ * Cascading account deletion: chunks -> storage -> documents -> profile -> stripe -> subscription -> refresh tokens -> auth user
  */
 router.delete('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -84,7 +87,26 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       console.error('Error deleting user profile:', profileErr);
     }
 
-    // 6. Delete user subscription
+    // 6. Cancel Stripe subscription (before deleting local record)
+    try {
+      const subResult = await query(
+        `SELECT stripe_subscription_id, stripe_customer_id FROM user_subscriptions WHERE user_id = $1`,
+        [userId]
+      );
+      const sub = subResult.rows[0];
+      if (sub?.stripe_subscription_id) {
+        await stripe.subscriptions.cancel(sub.stripe_subscription_id);
+        console.log(`Stripe subscription ${sub.stripe_subscription_id} cancelled for user ${userId}`);
+      }
+      if (sub?.stripe_customer_id) {
+        await stripe.customers.del(sub.stripe_customer_id);
+        console.log(`Stripe customer ${sub.stripe_customer_id} deleted for user ${userId}`);
+      }
+    } catch (stripeErr: any) {
+      console.error('Error cancelling Stripe subscription:', stripeErr.message);
+    }
+
+    // 7. Delete user subscription record
     try {
       await query(
         `DELETE FROM user_subscriptions WHERE user_id = $1`,
@@ -94,7 +116,7 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       console.error('Error deleting user subscription:', subErr);
     }
 
-    // 7. Send account deletion email (before deleting auth user)
+    // 8. Send account deletion email (before deleting auth user)
     if (userInfo) {
       try {
         await sendNotificationEmail(userId, 'account_deleted', {
@@ -108,14 +130,14 @@ router.delete('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // 8. Revoke all refresh tokens
+    // 9. Revoke all refresh tokens
     try {
       await revokeAllUserTokens(userId);
     } catch (tokenErr) {
       console.error('Error revoking refresh tokens:', tokenErr);
     }
 
-    // 9. Delete the auth user from auth_users table
+    // 10. Delete the auth user from auth_users table
     try {
       await query('DELETE FROM auth_users WHERE id = $1', [userId]);
     } catch (authErr) {

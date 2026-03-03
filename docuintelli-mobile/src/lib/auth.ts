@@ -77,6 +77,12 @@ export interface AuthUser {
   id: string;
   email: string;
   user_metadata?: Record<string, any>;
+  created_at?: string;
+  email_confirmed?: boolean;
+  email_confirmed_at?: string;
+  display_name?: string;
+  full_name?: string;
+  last_sign_in_at?: string;
 }
 
 export interface AuthSession {
@@ -411,10 +417,17 @@ export const auth = {
       }
 
       const data = await res.json();
+      const u = data.user || data;
       const user: AuthUser = {
-        id: data.user?.id || data.id || session.user.id,
-        email: data.user?.email || data.email || session.user.email,
-        user_metadata: data.user?.user_metadata || data.user_metadata || {},
+        id: u.id || session.user.id,
+        email: u.email || session.user.email,
+        user_metadata: u.user_metadata || {},
+        created_at: u.created_at,
+        email_confirmed: u.email_confirmed,
+        email_confirmed_at: u.email_confirmed_at,
+        display_name: u.display_name,
+        full_name: u.full_name,
+        last_sign_in_at: u.last_sign_in_at || u.updated_at,
       };
 
       return { data: { user }, error: null };
@@ -999,7 +1012,7 @@ export const resetPasswordWithOTP = async (email: string) => {
   const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, type: 'recovery' }),
   });
 
   const data = await res.json();

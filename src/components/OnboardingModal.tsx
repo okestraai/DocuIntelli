@@ -20,7 +20,7 @@ export function OnboardingModal({ onComplete }: OnboardingModalProps) {
     getUserProfile().then(profile => {
       if (profile) {
         if (profile.full_name) setFullName(profile.full_name);
-        if (profile.date_of_birth) setDateOfBirth(profile.date_of_birth);
+        if (profile.date_of_birth) setDateOfBirth(profile.date_of_birth.substring(0, 10));
         if (profile.phone) setPhone(profile.phone);
       }
     }).catch(() => {});

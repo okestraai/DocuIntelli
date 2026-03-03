@@ -2,6 +2,7 @@
  * Frontend API helpers for the Engagement Engine
  */
 import { auth } from './auth';
+import { getDeviceId } from './deviceId';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const BACKEND_URL = `${API_BASE}/api/engagement`;
@@ -9,10 +10,14 @@ const BACKEND_URL = `${API_BASE}/api/engagement`;
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
-  return {
+  const headers: Record<string, string> = {
     'Authorization': `Bearer ${session.access_token}`,
     'Content-Type': 'application/json',
+    'X-Device-ID': getDeviceId(),
   };
+  const proof = sessionStorage.getItem('impersonation_proof');
+  if (proof) headers['X-Impersonation-Proof'] = proof;
+  return headers;
 }
 
 async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> {

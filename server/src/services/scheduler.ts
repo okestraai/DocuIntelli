@@ -170,19 +170,26 @@ async function fetchUserDocs(userId: string): Promise<DocRow[]> {
 // Task 1: Expiration Notifications — Daily 08:00 UTC
 // ============================================================================
 
-async function runExpirationNotifications(): Promise<Record<string, unknown>> {
+async function runExpirationNotifications(userId?: string): Promise<Record<string, unknown>> {
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   const cutoff = new Date(now.getTime() + 30 * 86400000)
     .toISOString()
     .split('T')[0];
 
-  const docsResult = await query(
-    `SELECT id, user_id, name, category, expiration_date
-     FROM documents
-     WHERE expiration_date >= $1 AND expiration_date <= $2`,
-    [today, cutoff],
-  );
+  const docsResult = userId
+    ? await query(
+        `SELECT id, user_id, name, category, expiration_date
+         FROM documents
+         WHERE expiration_date >= $1 AND expiration_date <= $2 AND user_id = $3`,
+        [today, cutoff, userId],
+      )
+    : await query(
+        `SELECT id, user_id, name, category, expiration_date
+         FROM documents
+         WHERE expiration_date >= $1 AND expiration_date <= $2`,
+        [today, cutoff],
+      );
   const docs = docsResult.rows;
 
   if (!docs || docs.length === 0) return { sent: 0, docs: 0 };
@@ -250,8 +257,8 @@ async function runExpirationNotifications(): Promise<Record<string, unknown>> {
 // Task 2: Weekly Audit Email — Sunday 22:00 UTC
 // ============================================================================
 
-async function runWeeklyAuditEmail(): Promise<Record<string, unknown>> {
-  const userIds = await getActiveUserIds();
+async function runWeeklyAuditEmail(targetUserId?: string): Promise<Record<string, unknown>> {
+  const userIds = targetUserId ? [targetUserId] : await getActiveUserIds();
   const now = new Date();
   let sent = 0;
 
@@ -319,8 +326,8 @@ async function runWeeklyAuditEmail(): Promise<Record<string, unknown>> {
 // Task 3: Preparedness Snapshots — Daily 00:30 UTC
 // ============================================================================
 
-async function runPreparednessSnapshots(): Promise<Record<string, unknown>> {
-  const userIds = await getActiveUserIds();
+async function runPreparednessSnapshots(targetUserId?: string): Promise<Record<string, unknown>> {
+  const userIds = targetUserId ? [targetUserId] : await getActiveUserIds();
   const today = new Date().toISOString().split('T')[0];
   const now = new Date();
   let saved = 0;
@@ -377,18 +384,25 @@ async function runPreparednessSnapshots(): Promise<Record<string, unknown>> {
 // Task 4: Stripe Billing Sync — Daily 05:00 UTC
 // ============================================================================
 
-async function runStripeBillingSync(): Promise<Record<string, unknown>> {
-  const subsResult = await query(
-    `SELECT user_id, stripe_customer_id
-     FROM user_subscriptions
-     WHERE stripe_customer_id IS NOT NULL`,
-  );
+async function runStripeBillingSync(userId?: string): Promise<Record<string, unknown>> {
+  const subsResult = userId
+    ? await query(
+        `SELECT user_id, stripe_customer_id
+         FROM user_subscriptions
+         WHERE stripe_customer_id IS NOT NULL AND user_id = $1`,
+        [userId],
+      )
+    : await query(
+        `SELECT user_id, stripe_customer_id
+         FROM user_subscriptions
+         WHERE stripe_customer_id IS NOT NULL`,
+      );
   const subs = subsResult.rows;
 
   if (!subs || subs.length === 0) return { synced: 0 };
 
   const port = process.env.PORT || '5000';
-  const cronSecret = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const cronSecret = process.env.CRON_SECRET || process.env.JWT_SECRET || '';
 
   let synced = 0;
   for (const sub of subs) {
@@ -424,13 +438,20 @@ async function runStripeBillingSync(): Promise<Record<string, unknown>> {
 // Task 5: Life Event Readiness Refresh — Daily 03:00 UTC
 // ============================================================================
 
-async function runLifeEventReadiness(): Promise<Record<string, unknown>> {
-  const eventsResult = await query(
-    `SELECT id, user_id, title, target_date, readiness_score
-     FROM life_events
-     WHERE status = $1`,
-    ['active'],
-  );
+async function runLifeEventReadiness(userId?: string): Promise<Record<string, unknown>> {
+  const eventsResult = userId
+    ? await query(
+        `SELECT id, user_id, title, readiness_score
+         FROM life_events
+         WHERE status = $1 AND user_id = $2`,
+        ['active', userId],
+      )
+    : await query(
+        `SELECT id, user_id, title, readiness_score
+         FROM life_events
+         WHERE status = $1`,
+        ['active'],
+      );
   const events = eventsResult.rows;
 
   if (!events || events.length === 0) return { refreshed: 0 };
@@ -510,58 +531,6 @@ async function runLifeEventReadiness(): Promise<Record<string, unknown>> {
       }
 
       refreshed++;
-
-      // Send deadline approaching email if target_date is within 30 days
-      if (event.target_date) {
-        const eventDate = new Date(event.target_date);
-        const daysUntil = Math.ceil(
-          (eventDate.getTime() - now.getTime()) / 86400000,
-        );
-
-        if (daysUntil > 0 && daysUntil <= 30) {
-          // Deduplicate: check if already sent within 7 days
-          const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
-          const recentNotifResult = await query(
-            `SELECT id FROM notification_logs
-             WHERE user_id = $1
-               AND notification_type = $2
-               AND sent_at >= $3
-             LIMIT 1`,
-            [event.user_id, 'email:life_event_deadline_approaching', weekAgo],
-          );
-
-          if (recentNotifResult.rows.length === 0) {
-            const userInfo = await resolveUserInfo(event.user_id);
-            if (userInfo) {
-              // Get requirement counts
-              const reqStatsResult = await query(
-                `SELECT status FROM life_event_requirement_status
-                 WHERE life_event_id = $1 AND status != $2`,
-                [event.id, 'not_applicable'],
-              );
-              const reqStats = reqStatsResult.rows;
-              const totalCount = reqStats?.length || 0;
-              const satisfiedCount = reqStats?.filter(
-                (r: { status: string }) => r.status === 'satisfied',
-              ).length || 0;
-              const readinessScore = event.readiness_score ?? 0;
-
-              await sendNotificationEmail(
-                event.user_id,
-                'life_event_deadline_approaching',
-                {
-                  userName: userInfo.userName,
-                  eventTitle: event.title,
-                  daysUntil,
-                  readinessScore,
-                  satisfiedCount,
-                  totalCount,
-                },
-              );
-            }
-          }
-        }
-      }
     } catch (err) {
       console.error(`[CRON] life-event-readiness: Event ${event.id}:`, err);
     }
@@ -574,14 +543,21 @@ async function runLifeEventReadiness(): Promise<Record<string, unknown>> {
 // Task 6: Review Cadence Reminders — Monday 09:00 UTC
 // ============================================================================
 
-async function runReviewCadenceReminders(): Promise<Record<string, unknown>> {
+async function runReviewCadenceReminders(userId?: string): Promise<Record<string, unknown>> {
   const now = new Date();
 
-  const docsResult = await query(
-    `SELECT id, user_id, name, category, last_reviewed_at, upload_date, review_cadence_days
-     FROM documents
-     WHERE review_cadence_days IS NOT NULL`,
-  );
+  const docsResult = userId
+    ? await query(
+        `SELECT id, user_id, name, category, last_reviewed_at, upload_date, review_cadence_days
+         FROM documents
+         WHERE review_cadence_days IS NOT NULL AND user_id = $1`,
+        [userId],
+      )
+    : await query(
+        `SELECT id, user_id, name, category, last_reviewed_at, upload_date, review_cadence_days
+         FROM documents
+         WHERE review_cadence_days IS NOT NULL`,
+      );
   const docs = docsResult.rows;
 
   if (!docs || docs.length === 0) return { sent: 0 };
@@ -662,17 +638,24 @@ async function runReviewCadenceReminders(): Promise<Record<string, unknown>> {
 // Task 7: Stuck Docs Processing — Every 30 minutes
 // ============================================================================
 
-async function runStuckDocsProcessing(): Promise<Record<string, unknown>> {
+async function runStuckDocsProcessing(userId?: string): Promise<Record<string, unknown>> {
   const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
   // --- Phase 1: Fix stuck unprocessed documents ---
 
-  const stuckResult = await query(
-    `SELECT id, name FROM documents
-     WHERE processed = false AND created_at < $1
-     LIMIT 10`,
-    [tenMinAgo],
-  );
+  const stuckResult = userId
+    ? await query(
+        `SELECT id, name FROM documents
+         WHERE processed = false AND created_at < $1 AND user_id = $2
+         LIMIT 10`,
+        [tenMinAgo, userId],
+      )
+    : await query(
+        `SELECT id, name FROM documents
+         WHERE processed = false AND created_at < $1
+         LIMIT 10`,
+        [tenMinAgo],
+      );
   const stuck = stuckResult.rows;
 
   let processed = 0;
@@ -707,11 +690,18 @@ async function runStuckDocsProcessing(): Promise<Record<string, unknown>> {
 
   // --- Phase 2: Generate tags for documents with >= 60% embeddings but no tags ---
 
-  const untaggedResult = await query(
-    `SELECT id, name FROM documents
-     WHERE tags IS NULL OR tags = '{}'
-     LIMIT 20`,
-  );
+  const untaggedResult = userId
+    ? await query(
+        `SELECT id, name FROM documents
+         WHERE (tags IS NULL OR tags = '{}') AND user_id = $1
+         LIMIT 20`,
+        [userId],
+      )
+    : await query(
+        `SELECT id, name FROM documents
+         WHERE tags IS NULL OR tags = '{}'
+         LIMIT 20`,
+      );
   const untagged = untaggedResult.rows;
 
   let tagged = 0;
@@ -763,7 +753,7 @@ async function runStuckDocsProcessing(): Promise<Record<string, unknown>> {
 // Task 8: Dunning Escalation — Daily 06:00 UTC
 // ============================================================================
 
-async function runDunningEscalationTask(): Promise<Record<string, unknown>> {
+async function runDunningEscalationTask(_userId?: string): Promise<Record<string, unknown>> {
   const result = await runDunningEscalation();
   return {
     processed: result.processed,
@@ -776,7 +766,7 @@ async function runDunningEscalationTask(): Promise<Record<string, unknown>> {
 // Task 9: Goal Deadline Check — Daily 04:00 UTC
 // ============================================================================
 
-async function runGoalDeadlineCheck(): Promise<Record<string, unknown>> {
+async function runGoalDeadlineCheck(userId?: string): Promise<Record<string, unknown>> {
   const today = new Date();
   const sevenDaysOut = new Date(today.getTime() + 7 * 86400000)
     .toISOString()
@@ -784,12 +774,19 @@ async function runGoalDeadlineCheck(): Promise<Record<string, unknown>> {
   const todayStr = today.toISOString().split('T')[0];
 
   // Find active goals with target_date within 7 days
-  const goalsResult = await query(
-    `SELECT id, user_id, name, target_amount, current_amount, target_date
-     FROM financial_goals
-     WHERE status = $1 AND target_date >= $2 AND target_date <= $3`,
-    ['active', todayStr, sevenDaysOut],
-  );
+  const goalsResult = userId
+    ? await query(
+        `SELECT id, user_id, name, target_amount, current_amount, target_date
+         FROM financial_goals
+         WHERE status = $1 AND target_date >= $2 AND target_date <= $3 AND user_id = $4`,
+        ['active', todayStr, sevenDaysOut, userId],
+      )
+    : await query(
+        `SELECT id, user_id, name, target_amount, current_amount, target_date
+         FROM financial_goals
+         WHERE status = $1 AND target_date >= $2 AND target_date <= $3`,
+        ['active', todayStr, sevenDaysOut],
+      );
   const goals = goalsResult.rows;
 
   if (!goals || goals.length === 0) return { sent: 0, checked: 0 };
@@ -844,8 +841,10 @@ async function runGoalDeadlineCheck(): Promise<Record<string, unknown>> {
 // Task 10: AI Questions Reset — Daily 00:05 UTC
 // ============================================================================
 
-async function runAIQuestionsReset(): Promise<Record<string, unknown>> {
-  const result = await query('UPDATE user_subscriptions SET ai_questions_used = 0');
+async function runAIQuestionsReset(userId?: string): Promise<Record<string, unknown>> {
+  const result = userId
+    ? await query('UPDATE user_subscriptions SET ai_questions_used = 0 WHERE user_id = $1', [userId])
+    : await query('UPDATE user_subscriptions SET ai_questions_used = 0');
   return { reset: result.rowCount || 0 };
 }
 
@@ -853,7 +852,7 @@ async function runAIQuestionsReset(): Promise<Record<string, unknown>> {
 // Task 11: Data Cleanup — Daily 02:00 UTC
 // ============================================================================
 
-async function runDataCleanup(): Promise<Record<string, unknown>> {
+async function runDataCleanup(_userId?: string): Promise<Record<string, unknown>> {
   const results: Record<string, number> = {};
 
   // Delete notification_logs older than 90 days
@@ -864,13 +863,13 @@ async function runDataCleanup(): Promise<Record<string, unknown>> {
 
   // Delete usage_logs older than 30 days
   const usageResult = await query(
-    "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'",
+    "DELETE FROM usage_logs WHERE timestamp < NOW() - INTERVAL '30 days'",
   );
   results.usageLogs = usageResult.rowCount || 0;
 
   // Delete limit_violations older than 180 days
   const violResult = await query(
-    "DELETE FROM limit_violations WHERE created_at < NOW() - INTERVAL '180 days'",
+    "DELETE FROM limit_violations WHERE timestamp < NOW() - INTERVAL '180 days'",
   );
   results.limitViolations = violResult.rowCount || 0;
 
@@ -1011,3 +1010,24 @@ export function startScheduler(): void {
   console.log('  22:00 UTC Sun       — Weekly audit email');
   console.log('  Every 30 min        — Stuck docs processing');
 }
+
+// ============================================================================
+// Exported task functions for admin manual trigger
+// ============================================================================
+
+export const cronTasks: Record<string, (userId?: string) => Promise<Record<string, unknown>>> = {
+  'expiration-notifications': runExpirationNotifications,
+  'weekly-audit-email': runWeeklyAuditEmail,
+  'preparedness-snapshots': runPreparednessSnapshots,
+  'stripe-billing-sync': runStripeBillingSync,
+  'life-event-readiness': runLifeEventReadiness,
+  'review-cadence-reminders': runReviewCadenceReminders,
+  'stuck-docs-processing': runStuckDocsProcessing,
+  'dunning-escalation': runDunningEscalationTask,
+  'goal-deadline-check': runGoalDeadlineCheck,
+  'ai-questions-reset': runAIQuestionsReset,
+  'data-cleanup': runDataCleanup,
+};
+
+// Jobs that ignore userId (operate globally)
+export const GLOBAL_ONLY_JOBS = new Set(['dunning-escalation', 'data-cleanup']);

@@ -47,9 +47,7 @@
       "expo-asset"
     ],
     "extra": {
-      "supabaseUrl": "https://caygpjhiakabaxtklnlw.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNheWdwamhpYWthYmF4dGtsbmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYwNzMzMTQsImV4cCI6MjA3MTY0OTMxNH0.UYaF1hW_j2HGcFP5W1FMV_G7ODGJuz8qieyf9Qe4Z90",
-      "apiBase": "https://app.docuintelli.com",
+      "apiBase": "https://docuintelli.com",
       "stripeStarterPriceId": "price_1SzmJJC1d2bwLolG6IatDmAT",
       "stripeProPriceId": "price_1SzmGgC1d2bwLolGhBHMtuFZ",
       "eas": {

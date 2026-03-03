@@ -8,7 +8,7 @@
  * and custom JWT auth instead of Supabase Auth.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { query } from '../services/db';
 import { verifyAccessToken } from '../services/authService';
 import { detectImpersonation } from '../middleware/impersonation';
@@ -36,10 +36,51 @@ interface ChatSource {
   preview: string;
 }
 
+// ── Embedding pre-flight ────────────────────────────────────────────────────
+// Fires the embedding request BEFORE auth middleware so they run in parallel.
+// req.body is already parsed (global JSON middleware runs before route middleware).
+// If middleware later rejects the request, the abandoned promise is silently caught.
+
+function embeddingPreflight(req: Request, _res: Response, next: NextFunction): void {
+  const { question, warmup } = req.body || {};
+
+  if (
+    !warmup &&
+    question &&
+    typeof question === 'string' &&
+    question.length <= 2000 &&
+    cfAccessClientId &&
+    cfAccessClientSecret
+  ) {
+    const questionFormatted = `Instruct: Given a web search query, retrieve relevant passages\nQuery: ${question}`;
+
+    const promise = fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Access-Client-Id': cfAccessClientId,
+        'CF-Access-Client-Secret': cfAccessClientSecret,
+      },
+      body: JSON.stringify({
+        model: embeddingModel,
+        input: [questionFormatted],
+      }),
+    });
+
+    // Prevent unhandled rejection if middleware chain rejects the request early
+    promise.catch(() => {});
+
+    (req as any)._embeddingPromise = promise;
+  }
+
+  next();
+}
+
 // ── Route ────────────────────────────────────────────────────────────────────
 
 router.post(
   '/',
+  embeddingPreflight,
   loadSubscription,
   detectImpersonation,
   checkAIQuestionLimit,
@@ -75,24 +116,30 @@ router.post(
         return;
       }
 
-      // ── Parallel batch 1: embedding generation (slowest, start immediately) ──
-      const questionFormatted = `Instruct: Given a web search query, retrieve relevant passages\nQuery: ${question}`;
+      // ── Await pre-fired embedding + DB queries in parallel ──
+      // embeddingPreflight already started the fetch before auth middleware ran,
+      // so the embedding has been in-flight the whole time. Just await the result.
+      const embeddingPromise: Promise<globalThis.Response> =
+        (req as any)._embeddingPromise ||
+        // Fallback: start fresh if pre-flight didn't fire (should not happen for valid requests)
+        (() => {
+          const questionFormatted = `Instruct: Given a web search query, retrieve relevant passages\nQuery: ${question}`;
+          return fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'CF-Access-Client-Id': cfAccessClientId,
+              'CF-Access-Client-Secret': cfAccessClientSecret,
+            },
+            body: JSON.stringify({
+              model: embeddingModel,
+              input: [questionFormatted],
+            }),
+          });
+        })();
 
-      const embeddingResponse = await fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'CF-Access-Client-Id': cfAccessClientId,
-          'CF-Access-Client-Secret': cfAccessClientSecret,
-        },
-        body: JSON.stringify({
-          model: embeddingModel,
-          input: [questionFormatted],
-        }),
-      });
-
-      // ── Parallel batch 2: doc ownership + chat history ───────────────
-      const [docResult, historyResult] = await Promise.all([
+      const [embeddingResponse, docResult, historyResult] = await Promise.all([
+        embeddingPromise,
         query(
           `SELECT id FROM documents
            WHERE id = $1 AND user_id = $2`,

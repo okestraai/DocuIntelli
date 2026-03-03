@@ -221,14 +221,14 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
           }, 2000);
         }
       } else {
-        // Password reset flow — uses Supabase native OTP
+        // Password reset flow — just validate the OTP format locally
+        // and move to the set-new-password step. The OTP will be verified
+        // together with the new password via POST /api/auth/reset-password.
         if (!otp || otp.length !== 6) {
           setError('Please enter a valid 6-digit code');
           return;
         }
 
-        await verifyOTP(email, otp, 'recovery');
-        // OTP verified — now show password entry form
         setError(null);
         setSuccessMessage(null);
         setAuthStep('set-new-password');
@@ -305,12 +305,28 @@ export function AuthModal({ onClose, onAuth }: AuthModalProps) {
 
     setIsLoading(true);
     try {
-      const { error: updateError } = await auth.updateUser({ password: newPassword });
-      if (updateError) throw updateError;
+      // Call the dedicated reset-password endpoint which verifies OTP
+      // and updates the password in one atomic operation.
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          otp,
+          new_password: newPassword,
+        }),
+      });
 
-      const { data: { user } } = await auth.getUser();
-      if (user) {
-        onAuth(user);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to reset password');
+      }
+
+      // Password reset successful — sign in with the new password
+      const result = await signIn(email, newPassword);
+      if (result.user) {
+        onAuth(result.user);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update password';

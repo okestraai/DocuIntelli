@@ -52,7 +52,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
               <li><strong>Authentication:</strong> All internal access to production infrastructure (database dashboards, cloud consoles, CI/CD systems) requires multi-factor authentication (MFA).</li>
               <li><strong>Unique accounts:</strong> Each team member uses individually assigned credentials. Shared accounts are prohibited for production systems.</li>
-              <li><strong>Role-based access:</strong> Access to Supabase, Cloudflare, Stripe, and deployment pipelines is granted on a role-based, need-to-know basis.</li>
+              <li><strong>Role-based access:</strong> Access to Azure, Cloudflare, Stripe, and deployment pipelines is granted on a role-based, need-to-know basis.</li>
               <li><strong>Access reviews:</strong> Access rights are reviewed quarterly. Accounts for departed personnel are revoked within 24 hours of separation.</li>
               <li><strong>Service keys:</strong> Backend service-role keys are stored exclusively in environment variables on production servers and are never committed to source control or exposed to client-side code.</li>
             </ul>
@@ -64,7 +64,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
               Consumer-facing authentication for the DocuIntelli AI platform includes:
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
-              <li><strong>Email & password:</strong> Accounts are created with email verification via one-time passcode (OTP). Passwords are hashed using bcrypt via Supabase Auth and are never stored in plaintext.</li>
+              <li><strong>Email & password:</strong> Accounts are created with email verification via one-time passcode (OTP). Passwords are hashed using bcrypt via custom JWT authentication and are never stored in plaintext.</li>
               <li><strong>Google OAuth:</strong> PKCE-secured OAuth 2.0 flow with code verifier for additional security against authorization code interception.</li>
               <li><strong>Session management:</strong> JWT-based sessions with automatic token refresh. Sessions are invalidated on sign-out.</li>
               <li><strong>Rate limiting:</strong> Authentication endpoints are rate-limited to 20 requests per 15 minutes per IP to mitigate brute-force attacks.</li>
@@ -79,7 +79,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
               <li><strong>Encryption in transit:</strong> All client-server communication is encrypted using TLS 1.2 or TLS 1.3 exclusively. Older protocols (TLS 1.0, 1.1, SSL) are disabled. Forward-secrecy ECDHE cipher suites are enforced.</li>
-              <li><strong>Encryption at rest:</strong> All data stored in our PostgreSQL database is encrypted at rest using AES-256. File storage (Supabase Storage) is encrypted at rest at the infrastructure level.</li>
+              <li><strong>Encryption at rest:</strong> All data stored in our PostgreSQL database is encrypted at rest using AES-256. File storage (Azure Blob Storage) is encrypted at rest at the infrastructure level.</li>
               <li><strong>HSTS:</strong> HTTP Strict Transport Security is enforced with a two-year max-age, includeSubDomains, and preload directives.</li>
               <li><strong>Security headers:</strong> X-Frame-Options (SAMEORIGIN), X-Content-Type-Options (nosniff), Referrer-Policy (strict-origin-when-cross-origin), and Helmet.js protections are applied to all responses.</li>
               <li><strong>Network architecture:</strong> Production services are accessed exclusively through a Cloudflare Tunnel. No ports are directly exposed to the public internet. Internal services (Redis, backend API) communicate within an isolated Docker network.</li>
@@ -96,7 +96,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
               <li><strong>Row-Level Security (RLS):</strong> PostgreSQL RLS policies are enforced on all tables, ensuring users can only access their own documents, subscriptions, and settings — even at the database query level.</li>
-              <li><strong>Client/server key separation:</strong> The frontend uses Supabase anon keys (subject to RLS). The backend uses service-role keys only for administrative operations, and these keys are never exposed to client-side code.</li>
+              <li><strong>Client/server key separation:</strong> The frontend uses JWT tokens with limited scope (subject to RLS). The backend uses service-role credentials only for administrative operations, and these credentials are never exposed to client-side code.</li>
               <li><strong>Signed URLs:</strong> Document file access is controlled through time-limited, cryptographically signed URLs that expire after use.</li>
               <li><strong>Payment data:</strong> All payment processing is handled by Stripe under PCI-DSS Level 1 compliance. DocuIntelli AI never stores, processes, or has access to full credit card numbers.</li>
               <li><strong>No document content training:</strong> Customer document content is never used for training, fine-tuning, or improving AI models.</li>
@@ -133,7 +133,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
               We carefully evaluate the security posture of all third-party services integrated with our platform:
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
-              <li><strong>Supabase:</strong> SOC 2 Type II certified. Provides database hosting, authentication, and storage with built-in encryption and RLS.</li>
+              <li><strong>Microsoft Azure:</strong> SOC 2 Type II, ISO 27001 certified. Provides database hosting (Azure Database for PostgreSQL), file storage (Azure Blob Storage), and infrastructure services with built-in encryption and RLS.</li>
               <li><strong>Stripe:</strong> PCI-DSS Level 1 certified. Handles all payment data processing.</li>
               <li><strong>Cloudflare:</strong> SOC 2, ISO 27001 certified. Provides CDN, DDoS protection, SSL termination, and Zero Trust access to AI infrastructure.</li>
               <li><strong>Mailjet:</strong> GDPR-compliant email delivery service for transactional notifications.</li>
@@ -146,7 +146,7 @@ export function SecurityPolicyPage({ onBack }: SecurityPolicyPageProps) {
           <section>
             <h2 className="text-xl font-semibold text-slate-900 mb-3">10. Business Continuity</h2>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
-              <li><strong>Data backups:</strong> Database backups are managed by Supabase with point-in-time recovery. Redis uses append-only file (AOF) persistence for cache durability.</li>
+              <li><strong>Data backups:</strong> Database backups are managed by Azure Database for PostgreSQL with point-in-time recovery. Redis uses append-only file (AOF) persistence for cache durability.</li>
               <li><strong>Redundancy:</strong> Cloudflare provides global CDN caching and DDoS protection, ensuring availability even under adverse network conditions.</li>
               <li><strong>Containerized deployment:</strong> Production services run in Docker containers, enabling rapid recovery and consistent environments across restarts.</li>
             </ul>

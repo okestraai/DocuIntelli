@@ -13,7 +13,7 @@ const LIABILITY_TYPES = new Set(['credit', 'loan']);
 /** Get user display name for email templates. */
 async function getUserDisplayName(userId: string): Promise<string> {
   const result = await query(
-    'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+    'SELECT display_name FROM user_profiles WHERE id = $1',
     [userId]
   );
   return result.rows[0]?.display_name || '';
@@ -200,9 +200,18 @@ export async function calculateBaseline(
     ),
   ]);
 
-  const accounts = accountsResult.rows;
+  // pg returns numeric columns as strings — normalize to numbers
+  const accounts = accountsResult.rows.map((a: any) => ({
+    ...a,
+    initial_balance: Number(a.initial_balance) || 0,
+    current_balance: Number(a.current_balance) || 0,
+    available_balance: Number(a.available_balance) || 0,
+  }));
   if (accounts.length === 0) return 0;
-  const txns = transactionsResult.rows;
+  const txns = transactionsResult.rows.map((t: any) => ({
+    ...t,
+    amount: Number(t.amount) || 0,
+  }));
 
   switch (goalType) {
     case 'savings': {
@@ -377,14 +386,23 @@ export async function recalculateAllUserGoals(userId: string): Promise<GoalRecor
     ),
   ]);
 
-  const accts = accountsResult.rows;
-  const txns = transactionsResult.rows;
+  // pg returns numeric columns as strings — normalize to numbers
+  const accts = accountsResult.rows.map((a: any) => ({
+    ...a,
+    initial_balance: Number(a.initial_balance) || 0,
+    current_balance: Number(a.current_balance) || 0,
+    available_balance: Number(a.available_balance) || 0,
+  }));
+  const txns = transactionsResult.rows.map((t: any) => ({
+    ...t,
+    amount: Number(t.amount) || 0,
+  }));
 
   // Build manual activity sums per goal (total and period-filtered for spending_limit)
   const manualSumsByGoal = new Map<string, number>();
   for (const a of activitiesResult.rows) {
     const prev = manualSumsByGoal.get(a.goal_id) || 0;
-    manualSumsByGoal.set(a.goal_id, prev + parseFloat(a.amount));
+    manualSumsByGoal.set(a.goal_id, prev + Number(a.amount));
   }
 
   // For spending_limit goals, compute period-filtered manual sums
@@ -494,18 +512,20 @@ async function expireOverdueGoals(userId: string): Promise<void> {
     const fullGoal = fullGoalResult.rows[0];
     if (!fullGoal) continue;
 
-    const progressPct = fullGoal.target_amount > 0
-      ? Math.round((fullGoal.current_amount / fullGoal.target_amount) * 100)
+    const targetAmt = Number(fullGoal.target_amount) || 0;
+    const currentAmt = Number(fullGoal.current_amount) || 0;
+    const progressPct = targetAmt > 0
+      ? Math.round((currentAmt / targetAmt) * 100)
       : 0;
     const userName = await getUserDisplayName(g.user_id);
 
     sendNotificationEmail(g.user_id, 'goal_expired', {
       userName,
       goalName: g.name,
-      targetDate: fullGoal.target_date,
+      targetDate: fullGoal.target_date instanceof Date ? fullGoal.target_date.toISOString().substring(0, 10) : String(fullGoal.target_date),
       progressPct,
-      currentAmount: fullGoal.current_amount,
-      targetAmount: fullGoal.target_amount,
+      currentAmount: currentAmt,
+      targetAmount: targetAmt,
     }).catch(() => {});
   }
 }

@@ -13,6 +13,12 @@ import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { generateImpersonationProof } from '../middleware/impersonation';
 import { generateAccessToken, generateRefreshToken } from '../services/authService';
 import { query } from '../services/db';
+import { cronTasks, GLOBAL_ONLY_JOBS } from '../services/scheduler';
+import { downloadFromStorage } from '../services/storage';
+import { TextExtractor } from '../services/textExtractor';
+import { TextChunker } from '../services/chunking';
+import { processDocumentVLLMEmbeddings } from '../services/vllmEmbeddings';
+import { generateDocumentTags } from '../services/tagGeneration';
 
 const router = Router();
 
@@ -43,8 +49,10 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
     }
 
     // Call the SECURITY DEFINER function for aggregate stats
+    // The function returns JSONB, so the result is nested under the function name
     const statsResult = await query('SELECT * FROM admin_dashboard_stats()');
-    const stats = statsResult.rows[0] || {};
+    const rawRow = statsResult.rows[0] || {};
+    const stats = rawRow.admin_dashboard_stats || rawRow;
 
     // Get recent signups (last 10) from auth_users
     const recentUsersResult = await query(
@@ -133,7 +141,8 @@ router.get('/users/:userId', async (req: Request, res: Response) => {
       [userId]
     );
 
-    const detail = detailResult.rows[0] || null;
+    const rawRow = detailResult.rows[0] || {};
+    const detail = rawRow.admin_get_user_detail || rawRow;
 
     if (!detail?.user) {
       res.status(404).json({ error: 'User not found' });
@@ -532,6 +541,248 @@ router.get('/system/health', async (_req: Request, res: Response) => {
   } catch (err) {
     console.error('System health error:', err);
     res.status(500).json({ error: 'Failed to load system health' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// GET /api/admin/system/problem-documents — documents with issues
+// ──────────────────────────────────────────────────────────────
+router.get('/system/problem-documents', async (_req: Request, res: Response) => {
+  try {
+    // 1. Unprocessed documents (older than 10 minutes)
+    const unprocessedResult = await query(
+      `SELECT d.id, d.name, d.user_id, d.created_at, d.type, d.file_path,
+              au.email AS user_email
+       FROM documents d
+       LEFT JOIN auth_users au ON au.id = d.user_id::uuid
+       WHERE d.processed = false
+         AND d.created_at < NOW() - INTERVAL '10 minutes'
+       ORDER BY d.created_at DESC
+       LIMIT 50`
+    );
+
+    // 2. Documents with zero chunks
+    const noChunksResult = await query(
+      `SELECT d.id, d.name, d.user_id, d.created_at, d.type, d.file_path,
+              au.email AS user_email
+       FROM documents d
+       LEFT JOIN document_chunks dc ON dc.document_id = d.id
+       LEFT JOIN auth_users au ON au.id = d.user_id::uuid
+       WHERE d.processed = true
+       GROUP BY d.id, d.name, d.user_id, d.created_at, d.type, d.file_path, au.email
+       HAVING COUNT(dc.id) = 0
+       LIMIT 50`
+    );
+
+    // 3. Documents with missing embeddings
+    const missingEmbResult = await query(
+      `SELECT d.id, d.name, d.user_id, d.created_at, d.type,
+              au.email AS user_email,
+              COUNT(dc.id)::int AS total_chunks,
+              COUNT(dc.id) FILTER (WHERE dc.embedding IS NULL)::int AS null_embeddings
+       FROM documents d
+       JOIN document_chunks dc ON dc.document_id = d.id
+       LEFT JOIN auth_users au ON au.id = d.user_id::uuid
+       GROUP BY d.id, d.name, d.user_id, d.created_at, d.type, au.email
+       HAVING COUNT(dc.id) FILTER (WHERE dc.embedding IS NULL) > 0
+       LIMIT 50`
+    );
+
+    const mapDoc = (r: any) => ({
+      id: r.id,
+      name: r.name,
+      userId: r.user_id,
+      userEmail: r.user_email || 'unknown',
+      type: r.type,
+      createdAt: r.created_at,
+      totalChunks: r.total_chunks !== undefined ? Number(r.total_chunks) : undefined,
+      nullEmbeddings: r.null_embeddings !== undefined ? Number(r.null_embeddings) : undefined,
+    });
+
+    const unprocessed = unprocessedResult.rows.map(mapDoc);
+    const noChunks = noChunksResult.rows.map(mapDoc);
+    const missingEmbeddings = missingEmbResult.rows.map(mapDoc);
+
+    res.json({
+      data: {
+        unprocessed,
+        noChunks,
+        missingEmbeddings,
+        summary: {
+          unprocessed: unprocessed.length,
+          noChunks: noChunks.length,
+          missingEmbeddings: missingEmbeddings.length,
+          total: unprocessed.length + noChunks.length + missingEmbeddings.length,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('Problem documents error:', err);
+    res.status(500).json({ error: 'Failed to load problem documents' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// POST /api/admin/system/reprocess-document — reprocess a single document
+// ──────────────────────────────────────────────────────────────
+router.post('/system/reprocess-document', async (req: Request, res: Response) => {
+  try {
+    const { documentId } = req.body;
+    if (!documentId) {
+      res.status(400).json({ error: 'documentId is required' });
+      return;
+    }
+
+    // Fetch document
+    const docResult = await query(
+      'SELECT id, user_id, name, file_path, type FROM documents WHERE id = $1',
+      [documentId]
+    );
+    const doc = docResult.rows[0];
+    if (!doc) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+
+    console.log(`[ADMIN] Reprocessing document: ${doc.name} (${doc.id})`);
+
+    // Delete existing chunks
+    await query('DELETE FROM document_chunks WHERE document_id = $1', [documentId]);
+
+    // Download file from storage
+    const fileBuffer = await downloadFromStorage(doc.file_path);
+
+    // Extract text using full 3-tier pipeline (pdf-parse → binary → OCR)
+    const extractedText = await TextExtractor.extractText(fileBuffer, doc.type || 'application/pdf');
+
+    if (!extractedText || extractedText.trim().length === 0) {
+      res.status(422).json({ error: 'No text could be extracted from document' });
+      return;
+    }
+
+    // Chunk the text
+    const sanitized = TextChunker.sanitizeText(extractedText);
+    const textChunks = TextChunker.chunkText(sanitized);
+
+    if (textChunks.length === 0) {
+      res.status(422).json({ error: 'No valid text chunks could be created' });
+      return;
+    }
+
+    // Insert new chunks
+    const values: any[] = [];
+    const valueClauses: string[] = [];
+    let paramIdx = 1;
+    for (let i = 0; i < textChunks.length; i++) {
+      valueClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4})`);
+      values.push(documentId, doc.user_id, i, textChunks[i], null);
+      paramIdx += 5;
+    }
+
+    await query(
+      `INSERT INTO document_chunks (document_id, user_id, chunk_index, chunk_text, embedding)
+       VALUES ${valueClauses.join(', ')}`,
+      values
+    );
+
+    // Generate embeddings
+    let embeddingsGenerated = false;
+    try {
+      await processDocumentVLLMEmbeddings(documentId);
+      embeddingsGenerated = true;
+    } catch (embErr) {
+      console.error(`[ADMIN] Embedding generation failed for ${documentId}:`, embErr);
+    }
+
+    // Generate tags
+    try {
+      await generateDocumentTags(documentId);
+    } catch (tagErr) {
+      console.error(`[ADMIN] Tag generation failed for ${documentId}:`, tagErr);
+    }
+
+    // Mark as processed
+    await query('UPDATE documents SET processed = true WHERE id = $1', [documentId]);
+
+    // Audit log
+    await query(
+      `INSERT INTO admin_audit_log (admin_id, action, target_user_id, details)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        (req as any).userId,
+        'reprocess_document',
+        doc.user_id,
+        JSON.stringify({ documentId, documentName: doc.name, chunks: textChunks.length, embeddingsGenerated }),
+      ]
+    );
+
+    console.log(`[ADMIN] Reprocessed ${doc.name}: ${textChunks.length} chunks, embeddings: ${embeddingsGenerated}`);
+    res.json({ success: true, chunks: textChunks.length, embeddingsGenerated });
+  } catch (err) {
+    console.error('Reprocess document error:', err);
+    res.status(500).json({ error: 'Failed to reprocess document' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// POST /api/admin/system/trigger-cron — trigger cron jobs manually
+// ──────────────────────────────────────────────────────────────
+router.post('/system/trigger-cron', async (req: Request, res: Response) => {
+  try {
+    const { job, userId } = req.body;
+    const jobs: Array<[string, (uid?: string) => Promise<Record<string, unknown>>]> = [];
+
+    if (job) {
+      const fn = cronTasks[job];
+      if (!fn) {
+        res.status(400).json({ error: `Unknown cron job: ${job}. Available: ${Object.keys(cronTasks).join(', ')}` });
+        return;
+      }
+      jobs.push([job, fn]);
+    } else {
+      for (const [name, fn] of Object.entries(cronTasks)) {
+        jobs.push([name, fn]);
+      }
+    }
+
+    const results: Array<{ job: string; status: string; result?: Record<string, unknown>; error?: string; duration: number; globalOnly?: boolean }> = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const [name, fn] of jobs) {
+      const start = Date.now();
+      const isGlobalOnly = GLOBAL_ONLY_JOBS.has(name);
+      const effectiveUserId = isGlobalOnly ? undefined : userId;
+      try {
+        console.log(`[ADMIN] Triggering cron job: ${name}${effectiveUserId ? ` (user: ${effectiveUserId})` : ' (all users)'}`);
+        const result = await fn(effectiveUserId);
+        const duration = Date.now() - start;
+        results.push({ job: name, status: 'success', result, duration, globalOnly: isGlobalOnly });
+        succeeded++;
+        console.log(`[ADMIN] Cron job ${name} completed in ${duration}ms:`, result);
+      } catch (err: any) {
+        const duration = Date.now() - start;
+        results.push({ job: name, status: 'error', error: err.message, duration, globalOnly: isGlobalOnly });
+        failed++;
+        console.error(`[ADMIN] Cron job ${name} failed after ${duration}ms:`, err);
+      }
+    }
+
+    // Audit log
+    await query(
+      `INSERT INTO admin_audit_log (admin_id, action, details)
+       VALUES ($1, $2, $3)`,
+      [
+        (req as any).userId,
+        'trigger_cron_jobs',
+        JSON.stringify({ job: job || 'all', userId: userId || 'all', succeeded, failed, total: jobs.length }),
+      ]
+    );
+
+    res.json({ data: { results, total: jobs.length, succeeded, failed } });
+  } catch (err) {
+    console.error('Trigger cron error:', err);
+    res.status(500).json({ error: 'Failed to trigger cron jobs' });
   }
 });
 

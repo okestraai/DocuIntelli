@@ -51,8 +51,8 @@ services:
       - NODE_ENV=production
       - PORT=5000
       - REDIS_URL=redis://redis:6379
-      - ALLOWED_ORIGINS=https://app.docuintelli.com,https://docuintelli.com
-      - APP_URL=https://app.docuintelli.com
+      - ALLOWED_ORIGINS=https://docuintelli.com,https://www.docuintelli.com,https://app.docuintelli.com
+      - APP_URL=https://docuintelli.com
     volumes:
       - app-logs:/app/logs
     depends_on:

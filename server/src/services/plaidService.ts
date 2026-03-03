@@ -88,7 +88,7 @@ export async function createLinkToken(
 
   if (isMobile) {
     // redirect_uri MUST exactly match what's registered in the Plaid Dashboard (HTTPS).
-    const appUrl = (process.env.APP_URL || 'https://app.docuintelli.com').replace(/\/+$/, '');
+    const appUrl = (process.env.APP_URL || 'https://docuintelli.com').replace(/\/+$/, '');
     const redirectUri = `${appUrl}/plaid-callback`;
     linkRequest.redirect_uri = redirectUri;
 
@@ -190,13 +190,14 @@ export async function exchangePublicToken(
   // This prevents the UI from briefly showing the institution with no accounts.
   for (const account of accounts) {
     await query(
-      `INSERT INTO plaid_accounts (user_id, item_id, account_id, name, official_name, type, subtype, mask, initial_balance, currency, synced_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO plaid_accounts (user_id, item_id, account_id, name, official_name, type, subtype, mask, initial_balance, current_balance, available_balance, currency, synced_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (user_id, account_id) DO UPDATE SET
          item_id = $2, name = $4, official_name = $5, type = $6, subtype = $7,
-         mask = $8, initial_balance = $9, currency = $10, synced_at = $11`,
+         mask = $8, initial_balance = $9, current_balance = $10, available_balance = $11, currency = $12, synced_at = $13`,
       [userId, itemId, account.account_id, account.name, account.official_name,
        account.type, account.subtype, account.mask, account.current_balance,
+       account.current_balance, account.available_balance,
        account.currency, new Date().toISOString()]
     );
   }
@@ -381,8 +382,17 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
     ),
   ]);
 
-  const accounts = accountsResult.rows;
-  const transactions = transactionsResult.rows;
+  // pg returns numeric columns as strings — normalize to numbers
+  const accounts = accountsResult.rows.map((a: any) => ({
+    ...a,
+    initial_balance: Number(a.initial_balance) || 0,
+    current_balance: Number(a.current_balance) || 0,
+    available_balance: Number(a.available_balance) || 0,
+  }));
+  const transactions = transactionsResult.rows.map((t: any) => ({
+    ...t,
+    amount: Number(t.amount) || 0,
+  }));
 
   if (!accounts || accounts.length === 0) {
     throw new Error('No connected accounts found. Please connect a bank account first.');
@@ -502,10 +512,15 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+function dateToString(d: any): string {
+  if (d instanceof Date) return d.toISOString().substring(0, 10);
+  return String(d);
+}
+
 function getMonthSpan(transactions: any[]): string[] {
   const monthSet = new Set<string>();
   for (const t of transactions) {
-    monthSet.add(t.date.substring(0, 7)); // YYYY-MM
+    monthSet.add(dateToString(t.date).substring(0, 7)); // YYYY-MM
   }
   return Array.from(monthSet).sort();
 }
@@ -587,7 +602,7 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
       monthly_amount: Math.round(avgAmount * billMultiplier * 100) / 100,
       frequency,
       category: formatCategoryName(txns[0].category || 'OTHER'),
-      last_date: lastTxn.date,
+      last_date: dateToString(lastTxn.date),
       next_expected: nextExpected.toISOString().split('T')[0],
     });
   }
@@ -643,7 +658,7 @@ function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
       monthly_amount: Math.round(monthlyAmount * 100) / 100,
       frequency,
       is_salary: isSalary,
-      last_date: txns[txns.length - 1].date,
+      last_date: dateToString(txns[txns.length - 1].date),
     });
   }
 
@@ -654,7 +669,7 @@ function calculateMonthlyAverages(transactions: any[]): MonthlyAverage[] {
   const monthMap = new Map<string, { income: number; expenses: number }>();
 
   for (const txn of transactions) {
-    const month = txn.date.substring(0, 7);
+    const month = dateToString(txn.date).substring(0, 7);
     const existing = monthMap.get(month) || { income: 0, expenses: 0 };
 
     if (txn.amount < 0) {
@@ -834,7 +849,13 @@ export async function getConnectedAccounts(userId: string) {
   ]);
 
   const items = itemsResult.rows;
-  const accounts = accountsResult.rows;
+  // pg returns numeric columns as strings — normalize to numbers
+  const accounts = accountsResult.rows.map((a: any) => ({
+    ...a,
+    initial_balance: Number(a.initial_balance) || 0,
+    current_balance: Number(a.current_balance) || 0,
+    available_balance: Number(a.available_balance) || 0,
+  }));
 
   if (!items || items.length === 0) return [];
 

@@ -156,7 +156,7 @@ export default function BillingScreen() {
   const [activeTab, setActiveTab] = useState<TabId>('subscription');
   const [transactionSubTab, setTransactionSubTab] = useState<TransactionSubTab>('invoices');
 
-  // Billing data from Supabase (payment methods, invoices, transactions)
+  // Billing data (payment methods, invoices, transactions)
   const [billingData, setBillingData] = useState<{
     paymentMethods: any[];
     invoices: any[];

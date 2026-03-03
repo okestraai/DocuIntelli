@@ -27,7 +27,8 @@ import {
   downgradeSubscription,
   createCheckoutSession,
   upgradeSubscription,
-  previewUpgrade
+  previewUpgrade,
+  syncBillingData
 } from '../lib/api';
 import { formatUTCDate } from '../lib/dateUtils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -126,7 +127,8 @@ export function BillingPage({ onClose, onSubscriptionChange }: BillingPageProps)
   }, [feedback]);
 
   useEffect(() => {
-    loadBillingData();
+    // Sync billing data from Stripe, then load from DB
+    syncBillingData().finally(() => loadBillingData());
   }, [loadBillingData]);
 
   const handleManageSubscription = async () => {

@@ -86,7 +86,7 @@ async function retryPayment(stripeCustomerId: string): Promise<boolean> {
  */
 export async function recoverFromDunning(userId: string): Promise<void> {
   const subResult = await query(
-    'SELECT payment_status, dunning_step, previous_plan, plan, display_name FROM user_subscriptions WHERE user_id = $1',
+    'SELECT us.payment_status, us.dunning_step, us.previous_plan, us.plan, up.display_name FROM user_subscriptions us LEFT JOIN user_profiles up ON up.id = us.user_id WHERE us.user_id = $1',
     [userId]
   );
   const sub = subResult.rows[0];

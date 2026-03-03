@@ -2,6 +2,7 @@
  * Frontend API helpers for Life Events feature
  */
 import { auth } from './auth';
+import { getDeviceId } from './deviceId';
 
 const SERVER_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const API_BASE = `${SERVER_BASE}/api/life-events`;
@@ -9,10 +10,14 @@ const API_BASE = `${SERVER_BASE}/api/life-events`;
 async function authHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('User not authenticated');
-  return {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${session.access_token}`,
     'Content-Type': 'application/json',
+    'X-Device-ID': getDeviceId(),
   };
+  const proof = sessionStorage.getItem('impersonation_proof');
+  if (proof) headers['X-Impersonation-Proof'] = proof;
+  return headers;
 }
 
 async function apiFetch<T = any>(

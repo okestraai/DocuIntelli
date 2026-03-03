@@ -58,7 +58,7 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
       console.log('Loading document:', document);
 
       // Get preview URL from API
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -133,9 +133,13 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
           setIsConverting(false);
         }
       } else {
-        // Fetch the file as a blob and create an object URL for non-Word docs
-        console.log('Fetching document as blob...');
-        const response = await fetch(fetchUrl);
+        // Fetch via backend proxy (avoids CORS issues with Azure Blob Storage)
+        console.log('Fetching document via backend proxy...');
+        const { data: { session: proxySession } } = await auth.getSession();
+        const proxyUrl = `${API_BASE}/api/documents/${document.id}/content`;
+        const response = await fetch(proxyUrl, {
+          headers: proxySession ? { 'Authorization': `Bearer ${proxySession.access_token}` } : {},
+        });
 
         if (!response.ok) {
           console.error('Fetch failed:', response.status, response.statusText);
@@ -206,16 +210,16 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         throw new Error('No download URL available');
       }
 
-      // Create download link
-      const link = document.createElement('a');
+      // Create download link (use window.document to avoid collision with the component prop)
+      const link = window.document.createElement('a');
       link.href = downloadUrl;
       link.download = document.name;
       link.style.display = 'none';
 
       // Add to DOM, click, and remove
-      document.body.appendChild(link);
+      window.document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      window.document.body.removeChild(link);
 
       // Only revoke if we created a new URL (not the existing blobUrl)
       if (downloadUrl !== blobUrl) {

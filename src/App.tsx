@@ -25,6 +25,7 @@ import { DunningBanner } from './components/DunningBanner';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { checkAdminStatus } from './lib/adminApi';
 import { debugDelete } from './utils/deleteDebug';
+import { getPageTitle } from './utils/seoTitles';
 
 // Lazy-loaded route pages — split into separate chunks for faster initial load
 const DocumentChat = React.lazy(() => import('./components/DocumentChat').then(m => ({ default: m.DocumentChat })));
@@ -135,6 +136,11 @@ function App() {
     window.scrollTo(0, 0);
   }, [currentPage]);
 
+  // Update document title per route (SEO + correct browser tab label)
+  useEffect(() => {
+    document.title = getPageTitle(currentPage);
+  }, [currentPage]);
+
   // Listen for browser back/forward navigation
   useEffect(() => {
     const onPopState = () => {
@@ -209,7 +215,7 @@ function App() {
 
   // Handle impersonation session — when this tab opens with ?impersonate_token=xxx&impersonate_refresh=xxx,
   // set the session directly using pre-generated tokens from the admin backend.
-  // The Supabase client in this tab uses sessionStorage (configured in supabase.ts)
+  // The auth client in this tab uses sessionStorage (configured in auth.ts)
   // so this session is completely isolated from the admin's localStorage session.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -250,7 +256,7 @@ function App() {
         if (event === 'SIGNED_IN' && session?.user) {
           setIsAuthenticated(true);
           setShowAuthModal(false);
-          // Clean up OAuth params from URL after Supabase has consumed them
+          // Clean up OAuth params from URL after auth has consumed them
           // PKCE flow uses ?code= query param; implicit flow uses #access_token=
           const params = new URLSearchParams(window.location.search);
           const hash = window.location.hash;

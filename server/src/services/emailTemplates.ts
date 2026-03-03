@@ -24,7 +24,7 @@ const BRAND = {
   warningColor: '#d97706',     // amber-600
   dangerColor: '#dc2626',      // red-600
   infoColor: '#2563eb',        // blue-600
-  appUrl: process.env.APP_URL || 'https://app.docuintelli.com',
+  appUrl: process.env.APP_URL || 'https://docuintelli.com',
   supportEmail: process.env.SUPPORT_EMAIL || 'support@docuintelli.com',
   year: new Date().getFullYear(),
 };

@@ -279,7 +279,7 @@ async function getUserPreferences(userId: string): Promise<UserNotificationPrefe
 async function getUserEmail(userId: string): Promise<string | null> {
   try {
     const result = await query(
-      'SELECT email FROM auth.users WHERE id = $1',
+      'SELECT email FROM auth_users WHERE id = $1',
       [userId]
     );
     return result.rows[0]?.email || null;
@@ -292,7 +292,7 @@ async function getUserEmail(userId: string): Promise<string | null> {
 async function getUserName(userId: string): Promise<string> {
   try {
     const result = await query(
-      'SELECT display_name FROM user_subscriptions WHERE user_id = $1',
+      'SELECT display_name FROM user_profiles WHERE id = $1',
       [userId]
     );
     return result.rows[0]?.display_name || '';

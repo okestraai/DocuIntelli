@@ -37,6 +37,7 @@ import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
 import { initRedis, getRedisClient } from "./services/redisClient";
 import { RedisStore } from "rate-limit-redis";
+import { createSeoMiddleware } from "./middleware/seoInjection";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -151,9 +152,11 @@ console.log("🔧 Environment Check:", {
   app.use("/api/upload", uploadLimiter);
   app.use("/api", apiLimiter);
 
-  // 6b. Request timeout — 30s default for API routes (Nginx has 120s for SSE/chat)
+  // 6b. Request timeout — 30s default, 120s for SSE chat endpoints (matches Nginx)
+  const SSE_PATHS = ['/api/chat', '/api/global-chat'];
   app.use('/api', (req, res, next) => {
-    res.setTimeout(30000, () => {
+    const timeout = SSE_PATHS.some(p => req.path === p || req.originalUrl === p) ? 120000 : 30000;
+    res.setTimeout(timeout, () => {
       if (!res.headersSent) {
         res.status(408).json({ error: 'Request timeout' });
       }
@@ -515,12 +518,42 @@ console.log("🔧 Environment Check:", {
     });
   }
 
-  // SPA catch-all: serve index.html for any non-API route
-  app.get("*", (req: Request, res: Response) => {
-    if (!req.path.startsWith("/api/")) {
-      res.sendFile(path.join(distPath, "index.html"));
-    } else {
+  // XML Sitemap — generated dynamically so it stays current
+  app.get('/sitemap.xml', (_req: Request, res: Response) => {
+    const baseUrl = 'https://docuintelli.com';
+    const publicPages = [
+      { path: '/', priority: '1.0', changefreq: 'weekly' },
+      { path: '/pricing', priority: '0.9', changefreq: 'weekly' },
+      { path: '/features', priority: '0.9', changefreq: 'monthly' },
+      { path: '/help', priority: '0.7', changefreq: 'monthly' },
+      { path: '/beta', priority: '0.6', changefreq: 'monthly' },
+      { path: '/status', priority: '0.5', changefreq: 'daily' },
+      { path: '/terms', priority: '0.3', changefreq: 'yearly' },
+      { path: '/privacy', priority: '0.3', changefreq: 'yearly' },
+      { path: '/cookies', priority: '0.3', changefreq: 'yearly' },
+      { path: '/security-policy', priority: '0.3', changefreq: 'yearly' },
+      { path: '/data-retention', priority: '0.3', changefreq: 'yearly' },
+      { path: '/vulnerability-management', priority: '0.3', changefreq: 'yearly' },
+    ];
+    const lastmod = new Date().toISOString().split('T')[0];
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+    for (const page of publicPages) {
+      xml += `  <url>\n    <loc>${baseUrl}${page.path}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>${page.changefreq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>\n`;
+    }
+    xml += '</urlset>';
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(xml);
+  });
+
+  // SEO-aware SPA catch-all: inject per-route meta tags into index.html
+  const seoMiddleware = createSeoMiddleware(distPath);
+  app.get("*", (req: Request, res: Response, next) => {
+    if (req.path.startsWith("/api/")) {
       res.status(404).json({ error: "API route not found" });
+    } else {
+      seoMiddleware(req, res, next);
     }
   });
 

@@ -134,7 +134,7 @@ export function useDocuments(isAuthenticated: boolean) {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Fetching documents from Supabase...');
+      console.log('🔄 Fetching documents...');
       const docs = await getDocuments();
       console.log(`📊 Loaded ${docs.length} documents from database`);
       const transformedDocs = docs.map(transformSupabaseDocument);

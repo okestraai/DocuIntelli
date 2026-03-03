@@ -74,13 +74,33 @@ router.post('/cancel', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Guard: check if Stripe subscription is in a terminal state
+    if (subscription.status === 'expired' || subscription.status === 'canceled') {
+      res.status(400).json({ success: false, error: 'No active subscription to cancel. Your subscription has already expired.' });
+      return;
+    }
+
     // Cancel the subscription at period end in Stripe
-    const stripeSubscription = await stripe.subscriptions.update(
-      subscription.stripe_subscription_id,
-      {
-        cancel_at_period_end: true,
+    let stripeSubscription: any;
+    let cancelAt: string | undefined;
+
+    try {
+      stripeSubscription = await stripe.subscriptions.update(
+        subscription.stripe_subscription_id,
+        {
+          cancel_at_period_end: true,
+        }
+      );
+      cancelAt = stripeSubscription.cancel_at ? new Date(stripeSubscription.cancel_at * 1000).toISOString() : (subscription.current_period_end || undefined);
+    } catch (stripeErr: any) {
+      // Subscription may have been deleted in Stripe — still downgrade locally
+      if (stripeErr.code === 'resource_missing') {
+        console.warn(`⚠️ Stripe subscription ${subscription.stripe_subscription_id} no longer exists — cancelling locally only`);
+        cancelAt = subscription.current_period_end || new Date().toISOString();
+      } else {
+        throw stripeErr;
       }
-    );
+    }
 
     // Update our database — critical fields only
     try {
@@ -95,8 +115,6 @@ router.post('/cancel', async (req: Request, res: Response): Promise<void> => {
     await invalidateSubscriptionCache(userId);
 
     console.log(`✅ Subscription ${subscription.stripe_subscription_id} will cancel at period end`);
-
-    const cancelAt = stripeSubscription.cancel_at ? new Date(stripeSubscription.cancel_at * 1000).toISOString() : subscription.current_period_end;
 
     // Send cancellation email (non-blocking)
     resolveUserInfo(userId).then(async userInfo => {
@@ -139,6 +157,17 @@ router.post('/reactivate', async (req: Request, res: Response): Promise<void> =>
 
     if (!subscription.stripe_subscription_id) {
       res.status(400).json({ success: false, error: 'No Stripe subscription found' });
+      return;
+    }
+
+    // Guard: check if subscription is in a terminal state
+    if (subscription.status === 'expired' || subscription.status === 'canceled') {
+      res.status(400).json({ success: false, error: 'Cannot reactivate an expired subscription. Please subscribe to a new plan.' });
+      return;
+    }
+
+    if (subscription.status !== 'canceling') {
+      res.status(400).json({ success: false, error: 'Subscription is not in canceling state' });
       return;
     }
 
@@ -443,6 +472,12 @@ router.post('/downgrade', async (req: Request, res: Response): Promise<void> => 
 
     if (subscription.plan === 'free') {
       res.status(400).json({ success: false, error: 'Already on free plan' });
+      return;
+    }
+
+    // Guard: check if subscription is in a terminal state
+    if (subscription.status === 'expired' || subscription.status === 'canceled') {
+      res.status(400).json({ success: false, error: 'Cannot downgrade an expired subscription. You are already on the free tier.' });
       return;
     }
 

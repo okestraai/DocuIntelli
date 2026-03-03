@@ -482,7 +482,7 @@ export default function FinancialInsightsScreen() {
           onClose={plaid.handleClose}
           title="Connect Your Bank"
           onRedirect={(url) => plaid.handleBrowserRedirect(url)}
-          interceptSchemes={['https://app.docuintelli.com/plaid-callback']}
+          interceptSchemes={['https://docuintelli.com/plaid-callback']}
           successTextPatterns={['Bank Connected', 'bank connected']}
         />
       )}

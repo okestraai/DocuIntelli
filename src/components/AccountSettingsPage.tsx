@@ -99,7 +99,7 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
         if (profile) {
           setDisplayName(profile.display_name || '');
           setFullName(profile.full_name || '');
-          setDateOfBirth(profile.date_of_birth || '');
+          setDateOfBirth(profile.date_of_birth ? profile.date_of_birth.substring(0, 10) : '');
           setPhone(profile.phone || '');
           setBio(profile.bio || '');
           setSecurityAlerts(profile.security_alerts ?? true);
