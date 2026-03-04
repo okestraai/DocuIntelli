@@ -52,7 +52,7 @@ export const PLANS: PlanData[] = [
     id: 'starter',
     name: 'Starter',
     icon: Zap,
-    price: { monthly: 7, yearly: 70 },
+    price: { monthly: 9, yearly: 90 },
     description: 'For individuals',
     features: [
       { text: '25 documents', included: true },
@@ -78,7 +78,7 @@ export const PLANS: PlanData[] = [
     id: 'pro',
     name: 'Pro',
     icon: Crown,
-    price: { monthly: 19, yearly: 190 },
+    price: { monthly: 15, yearly: 150 },
     description: 'For power users & families',
     features: [
       { text: '100 documents', included: true },

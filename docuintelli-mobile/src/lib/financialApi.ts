@@ -38,6 +38,7 @@ export interface AccountSummary {
 
 export interface CategoryBreakdown {
   category: string;
+  category_key: string;
   total: number;
   percentage: number;
   transaction_count: number;
@@ -92,6 +93,14 @@ export interface FinancialSummary {
   monthly_income: number;
   monthly_expenses: number;
   net_cash_flow: number;
+}
+
+export interface TransactionDetail {
+  name: string;
+  merchant_name: string | null;
+  amount: number;
+  date: string;
+  category_detailed: string | null;
 }
 
 export interface DetectedLoanPrompt {
@@ -181,6 +190,24 @@ export async function exchangePublicToken(
   }
 
   return res.json();
+}
+
+/** Get individual transactions for a spending category */
+export async function getTransactionsByCategory(category: string): Promise<TransactionDetail[]> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(
+    `${API_BASE}/api/financial/transactions-by-category?category=${encodeURIComponent(category)}`,
+    { headers },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to load transactions' }));
+    throw new Error(err.error || err.message);
+  }
+
+  const data = await res.json();
+  return data.transactions || [];
 }
 
 /** Get financial summary */

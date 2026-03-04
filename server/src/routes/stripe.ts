@@ -28,6 +28,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 const STRIPE_STARTER_PRICE_ID = process.env.STRIPE_STARTER_PRICE_ID;
 const STRIPE_PRO_PRICE_ID = process.env.STRIPE_PRO_PRICE_ID;
+const STRIPE_STARTER_YEARLY_PRICE_ID = process.env.STRIPE_STARTER_YEARLY_PRICE_ID;
+const STRIPE_PRO_YEARLY_PRICE_ID = process.env.STRIPE_PRO_YEARLY_PRICE_ID;
 
 const MAILJET_API_KEY = process.env.SMTP_USER || '';
 const MAILJET_SECRET_KEY = process.env.SMTP_PASS || '';
@@ -127,22 +129,14 @@ interface PlanDetails {
 
 function buildPlanMapping(): Record<string, PlanDetails> {
   const mapping: Record<string, PlanDetails> = {};
-  if (STRIPE_STARTER_PRICE_ID) {
-    mapping[STRIPE_STARTER_PRICE_ID] = {
-      plan: 'starter',
-      documentLimit: 25,
-      aiQuestionsLimit: 999999,
-      bankAccountLimit: 2,
-    };
-  }
-  if (STRIPE_PRO_PRICE_ID) {
-    mapping[STRIPE_PRO_PRICE_ID] = {
-      plan: 'pro',
-      documentLimit: 100,
-      aiQuestionsLimit: 999999,
-      bankAccountLimit: 5,
-    };
-  }
+  const starterDetails: PlanDetails = { plan: 'starter', documentLimit: 25, aiQuestionsLimit: 999999, bankAccountLimit: 2 };
+  const proDetails: PlanDetails = { plan: 'pro', documentLimit: 100, aiQuestionsLimit: 999999, bankAccountLimit: 5 };
+
+  if (STRIPE_STARTER_PRICE_ID) mapping[STRIPE_STARTER_PRICE_ID] = starterDetails;
+  if (STRIPE_STARTER_YEARLY_PRICE_ID) mapping[STRIPE_STARTER_YEARLY_PRICE_ID] = starterDetails;
+  if (STRIPE_PRO_PRICE_ID) mapping[STRIPE_PRO_PRICE_ID] = proDetails;
+  if (STRIPE_PRO_YEARLY_PRICE_ID) mapping[STRIPE_PRO_YEARLY_PRICE_ID] = proDetails;
+
   return mapping;
 }
 
@@ -1354,7 +1348,7 @@ async function syncCustomerFromStripe(customerId: string): Promise<void> {
         const userName = userInfo?.userName || 'there';
         const planLabel = planDetails.plan === 'pro' ? 'Pro' : 'Starter';
         const price = subscription.items.data[0].price;
-        const amount = price.unit_amount ? `$${(price.unit_amount / 100).toFixed(2)}` : planDetails.plan === 'pro' ? '$19' : '$7';
+        const amount = price.unit_amount ? `$${(price.unit_amount / 100).toFixed(2)}` : planDetails.plan === 'pro' ? '$15' : '$9';
         const nextBilling = new Date(subscription.current_period_end * 1000).toLocaleDateString('en-US', {
           month: 'long', day: 'numeric', year: 'numeric',
         });

@@ -1582,7 +1582,7 @@ const styles = StyleSheet.create({
   couponValidatedTitle: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.success[900],
+    color: colors.success[800],
   },
   couponValidatedDetail: {
     fontSize: typography.fontSize.xs,

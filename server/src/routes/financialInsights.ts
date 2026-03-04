@@ -13,6 +13,7 @@ import {
   disconnectAccount,
   syncTransactions,
   removeAccountsAndCleanup,
+  getTransactionsByCategory,
 } from '../services/plaidService';
 import { generateAIInsights, invalidateInsightsCache } from '../services/financialAnalyzer';
 import { detectLoanPayments } from '../services/loanDetector';
@@ -162,6 +163,26 @@ router.get('/summary', async (req: Request, res: Response) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const status = message.includes('No connected accounts') ? 404 : 500;
     res.status(status).json({ error: message });
+  }
+});
+
+/**
+ * GET /api/financial/transactions-by-category
+ * Get individual transactions for a spending category (for drill-down)
+ */
+router.get('/transactions-by-category', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const category = req.query.category as string;
+    if (!category) {
+      res.status(400).json({ error: 'category query parameter is required' });
+      return;
+    }
+    const transactions = await getTransactionsByCategory(userId, category);
+    res.json({ transactions });
+  } catch (error) {
+    console.error('Error fetching transactions by category:', error);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 });
 

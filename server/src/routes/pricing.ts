@@ -33,8 +33,8 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 const FALLBACK_PRICES: PricingResponse = {
   free: { monthly: 0, yearly: 0 },
-  starter: { monthly: 7, yearly: 70 },
-  pro: { monthly: 19, yearly: 190 },
+  starter: { monthly: 9, yearly: 90 },
+  pro: { monthly: 15, yearly: 150 },
 };
 
 async function fetchStripePrices(): Promise<PricingResponse> {

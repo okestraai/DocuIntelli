@@ -1,5 +1,5 @@
 import { auth } from './auth';
-import { API_BASE, APP_SCHEME, STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID } from './config';
+import { API_BASE, APP_SCHEME, STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID, STRIPE_STARTER_YEARLY_PRICE_ID, STRIPE_PRO_YEARLY_PRICE_ID } from './config';
 import { getDeviceId } from './deviceId';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -75,16 +75,19 @@ export async function getSubscriptionDetails(): Promise<any> {
 }
 
 // Get Stripe checkout URL for a new subscription (caller opens in InAppBrowser)
-export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<string> {
+export async function createCheckoutSession(
+  plan: 'starter' | 'pro',
+  billingCycle: 'monthly' | 'yearly' = 'monthly'
+): Promise<string> {
   const { data: { session } } = await auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
-  const priceIds: Record<string, string> = {
-    starter: STRIPE_STARTER_PRICE_ID,
-    pro: STRIPE_PRO_PRICE_ID,
+  const priceIds = {
+    starter: { monthly: STRIPE_STARTER_PRICE_ID, yearly: STRIPE_STARTER_YEARLY_PRICE_ID },
+    pro: { monthly: STRIPE_PRO_PRICE_ID, yearly: STRIPE_PRO_YEARLY_PRICE_ID },
   };
-  const priceId = priceIds[plan];
-  if (!priceId) throw new Error(`Price ID not configured for ${plan} plan`);
+  const priceId = priceIds[plan][billingCycle];
+  if (!priceId) throw new Error(`Price ID not configured for ${plan} ${billingCycle} plan`);
 
   const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
     method: 'POST',

@@ -114,7 +114,7 @@ function getFAQSections(plans: PlanData[]): FAQSection[] {
 
 interface PricingPageProps {
   onBack: () => void;
-  onSelectPlan: (plan: 'free' | 'starter' | 'pro') => void;
+  onSelectPlan: (plan: 'free' | 'starter' | 'pro', billingCycle?: 'monthly' | 'yearly') => void;
   currentPlan?: 'free' | 'starter' | 'pro';
 }
 
@@ -266,7 +266,7 @@ export function PricingPage({ onBack, onSelectPlan, currentPlan = 'free' }: Pric
 
                   {/* CTA Button */}
                   <button
-                    onClick={() => onSelectPlan(plan.id)}
+                    onClick={() => onSelectPlan(plan.id, billingCycle)}
                     disabled={isCurrentPlan}
                     className={`w-full py-3 px-6 rounded-xl font-semibold transition-all duration-200 ${
                       isCurrentPlan

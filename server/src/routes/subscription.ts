@@ -13,6 +13,8 @@ router.use(loadSubscription, detectImpersonation);
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripeStarterPriceId = process.env.STRIPE_STARTER_PRICE_ID;
 const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
+const stripeStarterYearlyPriceId = process.env.STRIPE_STARTER_YEARLY_PRICE_ID;
+const stripeProYearlyPriceId = process.env.STRIPE_PRO_YEARLY_PRICE_ID;
 
 if (!stripeSecretKey) {
   throw new Error('Missing Stripe configuration in subscription routes');
@@ -25,7 +27,19 @@ const stripe = new Stripe(stripeSecretKey, {
 const PRICE_IDS: Record<string, string> = {
   starter: stripeStarterPriceId || '',
   pro: stripeProPriceId || '',
+  starter_yearly: stripeStarterYearlyPriceId || '',
+  pro_yearly: stripeProYearlyPriceId || '',
 };
+
+/** Check if a price ID is a yearly billing price */
+function isYearlyPriceId(priceId: string): boolean {
+  return priceId === stripeStarterYearlyPriceId || priceId === stripeProYearlyPriceId;
+}
+
+/** Get the correct price ID for a plan, preserving billing period */
+function resolvePriceId(plan: string, yearly: boolean): string {
+  return yearly ? (PRICE_IDS[`${plan}_yearly`] || PRICE_IDS[plan]) : PRICE_IDS[plan];
+}
 
 const PLAN_DB_LIMITS: Record<string, { document_limit: number; ai_questions_limit: number; monthly_upload_limit: number; bank_account_limit: number }> = {
   free: { document_limit: 3, ai_questions_limit: 5, monthly_upload_limit: 3, bank_account_limit: 0 },
@@ -180,23 +194,25 @@ router.post('/reactivate', async (req: Request, res: Response): Promise<void> =>
     );
 
     // If there was a pending paid-to-paid downgrade, revert the Stripe price
-    // back to the current plan's price
+    // back to the current plan's price (preserving billing period)
     if (subscription.pending_plan && subscription.pending_plan !== 'free') {
-      const currentPriceId = PRICE_IDS[subscription.plan];
-      if (currentPriceId) {
-        try {
-          const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+      try {
+        const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+        const activePriceId = stripeSubscription.items.data[0].price.id;
+        const yearly = isYearlyPriceId(activePriceId);
+        const revertPriceId = resolvePriceId(subscription.plan, yearly);
+        if (revertPriceId && revertPriceId !== activePriceId) {
           await stripe.subscriptions.update(subscription.stripe_subscription_id, {
             items: [{
               id: stripeSubscription.items.data[0].id,
-              price: currentPriceId,
+              price: revertPriceId,
             }],
             proration_behavior: 'none',
           });
-          console.log(`🔄 Reverted Stripe price back to ${subscription.plan}`);
-        } catch (revertErr) {
-          console.error('⚠️ Failed to revert Stripe price:', revertErr);
+          console.log(`🔄 Reverted Stripe price back to ${subscription.plan} (${yearly ? 'yearly' : 'monthly'})`);
         }
+      } catch (revertErr) {
+        console.error('⚠️ Failed to revert Stripe price:', revertErr);
       }
     }
 
@@ -255,18 +271,22 @@ router.post('/upgrade-preview', async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const newPriceId = PRICE_IDS[new_plan];
-    if (!newPriceId) {
-      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
-      return;
-    }
-
     if (subscription.plan === 'free' || !subscription.stripe_subscription_id) {
       res.status(400).json({ success: false, error: 'Preview is only available for existing paid subscribers' });
       return;
     }
 
     const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id) as Stripe.Subscription;
+
+    // Preserve billing period for preview
+    const currentPriceId = stripeSubscription.items.data[0].price.id;
+    const yearly = isYearlyPriceId(currentPriceId);
+    const newPriceId = resolvePriceId(new_plan, yearly);
+    if (!newPriceId) {
+      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
+      return;
+    }
+
     const newPrice = await stripe.prices.retrieve(newPriceId) as Stripe.Price;
     const newAmount = newPrice.unit_amount || 0;
     const currency = newPrice.currency || 'usd';
@@ -337,12 +357,6 @@ router.post('/upgrade', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const newPriceId = PRICE_IDS[new_plan];
-    if (!newPriceId) {
-      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
-      return;
-    }
-
     // Handle free to paid upgrade
     if (subscription.plan === 'free') {
       res.status(400).json({
@@ -367,6 +381,15 @@ router.post('/upgrade', async (req: Request, res: Response): Promise<void> => {
         success: false,
         error: `Cannot upgrade: subscription is "${stripeSubscription.status}". Please contact support.`,
       });
+      return;
+    }
+
+    // Preserve billing period: if user is on yearly, upgrade to yearly price
+    const currentPriceId = stripeSubscription.items.data[0].price.id;
+    const yearly = isYearlyPriceId(currentPriceId);
+    const newPriceId = resolvePriceId(new_plan, yearly);
+    if (!newPriceId) {
+      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
       return;
     }
 
@@ -535,18 +558,21 @@ router.post('/downgrade', async (req: Request, res: Response): Promise<void> => 
     }
 
     // Downgrade to a different paid plan
-    const newPriceId = PRICE_IDS[new_plan];
-    if (!newPriceId) {
-      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
-      return;
-    }
-
     if (!subscription.stripe_subscription_id) {
       res.status(400).json({ success: false, error: 'No active Stripe subscription found' });
       return;
     }
 
     const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+
+    // Preserve billing period: if user is on yearly, downgrade to yearly price
+    const currentPriceId = stripeSubscription.items.data[0].price.id;
+    const yearly = isYearlyPriceId(currentPriceId);
+    const newPriceId = resolvePriceId(new_plan, yearly);
+    if (!newPriceId) {
+      res.status(400).json({ success: false, error: 'Price ID not configured for the selected plan' });
+      return;
+    }
 
     // Schedule the downgrade for the end of the period
     const updatedSubscription = await stripe.subscriptions.update(

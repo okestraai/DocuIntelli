@@ -361,20 +361,29 @@ export async function loadChatHistory(documentId: string) {
 /**
  * Create a Stripe checkout session for subscription
  */
-export async function createCheckoutSession(plan: 'starter' | 'pro'): Promise<{ url: string }> {
+export async function createCheckoutSession(
+  plan: 'starter' | 'pro',
+  billingCycle: 'monthly' | 'yearly' = 'monthly'
+): Promise<{ url: string }> {
   const { data: { session } } = await auth.getSession();
   if (!session) {
     throw new Error('User not authenticated');
   }
 
   const priceIds = {
-    starter: import.meta.env.VITE_STRIPE_STARTER_PRICE_ID,
-    pro: import.meta.env.VITE_STRIPE_PRO_PRICE_ID,
+    starter: {
+      monthly: import.meta.env.VITE_STRIPE_STARTER_PRICE_ID,
+      yearly: import.meta.env.VITE_STRIPE_STARTER_YEARLY_PRICE_ID,
+    },
+    pro: {
+      monthly: import.meta.env.VITE_STRIPE_PRO_PRICE_ID,
+      yearly: import.meta.env.VITE_STRIPE_PRO_YEARLY_PRICE_ID,
+    },
   };
 
-  const priceId = priceIds[plan];
+  const priceId = priceIds[plan][billingCycle];
   if (!priceId) {
-    throw new Error(`Price ID not configured for ${plan} plan. Please add VITE_STRIPE_${plan.toUpperCase()}_PRICE_ID to your environment variables.`);
+    throw new Error(`Price ID not configured for ${plan} ${billingCycle} plan.`);
   }
 
   const apiUrl = `${API_BASE}/api/stripe/checkout`;

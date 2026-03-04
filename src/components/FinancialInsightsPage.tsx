@@ -19,6 +19,8 @@ import {
   Building2,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
+  Loader2,
   X,
   Target,
 } from 'lucide-react';
@@ -32,12 +34,14 @@ import {
   disconnectBankAccount,
   commitAccountSelection,
   cancelConnection,
+  getTransactionsByCategory,
   FinancialSummary,
   CategoryBreakdown,
   RecurringBill,
   IncomeStream,
   ActionItem,
   MonthlyAverage,
+  TransactionDetail,
 } from '../lib/financialApi';
 import { SmartDocumentPrompts } from './SmartDocumentPrompts';
 import { FinancialGoalsWidget } from './FinancialGoalsWidget';
@@ -786,34 +790,108 @@ function CollapsibleSection({ title, icon: Icon, expanded, onToggle, badge, chil
 }
 
 function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) {
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [loadingCategory, setLoadingCategory] = useState<string | null>(null);
+  const [transactionCache, setTransactionCache] = useState<Record<string, TransactionDetail[]>>({});
+
   if (categories.length === 0) {
     return <p className="text-slate-500 text-sm">No spending data available yet.</p>;
   }
 
   const maxTotal = Math.max(...categories.map(c => c.total));
 
+  const handleCategoryClick = async (cat: CategoryBreakdown) => {
+    const key = cat.category_key || cat.category;
+    if (expandedCategory === key) {
+      setExpandedCategory(null);
+      return;
+    }
+    setExpandedCategory(key);
+    if (transactionCache[key]) return; // already fetched
+    setLoadingCategory(key);
+    try {
+      const txns = await getTransactionsByCategory(key);
+      setTransactionCache(prev => ({ ...prev, [key]: txns }));
+    } catch (err) {
+      console.error('Failed to load transactions:', err);
+    } finally {
+      setLoadingCategory(null);
+    }
+  };
+
   return (
-    <div className="space-y-3">
-      {categories.slice(0, 10).map((cat) => (
-        <div key={cat.category}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium text-slate-700">{cat.category}</span>
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-slate-500">{cat.percentage}%</span>
-              <span className="font-semibold text-slate-900">{formatCurrency(cat.total)}</span>
-            </div>
+    <div className="space-y-1">
+      {categories.slice(0, 10).map((cat) => {
+        const key = cat.category_key || cat.category;
+        const isExpanded = expandedCategory === key;
+        const isLoading = loadingCategory === key;
+        const txns = transactionCache[key];
+
+        return (
+          <div key={cat.category}>
+            <button
+              onClick={() => handleCategoryClick(cat)}
+              className="w-full text-left py-2 px-2 -mx-2 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  {isExpanded
+                    ? <ChevronDown className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                    : <ChevronRight className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                  }
+                  <span className="text-sm font-medium text-slate-700">{cat.category}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-slate-500">{cat.percentage}%</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(cat.total)}</span>
+                </div>
+              </div>
+              <div className="ml-5">
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
+                    style={{ width: `${(cat.total / maxTotal) * 100}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {cat.transaction_count} transactions &bull; {formatCurrency(cat.monthly_average)}/mo avg
+                </p>
+              </div>
+            </button>
+
+            {isExpanded && (
+              <div className="ml-5 mb-2 bg-slate-50 rounded-lg border border-slate-100">
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                    <span className="ml-2 text-sm text-slate-500">Loading transactions...</span>
+                  </div>
+                ) : txns && txns.length > 0 ? (
+                  <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                    {txns.map((txn, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-2">
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm text-slate-700 truncate">
+                            {txn.merchant_name || txn.name}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {new Date(txn.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                        </div>
+                        <span className="text-sm font-medium text-slate-900 flex-shrink-0">
+                          {formatCurrency(txn.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 px-3 py-3">No transactions found.</p>
+                )}
+              </div>
+            )}
           </div>
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
-              style={{ width: `${(cat.total / maxTotal) * 100}%` }}
-            />
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {cat.transaction_count} transactions &bull; {formatCurrency(cat.monthly_average)}/mo avg
-          </p>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

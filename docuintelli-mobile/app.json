@@ -48,8 +48,10 @@
     ],
     "extra": {
       "apiBase": "https://docuintelli.com",
-      "stripeStarterPriceId": "price_1SzmJJC1d2bwLolG6IatDmAT",
-      "stripeProPriceId": "price_1SzmGgC1d2bwLolGhBHMtuFZ",
+      "stripeStarterPriceId": "price_1T74wFC3E3PM7vYrxK1BVuv4",
+      "stripeProPriceId": "price_1T74wsC3E3PM7vYrdHRTqCN6",
+      "stripeStarterYearlyPriceId": "price_1T74yFC3E3PM7vYriHeVLQaE",
+      "stripeProYearlyPriceId": "price_1T74yoC3E3PM7vYruh4dgv5r",
       "eas": {
         "projectId": "0ad81a6e-b653-42f6-98c0-c1ed7fbb8b47"
       },

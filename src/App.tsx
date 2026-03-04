@@ -489,7 +489,7 @@ function App() {
     setShowUpgradeModal(true);
   };
 
-  const handleSelectPlan = async (plan: 'free' | 'starter' | 'pro') => {
+  const handleSelectPlan = async (plan: 'free' | 'starter' | 'pro', billingCycle: 'monthly' | 'yearly' = 'monthly') => {
     if (plan === 'free') {
       setShowUpgradeModal(false);
       return;
@@ -512,7 +512,7 @@ function App() {
       } else {
         // Free user needs to go through checkout to add payment method
         loadingToastId = feedback.showLoading('Creating checkout session...', 'Please wait while we prepare your payment');
-        const { url } = await createCheckoutSession(plan);
+        const { url } = await createCheckoutSession(plan, billingCycle);
         feedback.removeToast(loadingToastId);
         window.location.href = url;
       }

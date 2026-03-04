@@ -327,6 +327,7 @@ interface AccountSummary {
 
 interface CategoryBreakdown {
   category: string;
+  category_key: string;
   total: number;
   percentage: number;
   transaction_count: number;
@@ -348,7 +349,7 @@ interface IncomeStream {
   source: string;
   average_amount: number;
   monthly_amount: number;
-  frequency: 'weekly' | 'biweekly' | 'monthly';
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   is_salary: boolean;
   last_date: string;
 }
@@ -452,6 +453,7 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   const spendingByCategory: CategoryBreakdown[] = Array.from(categoryMap.entries())
     .map(([category, data]) => ({
       category: formatCategoryName(category),
+      category_key: category,
       total: Math.round(data.total * 100) / 100,
       percentage: totalExpenses > 0 ? Math.round((data.total / totalExpenses) * 100) : 0,
       transaction_count: data.count,
@@ -533,12 +535,127 @@ function formatCategoryName(raw: string): string {
     .join(' ');
 }
 
-function detectRecurringBills(expenses: any[]): RecurringBill[] {
-  // Group by merchant/name
-  const merchantGroups = new Map<string, any[]>();
+/**
+ * Extract merchant "stem" from a transaction name — strips dates, reference
+ * numbers, personal names, and other noise so the same payee groups together
+ * across months. Uses merchant_name when available (card transactions); falls
+ * back to parsing the raw name field (ACH/direct deposit).
+ */
+function extractMerchantStem(txn: any): string {
+  // If Plaid resolved a merchant_name, it's the most reliable source
+  if (txn.merchant_name) {
+    return txn.merchant_name.toLowerCase().trim()
+      .replace(/[*#\-_'"`]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 
-  for (const txn of expenses) {
-    const key = (txn.merchant_name || txn.name || '').toLowerCase().trim();
+  const name = (txn.name || '').trim();
+  let stem = name.toLowerCase();
+
+  // Handle Zelle — group by direction + person
+  const zelleMatch = stem.match(/^zelle\s+(from|to)\s+(.+?)\s+on\s/);
+  if (zelleMatch) return `zelle ${zelleMatch[1]} ${zelleMatch[2].trim()}`;
+
+  // Handle internal transfers — don't group with real merchants
+  if (/^(recurring|online)\s+transfer\s+(from|to)\s/i.test(stem)) {
+    return 'internal transfer';
+  }
+
+  // Strip noise from ACH / direct-deposit names
+  stem = stem
+    .replace(/\b\w*\d{6,}\w*\b/g, '')               // Words with 6+ digits (refs, dates)
+    .replace(/\b\d{4,5}\b/g, '')                     // 4-5 digit numbers
+    .replace(/\bon\s+\d{2}\/\d{2}(\/\d{2,4})?\b/g, '') // "ON MM/DD"
+    .replace(/\bref\s*#?\s*\S+/gi, '')               // REF #xxx
+    .replace(/\bcard\s+\d+/gi, '')                   // CARD xxxx
+    .replace(/\bxxxxxx\d+/gi, '')                    // Masked account numbers
+    .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}\b/gi, '') // Month day
+    .replace(/[*#\-_'"`]/g, ' ')                     // Special characters
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Take first 3 meaningful words (>2 chars, not pure numbers)
+  const words = stem.split(' ').filter((w: string) => w.length > 2 && !/^\d+$/.test(w));
+  return words.slice(0, 3).join(' ') || stem.split(' ').slice(0, 2).join(' ');
+}
+
+/** Plaid categories that indicate inherently recurring expenses */
+const RECURRING_CATEGORIES = new Set([
+  'LOAN_PAYMENTS',
+  'RENT_AND_UTILITIES',
+  'BANK_FEES',
+  'ENTERTAINMENT',   // streaming services
+  'INSURANCE',
+]);
+
+/** Name keywords indicating an ACH bill/payment (not a purchase) */
+const BILL_KEYWORDS = /\b(ach|pmt|pymnt|payment|cash\b.*\d|draft|web\s*pmts?|service\s*fee|mortgage|insurance|energy|electric|gas\s+co|water|sewer|internet)\b/i;
+const PURCHASE_KEYWORDS = /\b(purchase\s+authorized|paypal|pos\s|debit\s+card)\b/i;
+
+/** Compute unique-date gaps — deduplicates same-day deposits across accounts */
+function computeUniqueDateGaps(txns: any[]): number[] {
+  const uniqueDates = [...new Set(txns.map(t => dateToString(t.date)))].sort();
+  const gaps: number[] = [];
+  for (let i = 1; i < uniqueDates.length; i++) {
+    const diff = (new Date(uniqueDates[i]).getTime() - new Date(uniqueDates[i - 1]).getTime()) / (1000 * 60 * 60 * 24);
+    gaps.push(diff);
+  }
+  return gaps;
+}
+
+/** Median-based frequency detection — resistant to outlier gaps */
+function detectFrequency(gaps: number[]): 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly' {
+  if (gaps.length === 0) return 'monthly'; // single occurrence default
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const medianGap = sorted[Math.floor(sorted.length / 2)];
+
+  if (medianGap <= 9)  return 'weekly';     // ~7 days ± 2
+  if (medianGap <= 18) return 'biweekly';   // ~14 days ± 4
+  if (medianGap <= 45) return 'monthly';    // ~30 days ± 15
+  if (medianGap <= 100) return 'quarterly'; // ~90 days ± 10
+  return 'yearly';
+}
+
+/** Calculate next expected date based on frequency */
+function calcNextExpected(lastDate: Date, frequency: string): Date {
+  const next = new Date(lastDate);
+  switch (frequency) {
+    case 'weekly': next.setDate(next.getDate() + 7); break;
+    case 'biweekly': next.setDate(next.getDate() + 14); break;
+    case 'monthly': next.setMonth(next.getMonth() + 1); break;
+    case 'quarterly': next.setMonth(next.getMonth() + 3); break;
+    case 'yearly': next.setFullYear(next.getFullYear() + 1); break;
+  }
+  return next;
+}
+
+/** Monthly multiplier for normalizing frequency to monthly amount */
+function monthlyMultiplier(frequency: string): number {
+  switch (frequency) {
+    case 'weekly': return 4.33;
+    case 'biweekly': return 2.17;
+    case 'quarterly': return 1 / 3;
+    case 'yearly': return 1 / 12;
+    default: return 1; // monthly
+  }
+}
+
+function detectRecurringBills(expenses: any[]): RecurringBill[] {
+  // Exclude internal transfers and Zelle (person-to-person, not bills)
+  const billCandidates = expenses.filter(txn => {
+    const cat = txn.category || '';
+    if (cat === 'TRANSFER_OUT') return false;
+    const stem = extractMerchantStem(txn);
+    if (stem === 'internal transfer') return false;
+    if (stem.startsWith('zelle to')) return false;
+    return true;
+  });
+
+  // Group by merchant stem
+  const merchantGroups = new Map<string, any[]>();
+  for (const txn of billCandidates) {
+    const key = extractMerchantStem(txn);
     if (!key) continue;
     const group = merchantGroups.get(key) || [];
     group.push(txn);
@@ -548,74 +665,85 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
   const bills: RecurringBill[] = [];
 
   for (const [key, txns] of merchantGroups) {
-    if (txns.length < 2) continue;
-
-    // Sort by date
     txns.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Check if amounts are consistent (within 10% variation)
     const amounts = txns.map((t: any) => t.amount);
     const avgAmount = amounts.reduce((a: number, b: number) => a + b, 0) / amounts.length;
-    const isConsistent = amounts.every((a: number) => Math.abs(a - avgAmount) / avgAmount < 0.15);
 
-    if (!isConsistent) continue;
+    // Use unique dates to avoid same-day multi-account duplication
+    const gaps = computeUniqueDateGaps(txns);
+    const uniqueDateCount = new Set(txns.map((t: any) => dateToString(t.date))).size;
 
-    // Determine frequency from date gaps
-    const gaps: number[] = [];
-    for (let i = 1; i < txns.length; i++) {
-      const diff = (new Date(txns[i].date).getTime() - new Date(txns[i - 1].date).getTime()) / (1000 * 60 * 60 * 24);
-      gaps.push(diff);
-    }
-    const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    // --- Multi-occurrence: 2+ unique dates with consistent amounts ---
+    if (uniqueDateCount >= 2) {
+      // Check amount consistency (within 25% variation)
+      const isConsistent = amounts.every((a: number) => Math.abs(a - avgAmount) / avgAmount < 0.25);
+      if (!isConsistent) continue;
 
-    let frequency: RecurringBill['frequency'];
-    if (avgGap <= 10) frequency = 'weekly';
-    else if (avgGap <= 20) frequency = 'biweekly';
-    else if (avgGap <= 45) frequency = 'monthly';
-    else if (avgGap <= 100) frequency = 'quarterly';
-    else frequency = 'yearly';
+      const frequency = detectFrequency(gaps);
+      const lastTxn = txns[txns.length - 1];
+      const nextExpected = calcNextExpected(new Date(lastTxn.date), frequency);
+      const mult = monthlyMultiplier(frequency);
 
-    const lastTxn = txns[txns.length - 1];
-    const lastDate = new Date(lastTxn.date);
-    const nextExpected = new Date(lastDate);
-
-    switch (frequency) {
-      case 'weekly': nextExpected.setDate(nextExpected.getDate() + 7); break;
-      case 'biweekly': nextExpected.setDate(nextExpected.getDate() + 14); break;
-      case 'monthly': nextExpected.setMonth(nextExpected.getMonth() + 1); break;
-      case 'quarterly': nextExpected.setMonth(nextExpected.getMonth() + 3); break;
-      case 'yearly': nextExpected.setFullYear(nextExpected.getFullYear() + 1); break;
+      bills.push({
+        name: txns[0].merchant_name || txns[0].name || key,
+        merchant: txns[0].merchant_name || null,
+        amount: Math.round(avgAmount * 100) / 100,
+        monthly_amount: Math.round(avgAmount * mult * 100) / 100,
+        frequency,
+        category: formatCategoryName(txns[0].category || 'OTHER'),
+        last_date: dateToString(lastTxn.date),
+        next_expected: nextExpected.toISOString().split('T')[0],
+      });
+      continue;
     }
 
-    // Normalize to monthly amount based on frequency
-    const billMultiplier =
-      frequency === 'weekly' ? 4.33 :
-      frequency === 'biweekly' ? 2.17 :
-      frequency === 'monthly' ? 1 :
-      frequency === 'quarterly' ? 1 / 3 :
-      1 / 12; // yearly
+    // --- Single occurrence: use category + keyword heuristics for likely recurring bills ---
+    const category = txns[0].category || '';
+    const txnName = txns[0].name || '';
 
-    bills.push({
-      name: txns[0].name || key,
-      merchant: txns[0].merchant_name || null,
-      amount: Math.round(avgAmount * 100) / 100,
-      monthly_amount: Math.round(avgAmount * billMultiplier * 100) / 100,
-      frequency,
-      category: formatCategoryName(txns[0].category || 'OTHER'),
-      last_date: dateToString(lastTxn.date),
-      next_expected: nextExpected.toISOString().split('T')[0],
-    });
+    // A single-occurrence expense is likely recurring if:
+    // 1. Plaid categorized it as a bill type (LOAN_PAYMENTS, RENT_AND_UTILITIES, etc.), OR
+    // 2. The name contains ACH/payment keywords and doesn't look like a purchase, with amount >= $50
+    const isCategoryBill = RECURRING_CATEGORIES.has(category);
+    const isKeywordBill = !PURCHASE_KEYWORDS.test(txnName) && BILL_KEYWORDS.test(txnName) && avgAmount >= 50;
+
+    if (uniqueDateCount === 1 && (isCategoryBill || isKeywordBill) && avgAmount >= 10) {
+      const frequency = 'monthly';
+      const lastTxn = txns[txns.length - 1];
+      const nextExpected = calcNextExpected(new Date(lastTxn.date), frequency);
+
+      bills.push({
+        name: txns[0].merchant_name || txns[0].name || key,
+        merchant: txns[0].merchant_name || null,
+        amount: Math.round(avgAmount * 100) / 100,
+        monthly_amount: Math.round(avgAmount * 100) / 100,
+        frequency,
+        category: formatCategoryName(category || 'OTHER'),
+        last_date: dateToString(lastTxn.date),
+        next_expected: nextExpected.toISOString().split('T')[0],
+      });
+    }
   }
 
   return bills.sort((a, b) => b.monthly_amount - a.monthly_amount);
 }
 
 function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
-  // Group by source
-  const sourceGroups = new Map<string, any[]>();
+  // Exclude internal transfers (savings ↔ checking) and tiny amounts
+  const incomeCandidates = incomeTransactions.filter(txn => {
+    const cat = txn.category || '';
+    if (cat === 'TRANSFER_IN') return false;
+    if (Math.abs(txn.amount) < 1) return false; // skip interest pennies
+    const stem = extractMerchantStem(txn);
+    if (stem === 'internal transfer') return false;
+    return true;
+  });
 
-  for (const txn of incomeTransactions) {
-    const key = (txn.merchant_name || txn.name || '').toLowerCase().trim();
+  // Group by merchant stem
+  const sourceGroups = new Map<string, any[]>();
+  for (const txn of incomeCandidates) {
+    const key = extractMerchantStem(txn);
     if (!key) continue;
     const group = sourceGroups.get(key) || [];
     group.push(txn);
@@ -624,37 +752,76 @@ function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
 
   const streams: IncomeStream[] = [];
 
-  for (const [, txns] of sourceGroups) {
-    if (txns.length < 2) continue;
-
+  for (const [key, txns] of sourceGroups) {
     txns.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const amounts = txns.map((t: any) => Math.abs(t.amount));
-    const avgAmount = amounts.reduce((a: number, b: number) => a + b, 0) / amounts.length;
-
-    // Determine frequency
-    const gaps: number[] = [];
-    for (let i = 1; i < txns.length; i++) {
-      const diff = (new Date(txns[i].date).getTime() - new Date(txns[i - 1].date).getTime()) / (1000 * 60 * 60 * 24);
-      gaps.push(diff);
+    // ── Monthly aggregation ──
+    // Sum all payments from the same source within each calendar month.
+    // This handles split payments (e.g. 3× $867 in one month = $2,600 total).
+    const monthTotals = new Map<string, number>();
+    for (const txn of txns) {
+      const month = dateToString(txn.date).substring(0, 7); // YYYY-MM
+      monthTotals.set(month, (monthTotals.get(month) || 0) + Math.abs(txn.amount));
     }
-    const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const monthlyAmounts = [...monthTotals.values()];
+    const avgMonthlyTotal = monthlyAmounts.reduce((a, b) => a + b, 0) / monthlyAmounts.length;
+    const monthCount = monthTotals.size;
 
+    // ── Also compute per-date amounts for sub-monthly frequency detection ──
+    const dateAmounts = new Map<string, number>();
+    for (const txn of txns) {
+      const d = dateToString(txn.date);
+      dateAmounts.set(d, (dateAmounts.get(d) || 0) + Math.abs(txn.amount));
+    }
+    const uniqueDateCount = dateAmounts.size;
+    const perDateAmounts = [...dateAmounts.values()];
+    const avgPerDate = perDateAmounts.reduce((a, b) => a + b, 0) / perDateAmounts.length;
+
+    // ── Determine frequency ──
     let frequency: IncomeStream['frequency'];
-    if (avgGap <= 10) frequency = 'weekly';
-    else if (avgGap <= 20) frequency = 'biweekly';
-    else frequency = 'monthly';
+    let reportedAmount: number;
 
-    // Normalize to monthly amount based on frequency
-    const frequencyMultiplier = frequency === 'weekly' ? 4.33 : frequency === 'biweekly' ? 2.17 : 1;
-    const monthlyAmount = avgAmount * frequencyMultiplier;
+    if (uniqueDateCount >= 2) {
+      // Multiple unique dates: use gap-based detection (weekly, biweekly, monthly)
+      const gaps = computeUniqueDateGaps(txns);
+      frequency = detectFrequency(gaps);
 
-    // Salary detection: regular, large, biweekly/monthly payments
-    const isSalary = avgAmount > 1000 && (frequency === 'biweekly' || frequency === 'monthly');
+      // For biweekly/weekly: use per-date average (each date is one pay event)
+      // For monthly: use monthly aggregate (multiple dates may sum to the monthly total)
+      if (frequency === 'monthly') {
+        reportedAmount = avgMonthlyTotal;
+      } else {
+        reportedAmount = avgPerDate;
+      }
+    } else if (monthCount === 1) {
+      // Single month of data — check if the source looks like recurring income
+      // (business entity, not a one-off Zelle from an individual)
+      const isZelle = key.startsWith('zelle from');
+      const isSignificant = avgMonthlyTotal >= 500;
+
+      if (!isZelle && isSignificant) {
+        // Likely monthly income (rent, side gig, etc.) — include with monthly frequency
+        frequency = 'monthly';
+        reportedAmount = avgMonthlyTotal;
+      } else {
+        continue; // Skip one-off small amounts and Zelle until we see them again
+      }
+    } else {
+      continue;
+    }
+
+    const mult = monthlyMultiplier(frequency);
+    const monthlyAmount = reportedAmount * mult;
+
+    // Salary detection: large regular payments with 2+ data points
+    const isSalary = uniqueDateCount >= 2 && reportedAmount > 1000 &&
+      (frequency === 'biweekly' || frequency === 'monthly');
+
+    const displayName = txns[0].merchant_name || txns[0].name || 'Unknown';
 
     streams.push({
-      source: txns[0].name || txns[0].merchant_name || 'Unknown',
-      average_amount: Math.round(avgAmount * 100) / 100,
+      source: displayName,
+      average_amount: Math.round(reportedAmount * 100) / 100,
       monthly_amount: Math.round(monthlyAmount * 100) / 100,
       frequency,
       is_salary: isSalary,
@@ -978,4 +1145,30 @@ export async function removeAccountsAndCleanup(
 
   console.log(`[Plaid] removeAccountsAndCleanup complete: removed ${accountIdsToRemove.length} accounts`);
   return { removed: accountIdsToRemove.length };
+}
+
+/** Get individual transactions for a given spending category (last 12 months) */
+export async function getTransactionsByCategory(
+  userId: string,
+  category: string
+): Promise<{ name: string; merchant_name: string | null; amount: number; date: string; category_detailed: string | null }[]> {
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+  const cutoffDate = twelveMonthsAgo.toISOString().split('T')[0];
+
+  const result = await query(
+    `SELECT name, merchant_name, amount, date, category_detailed
+     FROM plaid_transactions
+     WHERE user_id = $1 AND category = $2 AND pending = false AND amount > 0 AND date >= $3
+     ORDER BY date DESC`,
+    [userId, category, cutoffDate]
+  );
+
+  return result.rows.map((r: any) => ({
+    name: r.name,
+    merchant_name: r.merchant_name || null,
+    amount: Number(r.amount) || 0,
+    date: dateToString(r.date),
+    category_detailed: r.category_detailed || null,
+  }));
 }

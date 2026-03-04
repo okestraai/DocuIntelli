@@ -155,7 +155,7 @@ export default function DocumentChatScreen() {
       try {
         const history = await loadChatHistory(id!);
         setMessages(
-          history.map((m) => ({
+          history.map((m: Record<string, any>) => ({
             ...m,
             role: m.role as 'user' | 'assistant',
           }))
@@ -173,7 +173,7 @@ export default function DocumentChatScreen() {
     try {
       const history = await loadChatHistory(id!);
       setMessages(
-        history.map((m) => ({
+        history.map((m: Record<string, any>) => ({
           ...m,
           role: m.role as 'user' | 'assistant',
         }))
