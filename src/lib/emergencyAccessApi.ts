@@ -110,6 +110,7 @@ export interface SharedEventSummary {
   request_status: string;
   access_granted_at: string | null;
   cooldown_ends_at: string | null;
+  notes: string | null;
   document_count: number;
 }
 

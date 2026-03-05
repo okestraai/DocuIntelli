@@ -869,6 +869,25 @@ function EventDetailPanel({ event, onRefreshParent, onViewDocument }: {
 
   return (
     <View style={styles.detailPanel}>
+      {/* Instructions from event owner */}
+      {event.notes ? (
+        <View style={[styles.statusBanner, {
+          backgroundColor: colors.info[50],
+          borderColor: colors.info[200],
+          marginBottom: spacing.md,
+        }]}>
+          <AlertCircle size={16} color={colors.info[600]} strokeWidth={2} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, fontWeight: typography.fontWeight.medium, color: colors.info[700], marginBottom: 2 }}>
+              Instructions from {event.owner_name}
+            </Text>
+            <Text style={[styles.statusBannerText, { color: colors.info[800] }]}>
+              {event.notes}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       {/* Error banner */}
       {error && (
         <View style={[styles.statusBanner, {

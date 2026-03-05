@@ -64,16 +64,34 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
   const [grantNotes, setGrantNotes] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
 
-  // Invite form
-  const [invEmail, setInvEmail] = useState('');
-  const [invName, setInvName] = useState('');
-  const [invRelationship, setInvRelationship] = useState('');
+  // Multi-contact invite form
+  interface InvRow { email: string; name: string; relationship: string; }
+  const [invRows, setInvRows] = useState<InvRow[]>([{ email: '', name: '', relationship: '' }]);
+  const [invNotes, setInvNotes] = useState('');
   const [invPolicy, setInvPolicy] = useState<AccessPolicy>('approval');
   const [invDelayHours, setInvDelayHours] = useState(72);
   const [invLoading, setInvLoading] = useState(false);
   const [invSuccess, setInvSuccess] = useState<string | null>(null);
   const [invError, setInvError] = useState<string | null>(null);
-  const [showRelPicker, setShowRelPicker] = useState(false);
+  const [showRelPicker, setShowRelPicker] = useState<number | null>(null);
+
+  const maxNewContacts = Math.max(0, 5 - contacts.filter(c => c.status !== 'revoked').length);
+
+  const updateInvRow = (idx: number, field: keyof InvRow, value: string) => {
+    setInvRows(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
+  };
+
+  const addInvRow = () => {
+    if (invRows.length < maxNewContacts) {
+      setInvRows(prev => [...prev, { email: '', name: '', relationship: '' }]);
+    }
+  };
+
+  const removeInvRow = (idx: number) => {
+    if (invRows.length > 1) {
+      setInvRows(prev => prev.filter((_, i) => i !== idx));
+    }
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -119,34 +137,46 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
   };
 
   const handleInvite = async () => {
-    if (!invEmail.trim() || !invName.trim()) return;
+    const validRows = invRows.filter(r => r.email.trim() && r.name.trim());
+    if (validRows.length === 0) return;
 
-    // Check if email is already a pending or accepted contact
-    const existing = contacts.find(
-      (c) => c.contact_email.toLowerCase() === invEmail.trim().toLowerCase() && (c.status === 'pending' || c.status === 'accepted')
-    );
-    if (existing) {
-      setInvError(
-        existing.status === 'pending'
-          ? 'An invitation has already been sent to this email address'
-          : 'This email is already an accepted trusted contact. Use the "Select" tab to grant them access.'
+    // Check for duplicates
+    for (const row of validRows) {
+      const existing = contacts.find(
+        (c) => c.contact_email.toLowerCase() === row.email.trim().toLowerCase() && (c.status === 'pending' || c.status === 'accepted')
       );
-      return;
+      if (existing) {
+        setInvError(
+          existing.status === 'pending'
+            ? `An invitation has already been sent to ${row.email}`
+            : `${row.email} is already an accepted contact. Use the "Select" tab.`
+        );
+        return;
+      }
     }
 
     try {
       setInvLoading(true);
       setInvError(null);
-      const contact = await createContact(invEmail.trim(), invName.trim(), invRelationship || undefined);
-      // Auto-create grant so the contact sees this event after accepting
-      await createGrant(
-        lifeEventId,
-        contact.id,
-        invPolicy,
-        invPolicy === 'time_delayed' ? invDelayHours : undefined
+      let count = 0;
+      for (const row of validRows) {
+        const contact = await createContact(row.email.trim(), row.name.trim(), row.relationship || undefined);
+        await createGrant(
+          lifeEventId,
+          contact.id,
+          invPolicy,
+          invPolicy === 'time_delayed' ? invDelayHours : undefined,
+          invNotes || undefined
+        );
+        count++;
+      }
+      setInvSuccess(
+        count === 1
+          ? `Invitation sent to ${validRows[0].email.trim()} with ${POLICY_LABEL[invPolicy].toLowerCase()} access`
+          : `${count} invitations sent with ${POLICY_LABEL[invPolicy].toLowerCase()} access`
       );
-      setInvSuccess(`Invitation sent to ${invEmail.trim()} with ${POLICY_LABEL[invPolicy].toLowerCase()} access`);
-      setInvEmail(''); setInvName(''); setInvRelationship('');
+      setInvRows([{ email: '', name: '', relationship: '' }]);
+      setInvNotes('');
       setInvPolicy('approval'); setInvDelayHours(72);
       loadData();
     } catch (err) {
@@ -234,7 +264,8 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
   const resetForm = () => {
     setSelectedContactId(''); setSelectedPolicy('approval');
     setDelayHours(72); setGrantNotes('');
-    setInvEmail(''); setInvName(''); setInvRelationship('');
+    setInvRows([{ email: '', name: '', relationship: '' }]);
+    setInvNotes('');
     setInvPolicy('approval'); setInvDelayHours(72);
     setInvSuccess(null); setInvError(null);
   };
@@ -328,6 +359,13 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
                 )}
               </View>
             </View>
+
+            {/* Instructions */}
+            {grant.notes ? (
+              <View style={s.instructionsBox}>
+                <Text style={s.instructionsText}>{grant.notes}</Text>
+              </View>
+            ) : null}
 
             {/* Pending actions */}
             {grant.request_status === 'pending' && (
@@ -470,7 +508,18 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
                     ))}
                   </View>
 
-                  <View style={{ marginTop: spacing.lg }}>
+                  <Text style={[s.label, { marginTop: spacing.lg }]}>Instructions <Text style={{ color: colors.slate[400], fontWeight: typography.fontWeight.normal }}>(optional)</Text></Text>
+                  <TextInput
+                    style={[s.input, { height: 60, textAlignVertical: 'top' }]}
+                    value={grantNotes}
+                    onChangeText={setGrantNotes}
+                    placeholder="e.g., Only access in case of medical emergency"
+                    placeholderTextColor={colors.slate[400]}
+                    multiline
+                    numberOfLines={2}
+                  />
+
+                  <View style={{ marginTop: spacing.sm }}>
                     <Button
                       title={createLoading ? 'Granting...' : 'Grant Access'}
                       onPress={handleCreateGrant}
@@ -500,50 +549,80 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
                 </View>
               )}
 
-              <Text style={s.invHint}>Send an invitation to someone you trust. They'll create a DocuIntelli account to accept.</Text>
+              <Text style={s.invHint}>Send invitations to people you trust. They'll create a DocuIntelli account to accept.</Text>
 
-              <Text style={s.label}>Email Address</Text>
-              <TextInput
-                style={s.input}
-                value={invEmail}
-                onChangeText={setInvEmail}
-                placeholder="contact@example.com"
-                placeholderTextColor={colors.slate[400]}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
-              <Text style={s.label}>Full Name</Text>
-              <TextInput
-                style={s.input}
-                value={invName}
-                onChangeText={setInvName}
-                placeholder="e.g., Jane Smith"
-                placeholderTextColor={colors.slate[400]}
-              />
-
-              <Text style={s.label}>Their relationship to you <Text style={{ color: colors.slate[400], fontWeight: typography.fontWeight.normal }}>(optional)</Text></Text>
-              <TouchableOpacity style={s.input} onPress={() => setShowRelPicker(!showRelPicker)} activeOpacity={0.7}>
-                <View style={s.selectRow}>
-                  <Text style={invRelationship ? s.selectText : s.selectPlaceholder}>
-                    {invRelationship ? RELATIONSHIPS.find(r => r.value === invRelationship)?.label || invRelationship : 'Select...'}
-                  </Text>
-                  <ChevronDown size={16} color={colors.slate[400]} />
+              {/* Contact rows */}
+              {invRows.map((row, idx) => (
+                <View key={idx} style={s.invRowCard}>
+                  {invRows.length > 1 && (
+                    <View style={s.invRowHeader}>
+                      <Text style={s.invRowLabel}>Contact {idx + 1}</Text>
+                      <TouchableOpacity onPress={() => removeInvRow(idx)}>
+                        <X size={14} color={colors.slate[400]} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  <Text style={s.label}>Email Address</Text>
+                  <TextInput
+                    style={s.input}
+                    value={row.email}
+                    onChangeText={(v) => updateInvRow(idx, 'email', v)}
+                    placeholder="contact@example.com"
+                    placeholderTextColor={colors.slate[400]}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  <Text style={s.label}>Full Name</Text>
+                  <TextInput
+                    style={s.input}
+                    value={row.name}
+                    onChangeText={(v) => updateInvRow(idx, 'name', v)}
+                    placeholder="e.g., Jane Smith"
+                    placeholderTextColor={colors.slate[400]}
+                  />
+                  <Text style={s.label}>Relationship <Text style={{ color: colors.slate[400], fontWeight: typography.fontWeight.normal }}>(opt.)</Text></Text>
+                  <TouchableOpacity style={s.input} onPress={() => setShowRelPicker(showRelPicker === idx ? null : idx)} activeOpacity={0.7}>
+                    <View style={s.selectRow}>
+                      <Text style={row.relationship ? s.selectText : s.selectPlaceholder}>
+                        {row.relationship ? RELATIONSHIPS.find(r => r.value === row.relationship)?.label || row.relationship : 'Select...'}
+                      </Text>
+                      <ChevronDown size={16} color={colors.slate[400]} />
+                    </View>
+                  </TouchableOpacity>
+                  {showRelPicker === idx && (
+                    <View style={s.relOptions}>
+                      {RELATIONSHIPS.map(r => (
+                        <TouchableOpacity
+                          key={r.value}
+                          style={[s.relOption, row.relationship === r.value && s.relOptionActive]}
+                          onPress={() => { updateInvRow(idx, 'relationship', r.value); setShowRelPicker(null); }}
+                        >
+                          <Text style={[s.relOptionText, row.relationship === r.value && s.relOptionTextActive]}>{r.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
-              </TouchableOpacity>
-              {showRelPicker && (
-                <View style={s.relOptions}>
-                  {RELATIONSHIPS.map(r => (
-                    <TouchableOpacity
-                      key={r.value}
-                      style={[s.relOption, invRelationship === r.value && s.relOptionActive]}
-                      onPress={() => { setInvRelationship(r.value); setShowRelPicker(false); }}
-                    >
-                      <Text style={[s.relOptionText, invRelationship === r.value && s.relOptionTextActive]}>{r.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+              ))}
+
+              {invRows.length < maxNewContacts && (
+                <TouchableOpacity style={s.addAnotherBtn} onPress={addInvRow} activeOpacity={0.7}>
+                  <Plus size={14} color={colors.primary[600]} strokeWidth={2} />
+                  <Text style={s.addAnotherText}>Add another contact</Text>
+                </TouchableOpacity>
               )}
+
+              {/* Instructions (shared) */}
+              <Text style={[s.label, { marginTop: spacing.sm }]}>Instructions <Text style={{ color: colors.slate[400], fontWeight: typography.fontWeight.normal }}>(optional)</Text></Text>
+              <TextInput
+                style={[s.input, { height: 60, textAlignVertical: 'top' }]}
+                value={invNotes}
+                onChangeText={setInvNotes}
+                placeholder="e.g., Only access in case of medical emergency"
+                placeholderTextColor={colors.slate[400]}
+                multiline
+                numberOfLines={2}
+              />
 
               {/* Access Policy */}
               <Text style={[s.label, { marginTop: spacing.sm }]}>Access Policy</Text>
@@ -569,10 +648,10 @@ export default function EmergencyAccessPanel({ lifeEventId }: Props) {
 
               <View style={{ marginTop: spacing.lg }}>
                 <Button
-                  title={invLoading ? 'Sending...' : 'Send Invitation'}
+                  title={invLoading ? 'Sending...' : invRows.filter(r => r.email.trim() && r.name.trim()).length > 1 ? 'Send Invitations' : 'Send Invitation'}
                   onPress={handleInvite}
                   loading={invLoading}
-                  disabled={!invEmail.trim() || !invName.trim() || invLoading}
+                  disabled={!invRows.some(r => r.email.trim() && r.name.trim()) || invLoading}
                   icon={<Send size={14} color={colors.white} />}
                 />
               </View>
@@ -880,6 +959,53 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: typography.fontWeight.semibold,
     color: colors.slate[500],
+  },
+
+  // Instructions on grant cards
+  instructionsBox: {
+    backgroundColor: colors.info[50],
+    borderWidth: 1,
+    borderColor: colors.info[200],
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  instructionsText: {
+    fontSize: 11,
+    color: colors.info[700],
+    fontStyle: 'italic',
+  },
+
+  // Multi-contact invite row
+  invRowCard: {
+    backgroundColor: colors.slate[50],
+    borderWidth: 1,
+    borderColor: colors.slate[200],
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  invRowHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    marginBottom: spacing.sm,
+  },
+  invRowLabel: {
+    fontSize: 11,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.slate[500],
+  },
+  addAnotherBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
+  addAnotherText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.primary[600],
   },
 
   // Invite tab

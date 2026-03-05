@@ -602,11 +602,11 @@ function GrantCard({
         )}
       </div>
 
-      {/* Notes */}
+      {/* Instructions */}
       {grant.notes && (
         <p className="text-xs text-slate-500 flex items-start gap-1">
           <StickyNote className="h-3 w-3 mt-0.5 flex-shrink-0" />
-          <span className="italic truncate">{grant.notes}</span>
+          <span className="italic">{grant.notes}</span>
         </p>
       )}
 
@@ -681,47 +681,75 @@ function AddGrantModal({
   // Default to invite tab if no accepted contacts exist
   const [tab, setTab] = useState<AddModalTab>(hasAvailableContacts ? 'select' : 'invite');
 
-  // Inline invite form state
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteName, setInviteName] = useState('');
-  const [inviteRelationship, setInviteRelationship] = useState('');
+  // Multi-contact invite form state
+  interface InviteRow { email: string; name: string; relationship: string; }
+  const [inviteRows, setInviteRows] = useState<InviteRow[]>([{ email: '', name: '', relationship: '' }]);
+  const [inviteNotes, setInviteNotes] = useState('');
   const [invitePolicy, setInvitePolicy] = useState<AccessPolicy>('approval');
   const [inviteDelayHours, setInviteDelayHours] = useState(72);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
-  const handleInviteContact = async () => {
-    if (!inviteEmail.trim() || !inviteName.trim()) return;
+  const maxNewContacts = Math.max(0, 5 - contacts.filter((c) => c.status !== 'revoked').length);
 
-    // Check if email is already a pending or accepted contact
-    const existing = contacts.find(
-      (c) => c.contact_email.toLowerCase() === inviteEmail.trim().toLowerCase() && (c.status === 'pending' || c.status === 'accepted')
-    );
-    if (existing) {
-      setInviteError(
-        existing.status === 'pending'
-          ? 'An invitation has already been sent to this email address'
-          : 'This email is already an accepted trusted contact. Use the "Select" tab to grant them access to this life event.'
+  const updateInviteRow = (index: number, field: keyof InviteRow, value: string) => {
+    setInviteRows((prev) => prev.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  };
+
+  const addInviteRow = () => {
+    if (inviteRows.length < maxNewContacts) {
+      setInviteRows((prev) => [...prev, { email: '', name: '', relationship: '' }]);
+    }
+  };
+
+  const removeInviteRow = (index: number) => {
+    if (inviteRows.length > 1) {
+      setInviteRows((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleInviteContacts = async () => {
+    const validRows = inviteRows.filter((r) => r.email.trim() && r.name.trim());
+    if (validRows.length === 0) return;
+
+    // Check for duplicates against existing contacts
+    for (const row of validRows) {
+      const existing = contacts.find(
+        (c) => c.contact_email.toLowerCase() === row.email.trim().toLowerCase() && (c.status === 'pending' || c.status === 'accepted')
       );
-      return;
+      if (existing) {
+        setInviteError(
+          existing.status === 'pending'
+            ? `An invitation has already been sent to ${row.email}`
+            : `${row.email} is already an accepted trusted contact. Use the "Select" tab to grant them access.`
+        );
+        return;
+      }
     }
 
     try {
       setInviteLoading(true);
       setInviteError(null);
-      const contact = await createContact(inviteEmail.trim(), inviteName.trim(), inviteRelationship.trim() || undefined);
-      // Auto-create grant for this life event so the contact sees it immediately after accepting
-      await createGrant(
-        lifeEventId,
-        contact.id,
-        invitePolicy,
-        invitePolicy === 'time_delayed' ? inviteDelayHours : undefined
+      let successCount = 0;
+      for (const row of validRows) {
+        const contact = await createContact(row.email.trim(), row.name.trim(), row.relationship.trim() || undefined);
+        await createGrant(
+          lifeEventId,
+          contact.id,
+          invitePolicy,
+          invitePolicy === 'time_delayed' ? inviteDelayHours : undefined,
+          inviteNotes || undefined
+        );
+        successCount++;
+      }
+      setInviteSuccess(
+        successCount === 1
+          ? `Invitation sent to ${validRows[0].email.trim()} with ${POLICY_BADGE[invitePolicy].label.toLowerCase()} access`
+          : `${successCount} invitations sent with ${POLICY_BADGE[invitePolicy].label.toLowerCase()} access`
       );
-      setInviteSuccess(`Invitation sent to ${inviteEmail.trim()} with ${POLICY_BADGE[invitePolicy].label.toLowerCase()} access`);
-      setInviteEmail('');
-      setInviteName('');
-      setInviteRelationship('');
+      setInviteRows([{ email: '', name: '', relationship: '' }]);
+      setInviteNotes('');
       setInvitePolicy('approval');
       setInviteDelayHours(72);
       onContactCreated();
@@ -867,13 +895,13 @@ function AddGrantModal({
                     </div>
                   )}
 
-                  {/* Notes */}
+                  {/* Instructions */}
                   <div>
                     <label className="text-sm font-medium text-slate-700 mb-1.5 block">
-                      Notes <span className="text-slate-400 font-normal">(optional)</span>
+                      Instructions <span className="text-slate-400 font-normal">(optional)</span>
                     </label>
                     <textarea value={notes} onChange={(e) => onChangeNotes(e.target.value)}
-                      placeholder="e.g., Only for medical emergencies" rows={2}
+                      placeholder="e.g., Only access in case of medical emergency" rows={2}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none transition-colors" />
                   </div>
                 </>
@@ -905,50 +933,89 @@ function AddGrantModal({
               )}
 
               <p className="text-sm text-slate-500">
-                Send an invitation to someone you trust. They'll create a DocuIntelli account (or log in) to accept.
+                Send invitations to people you trust. They'll create a DocuIntelli account (or log in) to accept.
               </p>
 
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1.5 block">Email Address</label>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="contact@example.com"
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
-                />
+              {/* Contact rows */}
+              <div className="space-y-3">
+                {inviteRows.map((row, idx) => (
+                  <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
+                    {inviteRows.length > 1 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-500">Contact {idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeInviteRow(idx)}
+                          className="text-slate-400 hover:text-red-500 transition-colors"
+                          title="Remove"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 mb-1 block">Email Address</label>
+                      <input
+                        type="email"
+                        value={row.email}
+                        onChange={(e) => updateInviteRow(idx, 'email', e.target.value)}
+                        placeholder="contact@example.com"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 mb-1 block">Full Name</label>
+                        <input
+                          type="text"
+                          value={row.name}
+                          onChange={(e) => updateInviteRow(idx, 'name', e.target.value)}
+                          placeholder="e.g., Jane Smith"
+                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 mb-1 block">Relationship <span className="text-slate-400 font-normal">(opt.)</span></label>
+                        <select
+                          value={row.relationship}
+                          onChange={(e) => updateInviteRow(idx, 'relationship', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                        >
+                          <option value="">Select...</option>
+                          <option value="spouse">Spouse / Partner</option>
+                          <option value="parent">Parent</option>
+                          <option value="sibling">Sibling</option>
+                          <option value="child">Adult Child</option>
+                          <option value="attorney">Attorney</option>
+                          <option value="accountant">Accountant</option>
+                          <option value="business_partner">Business Partner</option>
+                          <option value="friend">Friend</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {inviteRows.length < maxNewContacts && (
+                  <button
+                    type="button"
+                    onClick={addInviteRow}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add another contact
+                  </button>
+                )}
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1.5 block">Full Name</label>
-                <input
-                  type="text"
-                  value={inviteName}
-                  onChange={(e) => setInviteName(e.target.value)}
-                  placeholder="e.g., Jane Smith"
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
-                />
-              </div>
-
+              {/* Instructions (shared across all contacts) */}
               <div>
                 <label className="text-sm font-medium text-slate-700 mb-1.5 block">
-                  Their relationship to you <span className="text-slate-400 font-normal">(optional)</span>
+                  Instructions <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
-                <select
-                  value={inviteRelationship}
-                  onChange={(e) => setInviteRelationship(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
-                >
-                  <option value="">Select...</option>
-                  <option value="spouse">My Spouse / Partner</option>
-                  <option value="parent">My Parent</option>
-                  <option value="sibling">My Sibling</option>
-                  <option value="child">My Adult Child</option>
-                  <option value="attorney">My Attorney</option>
-                  <option value="accountant">My Accountant</option>
-                  <option value="business_partner">My Business Partner</option>
-                  <option value="friend">My Friend</option>
-                </select>
+                <textarea value={inviteNotes} onChange={(e) => setInviteNotes(e.target.value)}
+                  placeholder="e.g., Only access in case of medical emergency" rows={2}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none transition-colors" />
               </div>
 
               {/* Access Policy for invite */}
@@ -1006,14 +1073,14 @@ function AddGrantModal({
 
           {tab === 'invite' && (
             <button
-              onClick={handleInviteContact}
-              disabled={!inviteEmail.trim() || !inviteName.trim() || inviteLoading}
+              onClick={handleInviteContacts}
+              disabled={!inviteRows.some((r) => r.email.trim() && r.name.trim()) || inviteLoading}
               className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {inviteLoading ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
               ) : (
-                <><Send className="h-4 w-4" /> Send Invitation</>
+                <><Send className="h-4 w-4" /> {inviteRows.filter((r) => r.email.trim() && r.name.trim()).length > 1 ? 'Send Invitations' : 'Send Invitation'}</>
               )}
             </button>
           )}
@@ -1106,13 +1173,13 @@ function EditGrantModal({
             </div>
           )}
 
-          {/* Notes */}
+          {/* Instructions */}
           <div>
             <label className="text-sm font-medium text-slate-700 mb-1.5 block">
-              Notes <span className="text-slate-400 font-normal">(optional)</span>
+              Instructions <span className="text-slate-400 font-normal">(optional)</span>
             </label>
             <textarea value={editNotes} onChange={(e) => onChangeNotes(e.target.value)}
-              placeholder="e.g., Only for medical emergencies" rows={2}
+              placeholder="e.g., Only access in case of medical emergency" rows={2}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none transition-colors" />
           </div>
         </div>

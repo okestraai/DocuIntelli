@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, Clock, Lock, Unlock, Eye, FileText, Shield,
   AlertCircle, CheckCircle2, Loader2, ExternalLink,
-  ChevronDown, ChevronRight, XCircle, Sparkles, Download, Image,
+  ChevronDown, ChevronRight, XCircle, Sparkles, Download, Image, Info,
 } from 'lucide-react';
 import {
   getSharedWithMe, getSharedEventDetail, requestAccess, getDocumentContent, getDocumentPreviewUrl,
@@ -267,6 +267,17 @@ function EventDetailPanel({ event, onRefreshParent, onViewDocument }: { event: S
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
+      {/* Instructions from the event owner */}
+      {event.notes && (
+        <div className="flex items-start gap-2.5 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-3">
+          <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-blue-700 mb-0.5">Instructions from {event.owner_name}</p>
+            <p className="text-sm text-blue-800">{event.notes}</p>
+          </div>
+        </div>
+      )}
+
       {/* Error display */}
       {error && (
         <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-3">

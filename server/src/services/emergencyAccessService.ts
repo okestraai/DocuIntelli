@@ -751,6 +751,7 @@ export async function getSharedWithMe(contactUserId: string): Promise<SharedEven
             eag.request_status,
             eag.access_granted_at,
             eag.cooldown_ends_at,
+            eag.notes,
             (SELECT COUNT(*)::int FROM life_event_requirement_matches lerm WHERE lerm.life_event_id = le.id) AS document_count
      FROM emergency_access_grants eag
      JOIN trusted_contacts tc ON tc.id = eag.trusted_contact_id

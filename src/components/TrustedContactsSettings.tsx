@@ -168,24 +168,49 @@ function AddContactForm({
   contactCount,
   onSubmit,
   onCancel,
+  onDone,
 }: {
   existingEmails: string[];
   contactCount: number;
   onSubmit: (email: string, displayName: string, relationship?: string) => Promise<void>;
   onCancel: () => void;
+  onDone?: (count: number) => void;
 }) {
-  const [email, setEmail] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [relationship, setRelationship] = useState('');
+  interface ContactRow { email: string; displayName: string; relationship: string; }
+  const [rows, setRows] = useState<ContactRow[]>([{ email: '', displayName: '', relationship: '' }]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const maxRows = Math.max(0, MAX_CONTACTS - contactCount);
+
+  const updateRow = (index: number, field: keyof ContactRow, value: string) => {
+    setRows((prev) => prev.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  };
+
+  const addRow = () => {
+    if (rows.length < maxRows) {
+      setRows((prev) => [...prev, { email: '', displayName: '', relationship: '' }]);
+    }
+  };
+
+  const removeRow = (index: number) => {
+    if (rows.length > 1) {
+      setRows((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
   const validate = (): string | null => {
-    if (!email.trim()) return 'Email is required.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Please enter a valid email address.';
-    if (!displayName.trim()) return 'Full name is required.';
-    if (existingEmails.includes(email.trim().toLowerCase())) return 'This email has already been invited.';
-    if (contactCount >= MAX_CONTACTS) return `You have reached the maximum of ${MAX_CONTACTS} trusted contacts.`;
+    const validRows = rows.filter((r) => r.email.trim() || r.displayName.trim());
+    if (validRows.length === 0) return 'At least one contact is required.';
+    for (let i = 0; i < validRows.length; i++) {
+      const r = validRows[i];
+      const label = validRows.length > 1 ? ` (contact ${i + 1})` : '';
+      if (!r.email.trim()) return `Email is required${label}.`;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email.trim())) return `Please enter a valid email address${label}.`;
+      if (!r.displayName.trim()) return `Full name is required${label}.`;
+      if (existingEmails.includes(r.email.trim().toLowerCase())) return `${r.email} has already been invited.`;
+    }
+    if (contactCount + validRows.length > MAX_CONTACTS) return `This would exceed the maximum of ${MAX_CONTACTS} trusted contacts.`;
     return null;
   };
 
@@ -197,10 +222,14 @@ function AddContactForm({
       return;
     }
 
+    const validRows = rows.filter((r) => r.email.trim() && r.displayName.trim());
     setError(null);
     setSubmitting(true);
     try {
-      await onSubmit(email.trim(), displayName.trim(), relationship || undefined);
+      for (const row of validRows) {
+        await onSubmit(row.email.trim(), row.displayName.trim(), row.relationship || undefined);
+      }
+      onDone?.(validRows.length);
     } catch (err: any) {
       setError(err.message || 'Failed to invite contact.');
     } finally {
@@ -212,7 +241,7 @@ function AddContactForm({
     <form onSubmit={handleSubmit} className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
       <h4 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
         <UserPlus className="h-4 w-4 text-emerald-600" />
-        Invite a Trusted Contact
+        Invite Trusted Contact{rows.length > 1 ? 's' : ''}
       </h4>
 
       {error && (
@@ -222,65 +251,90 @@ function AddContactForm({
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Email */}
-        <div className="sm:col-span-2">
-          <label htmlFor="tc-email" className="block text-sm font-medium text-slate-700 mb-1">
-            Email address <span className="text-red-500">*</span>
-          </label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              id="tc-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="contact@example.com"
-              className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              disabled={submitting}
-            />
-          </div>
-        </div>
+      <div className="space-y-3">
+        {rows.map((row, idx) => (
+          <div key={idx} className={`${rows.length > 1 ? 'bg-white border border-slate-200 rounded-lg p-3' : ''} space-y-3`}>
+            {rows.length > 1 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500">Contact {idx + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => removeRow(idx)}
+                  className="text-slate-400 hover:text-red-500 transition-colors"
+                  title="Remove"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Email */}
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Email address <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="email"
+                    value={row.email}
+                    onChange={(e) => updateRow(idx, 'email', e.target.value)}
+                    placeholder="contact@example.com"
+                    className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    disabled={submitting}
+                  />
+                </div>
+              </div>
 
-        {/* Full name */}
-        <div>
-          <label htmlFor="tc-name" className="block text-sm font-medium text-slate-700 mb-1">
-            Full name <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="tc-name"
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="John Doe"
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-            disabled={submitting}
-          />
-        </div>
+              {/* Full name */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Full name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={row.displayName}
+                  onChange={(e) => updateRow(idx, 'displayName', e.target.value)}
+                  placeholder="John Doe"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  disabled={submitting}
+                />
+              </div>
 
-        {/* Relationship */}
-        <div>
-          <label htmlFor="tc-relationship" className="block text-sm font-medium text-slate-700 mb-1">
-            Their relationship to you
-          </label>
-          <div className="relative">
-            <select
-              id="tc-relationship"
-              value={relationship}
-              onChange={(e) => setRelationship(e.target.value)}
-              className="w-full appearance-none px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 pr-8"
-              disabled={submitting}
-            >
-              <option value="">Select (optional)</option>
-              {RELATIONSHIP_OPTIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              {/* Relationship */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Relationship <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={row.relationship}
+                    onChange={(e) => updateRow(idx, 'relationship', e.target.value)}
+                    className="w-full appearance-none px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 pr-8"
+                    disabled={submitting}
+                  >
+                    <option value="">Select (optional)</option>
+                    {RELATIONSHIP_OPTIONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        ))}
+
+        {rows.length < maxRows && (
+          <button
+            type="button"
+            onClick={addRow}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Add another contact
+          </button>
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-3 pt-1">
@@ -300,12 +354,12 @@ function AddContactForm({
           {submitting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Sending Invite...
+              Sending {rows.filter((r) => r.email.trim() && r.displayName.trim()).length > 1 ? 'Invites' : 'Invite'}...
             </>
           ) : (
             <>
               <Send className="h-4 w-4" />
-              Send Invite
+              Send {rows.filter((r) => r.email.trim() && r.displayName.trim()).length > 1 ? 'Invites' : 'Invite'}
             </>
           )}
         </button>
@@ -526,11 +580,22 @@ export function TrustedContactsSettings({ currentPlan }: TrustedContactsSettings
 
   // ---- Handlers ----
 
+  const pendingAddsRef = React.useRef(0);
   const handleAddContact = async (email: string, displayName: string, relationship?: string) => {
     const newContact = await createContact(email, displayName, relationship);
     setContacts((prev) => [...prev, newContact]);
+    pendingAddsRef.current++;
+  };
+
+  const handleFormDone = (count: number) => {
     setShowForm(false);
-    setFeedback({ type: 'success', text: `Invitation sent to ${email}.` });
+    setFeedback({
+      type: 'success',
+      text: count === 1
+        ? 'Invitation sent successfully.'
+        : `${count} invitations sent successfully.`,
+    });
+    pendingAddsRef.current = 0;
   };
 
   const handleResend = async (contactId: string) => {
@@ -665,6 +730,7 @@ export function TrustedContactsSettings({ currentPlan }: TrustedContactsSettings
             contactCount={activeCount}
             onSubmit={handleAddContact}
             onCancel={() => setShowForm(false)}
+            onDone={handleFormDone}
           />
         )}
 
