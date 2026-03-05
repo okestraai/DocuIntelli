@@ -35,6 +35,8 @@ import documentProcessingRoutes from "./routes/documentProcessing";
 import errorLogRoutes from "./routes/errorLog";
 import couponAdminRoutes from "./routes/couponAdmin";
 import couponRoutes from "./routes/coupon";
+import emergencyAccessRoutes from "./routes/emergencyAccess";
+import supportTicketRoutes from "./routes/supportTickets";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
 import { initRedis, getRedisClient } from "./services/redisClient";
@@ -487,6 +489,8 @@ console.log("🔧 Environment Check:", {
   app.use("/api/chat", chatHistoryRoutes);
   app.use("/api/user", userProfileRoutes);
   app.use("/api/life-events", lifeEventsRoutes);
+  app.use("/api/emergency-access", emergencyAccessRoutes);
+  app.use("/api/support-tickets", supportTicketRoutes);
   app.use("/api/engagement", engagementRoutes);
   app.use("/api/subscription", subscriptionRoutes);
   app.use("/api/email", emailRoutes);

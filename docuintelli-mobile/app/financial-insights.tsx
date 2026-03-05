@@ -9,7 +9,7 @@ import { useAuth } from '../src/hooks/useAuth';
 import { useSubscription } from '../src/hooks/useSubscription';
 import { usePlaidLinkFlow } from '../src/hooks/usePlaidLinkFlow';
 import { useToast } from '../src/contexts/ToastContext';
-import ProFeatureGate from '../src/components/ProFeatureGate';
+
 import LoadingSpinner from '../src/components/ui/LoadingSpinner';
 import GradientIcon from '../src/components/ui/GradientIcon';
 import Badge from '../src/components/ui/Badge';
@@ -168,13 +168,13 @@ export default function FinancialInsightsScreen() {
   );
 
   useEffect(() => {
-    if (isAuthenticated && isStarterOrAbove) loadData();
-  }, [isAuthenticated, isStarterOrAbove]);
+    if (isAuthenticated) loadData();
+  }, [isAuthenticated]);
 
   // Re-fetch financial data whenever the screen gains focus
   useFocusEffect(useCallback(() => {
-    if (isAuthenticated && isStarterOrAbove) loadData();
-  }, [isAuthenticated, isStarterOrAbove]));
+    if (isAuthenticated) loadData();
+  }, [isAuthenticated]));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -239,21 +239,9 @@ export default function FinancialInsightsScreen() {
     }
   };
 
-  // Wait for subscription data before showing gate
+  // Wait for subscription data
   if (subLoading) {
     return <LoadingSpinner fullScreen />;
-  }
-
-  // Gate: Starter+ feature — must be AFTER all hooks
-  if (!isStarterOrAbove) {
-    return (
-      <ProFeatureGate
-        featureName="Financial Insights"
-        featureDescription="Connect your bank accounts to get AI-powered spending analysis, bill tracking, loan detection, and personalized financial recommendations."
-        onUpgrade={() => router.push('/billing')}
-        requiredPlan="starter"
-      />
-    );
   }
 
   // Count individual accounts (not items) for limit enforcement
@@ -265,7 +253,7 @@ export default function FinancialInsightsScreen() {
 
   const handleConnectBank = () => {
     if (bankAccountLimit === 0) {
-      showToast('Upgrade to connect bank accounts', 'error');
+      router.push('/billing');
       return;
     }
     // Paid users at limit can still connect — account selection modal enforces limits
@@ -357,7 +345,7 @@ export default function FinancialInsightsScreen() {
 
           {/* Add another bank button (if already connected) */}
           {hasAccounts && (
-            <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} compact bankCount={bankCount} bankLimit={bankAccountLimit} />
+            <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} compact bankCount={bankCount} bankLimit={bankAccountLimit} onUpgrade={() => router.push('/billing')} />
           )}
         </LinearGradient>
 
@@ -382,7 +370,7 @@ export default function FinancialInsightsScreen() {
 
         {/* No accounts: show connect CTA */}
         {!hasAccounts && (
-          <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} bankCount={bankCount} bankLimit={bankAccountLimit} />
+          <ConnectBankCard onConnect={handleConnectBank} loading={plaid.loading} bankCount={bankCount} bankLimit={bankAccountLimit} onUpgrade={() => router.push('/billing')} />
         )}
 
         {/* Financial Dashboard Content */}

@@ -5,7 +5,7 @@ import {
   CheckCircle2, AlertTriangle, XCircle, Clock, HelpCircle,
   Upload, Tag, CalendarClock, Link2, FileText, Printer,
   Search, X, MessageSquare, Filter, Sparkles, Trash2,
-  Pencil, Check, FolderPlus, Compass,
+  Pencil, Check, FolderPlus, Compass, Users,
 } from 'lucide-react';
 import type { Document } from '../App';
 import {
@@ -19,6 +19,8 @@ import {
 } from '../lib/lifeEventsApi';
 import { useFeedback } from '../hooks/useFeedback';
 import { ToastContainer } from './Toast';
+import { EmergencyAccessPanel } from './EmergencyAccessPanel';
+import { SharedWithMeSection } from './SharedWithMePage';
 
 // ---------------------------------------------------------------------------
 // Icon map (lucide icons referenced by string name from templates)
@@ -59,19 +61,26 @@ function StatusPill({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 // Sub-view type
 // ---------------------------------------------------------------------------
-type SubView = 'list' | 'start' | 'intake' | 'detail' | 'export';
+type SubView = 'list' | 'start' | 'intake' | 'detail' | 'export' | 'create-custom';
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+type ListTab = 'my-events' | 'shared';
+
 interface Props {
   documents: Document[];
   onShowUpload: () => void;
+  hasSharedAccess?: boolean;
+  isPro?: boolean;
+  currentPlan?: 'free' | 'starter' | 'pro';
+  onUpgrade?: () => void;
 }
 
-export function LifeEventsPage({ documents, onShowUpload }: Props) {
+export function LifeEventsPage({ documents, onShowUpload, hasSharedAccess, isPro, currentPlan, onUpgrade }: Props) {
   const feedback = useFeedback();
   const [subView, setSubView] = useState<SubView>('list');
+  const [listTab, setListTab] = useState<ListTab>('my-events');
   const [templates, setTemplates] = useState<TemplateOverview[]>([]);
   const [events, setEvents] = useState<LifeEvent[]>([]);
   const [archivedEvents, setArchivedEvents] = useState<LifeEvent[]>([]);
@@ -111,6 +120,10 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
   const [editingSectionName, setEditingSectionName] = useState<string | null>(null);
   const [editSectionNewName, setEditSectionNewName] = useState('');
 
+  // Create custom event state
+  const [customEventTitle, setCustomEventTitle] = useState('');
+  const [customEventDescription, setCustomEventDescription] = useState('');
+
   // Load templates + events on mount
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -138,6 +151,10 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
   // ---------------------------------------------------------------------------
 
   const handleStartEvent = (templateId: string) => {
+    if (!isPro) {
+      onUpgrade?.();
+      return;
+    }
     setSelectedTemplateId(templateId);
     setIntakeAnswers({});
     const tmpl = templates.find(t => t.id === templateId);
@@ -157,6 +174,32 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
       setEventDetail(detail);
       setSubView('detail');
       // Refresh event list in background
+      getEvents().then(setEvents).catch(() => {});
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleStartCustomEvent = () => {
+    if (!isPro) {
+      onUpgrade?.();
+      return;
+    }
+    setCustomEventTitle('');
+    setCustomEventDescription('');
+    setSubView('create-custom');
+  };
+
+  const handleCreateCustomEvent = async () => {
+    if (!customEventTitle.trim()) return;
+    try {
+      setDetailLoading(true);
+      const result = await createEvent('custom', {}, customEventTitle.trim());
+      const detail = await getEventDetail(result.event.id);
+      setEventDetail(detail);
+      setSubView('detail');
       getEvents().then(setEvents).catch(() => {});
     } catch (err: any) {
       setError(err.message);
@@ -401,7 +444,67 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Tab toggle — shown when user has shared access */}
+        {hasSharedAccess && (
+          <div className="flex gap-1 p-1 bg-slate-100 rounded-xl mb-6 sm:mb-8 w-fit">
+            <button
+              onClick={() => setListTab('my-events')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                listTab === 'my-events'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Compass className="h-4 w-4" />
+              My Events
+            </button>
+            <button
+              onClick={() => setListTab('shared')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                listTab === 'shared'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Users className="h-4 w-4" />
+              Shared With Me
+            </button>
+          </div>
+        )}
+
+        {/* Shared With Me tab content */}
+        {listTab === 'shared' && hasSharedAccess && (
+          <>
+            <SharedWithMeSection currentPlan={currentPlan} />
+            {Toasts}
+          </>
+        )}
+
+        {/* My Events tab content */}
+        {listTab === 'my-events' && (
+          <>
         {ErrorBanner}
+
+        {/* Upgrade banner for non-pro users */}
+        {!isPro && (
+          <div className="mb-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Sparkles className="h-5 w-5 text-amber-600 flex-shrink-0" />
+              <p className="text-sm text-amber-800">
+                Browse life event templates below. <span className="font-semibold">Upgrade to Pro</span> to create events and get personalized document checklists.
+              </p>
+            </div>
+            {onUpgrade && (
+              <button
+                onClick={onUpgrade}
+                className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white text-sm font-medium rounded-lg transition-all shadow-sm"
+              >
+                Upgrade
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Welcome banner when no events yet */}
         {events.length === 0 && archivedEvents.length === 0 && (
@@ -473,6 +576,18 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
                 </div>
               </button>
             ))}
+
+            {/* Create Your Own */}
+            <button
+              onClick={handleStartCustomEvent}
+              className="bg-white rounded-xl border-2 border-dashed border-slate-300 p-5 text-left hover:shadow-md hover:border-emerald-400 transition-all group flex flex-col items-center justify-center min-h-[140px]"
+            >
+              <div className="bg-gradient-to-br from-slate-50 to-slate-100 group-hover:from-emerald-50 group-hover:to-teal-50 p-3 rounded-xl mb-3 transition-colors">
+                <Plus className="h-6 w-6 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+              </div>
+              <h3 className="font-semibold text-slate-600 group-hover:text-emerald-700 transition-colors">Create Your Own</h3>
+              <p className="text-xs text-slate-400 mt-1 text-center">Build a custom checklist for any life event</p>
+            </button>
           </div>
         </div>
 
@@ -525,6 +640,75 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
           </div>
         </div>
         {Toasts}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ==========================================================================
+  // SUB-VIEW: Create Custom Event
+  // ==========================================================================
+  if (subView === 'create-custom') {
+    return (
+      <div className="max-w-2xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">
+        <button onClick={() => setSubView('list')} className="flex items-center gap-1 text-sm text-slate-600 hover:text-emerald-700 mb-6">
+          <ChevronLeft className="h-4 w-4" /> Back
+        </button>
+        {ErrorBanner}
+
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-3 rounded-lg">
+              <Plus className="h-6 w-6 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Create Your Own Event</h2>
+              <p className="text-sm text-slate-600">Name your event, then add documents and sections from the detail view.</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Event Title <span className="text-red-400">*</span></label>
+              <input
+                type="text"
+                value={customEventTitle}
+                onChange={e => setCustomEventTitle(e.target.value)}
+                placeholder="e.g. Divorce Preparation, College Application, Job Change..."
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter' && customEventTitle.trim()) handleCreateCustomEvent(); }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-8 flex justify-end gap-3">
+            <button onClick={() => setSubView('list')} className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900">Cancel</button>
+            <button
+              onClick={handleCreateCustomEvent}
+              disabled={detailLoading || !customEventTitle.trim()}
+              className="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {detailLoading ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              Create Event
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 bg-slate-50 rounded-lg p-4 text-sm text-slate-600">
+          <p className="font-medium text-slate-700 mb-1">How it works:</p>
+          <ul className="space-y-1 list-disc list-inside text-slate-500">
+            <li>Your event starts with a blank checklist</li>
+            <li>Use "Add Your Own Document" to build your requirements</li>
+            <li>Organize by section (Custom, Legal, Financial, etc.)</li>
+            <li>Attach vault documents to track readiness</li>
+          </ul>
+        </div>
       </div>
     );
   }
@@ -726,6 +910,12 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
               </button>
             )}
           </div>
+
+          {/* Emergency Access — inline in header card */}
+          <EmergencyAccessPanel
+            lifeEventId={eventDetail.event.id}
+            lifeEventTitle={eventDetail.event.title || eventDetail.event.templateName || 'Life Event'}
+          />
         </div>
 
         {/* Filters */}
@@ -1071,6 +1261,7 @@ export function LifeEventsPage({ documents, onShowUpload }: Props) {
             </div>
           </div>
         )}
+
         {Toasts}
       </div>
     );

@@ -6,6 +6,7 @@
 
 import { query } from '../services/db';
 import type { FinancialSummary } from './plaidService';
+import { getTagSummaryForUser, type TagSummary } from './transactionTagService';
 
 const INSIGHT_CACHE_TTL_HOURS = 24;
 
@@ -58,7 +59,13 @@ export async function generateAIInsights(
   }
 
   try {
-    const prompt = buildAnalysisPrompt(summary);
+    // Fetch user tag data for enriched prompts
+    let tagSummary: TagSummary | null = null;
+    try {
+      tagSummary = await getTagSummaryForUser(userId);
+    } catch { /* tag tables may not exist yet */ }
+
+    const prompt = buildAnalysisPrompt(summary, tagSummary);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
@@ -132,9 +139,32 @@ Rules:
 - Format sections with these headers: INSIGHTS:, ACCOUNT_ANALYSIS:, ACTION_PLAN:, RECOMMENDATION:
 - Under ACCOUNT_ANALYSIS, use "## Account Name (type)" as sub-headers for each account`;
 
+// ── Tag Section Builder ─────────────────────────────────────────
+
+function buildTagSection(tagSummary?: TagSummary | null): string {
+  if (!tagSummary) return '';
+  const parts: string[] = [];
+
+  if (tagSummary.income_labels.length > 0) {
+    const lines = tagSummary.income_labels
+      .map(l => `  - "${l.merchant_stem}" → ${l.tag}`)
+      .join('\n');
+    parts.push(`\nUSER-LABELED INCOME:\n${lines}`);
+  }
+
+  if (tagSummary.transaction_tag_summary.length > 0) {
+    const lines = tagSummary.transaction_tag_summary
+      .map(t => `  - ${t.tag}: ${t.count} transactions ($${t.total.toLocaleString()})`)
+      .join('\n');
+    parts.push(`\nUSER-TAGGED TRANSACTIONS:\n${lines}`);
+  }
+
+  return parts.length > 0 ? '\n' + parts.join('\n') : '';
+}
+
 // ── Prompt Builder ──────────────────────────────────────────────
 
-function buildAnalysisPrompt(summary: FinancialSummary): string {
+function buildAnalysisPrompt(summary: FinancialSummary, tagSummary?: TagSummary | null): string {
   const topCategories = summary.spending_by_category
     .slice(0, 8)
     .map(c => `  - ${c.category}: $${c.monthly_average}/mo (${c.percentage}% of spending, ${c.transaction_count} txns)`)
@@ -181,7 +211,7 @@ ${incomesSummary || '  (no recurring income detected)'}
 
 MONTHLY TRENDS (last 6 months):
 ${monthlyTrends || '  (insufficient data)'}
-
+${buildTagSection(tagSummary)}
 Provide your analysis with INSIGHTS:, ACCOUNT_ANALYSIS:, ACTION_PLAN:, and RECOMMENDATION: sections.
 Under ACCOUNT_ANALYSIS, provide 1-2 specific observations per account using "## Account Name (type)" sub-headers.`;
 }

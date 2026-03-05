@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, CreditCard, Bell, Shield, Trash2, Calendar, FileText, BarChart3, Compass, Activity, Smartphone, Monitor, Tablet, X, Loader2 } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, CreditCard, Bell, Shield, Trash2, Calendar, FileText, BarChart3, Compass, Activity, Smartphone, Monitor, Tablet, X, Loader2, LifeBuoy } from 'lucide-react';
 import { auth, getCurrentUser, updateUserProfile, changePassword, getUserProfile, UserProfile } from '../lib/auth';
 import { useFeedback } from '../hooks/useFeedback';
 import { formatUTCDate } from '../lib/dateUtils';
@@ -8,8 +8,10 @@ import { sendPasswordChangedEmail, sendProfileUpdatedEmail, sendPreferencesUpdat
 import type { UserDevice } from '../lib/api';
 import { getDeviceId } from '../lib/deviceId';
 import { PhoneInput } from './PhoneInput';
+import { SupportTicketsTab } from './SupportTicketsTab';
+import { getUnreadTicketCount } from '../lib/supportTicketApi';
 
-type TabType = 'profile' | 'security' | 'preferences' | 'billing' | 'devices';
+type TabType = 'profile' | 'security' | 'preferences' | 'billing' | 'devices' | 'support';
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -28,9 +30,10 @@ function formatRelativeTime(dateStr: string): string {
 interface AccountSettingsPageProps {
   initialTab?: TabType;
   onSubscriptionChange?: () => void;
+  currentPlan?: 'free' | 'starter' | 'pro';
 }
 
-export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChange }: AccountSettingsPageProps) {
+export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChange, currentPlan }: AccountSettingsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,6 +67,9 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [removingDeviceId, setRemovingDeviceId] = useState<string | null>(null);
 
+  // Support unread count
+  const [unreadTicketCount, setUnreadTicketCount] = useState(0);
+
   // Preferences state (6 granular groups)
   const [securityAlerts, setSecurityAlerts] = useState(true);
   const [billingAlerts, setBillingAlerts] = useState(true);
@@ -77,7 +83,8 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
     { id: 'security' as TabType, label: 'Security', icon: Shield },
     { id: 'preferences' as TabType, label: 'Preferences', icon: Bell },
     { id: 'billing' as TabType, label: 'Billing', icon: CreditCard },
-    { id: 'devices' as TabType, label: 'Devices', icon: Smartphone }
+    { id: 'devices' as TabType, label: 'Devices', icon: Smartphone },
+    { id: 'support' as TabType, label: 'Support', icon: LifeBuoy },
   ];
 
   const loadUserProfile = useCallback(async () => {
@@ -132,6 +139,11 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
   useEffect(() => {
     loadUserProfile();
   }, [loadUserProfile]);
+
+  // Fetch unread ticket count
+  useEffect(() => {
+    getUnreadTicketCount().then(c => setUnreadTicketCount(c)).catch(() => {});
+  }, [activeTab]); // re-fetch when switching tabs (e.g. after viewing a ticket)
 
   const loadDevices = useCallback(async () => {
     setDevicesLoading(true);
@@ -325,6 +337,11 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
             >
               <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
               <span className="hidden sm:inline">{label}</span>
+              {id === 'support' && unreadTicketCount > 0 && (
+                <span className="ml-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-bold leading-none px-1">
+                  {unreadTicketCount > 9 ? '9+' : unreadTicketCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -898,6 +915,9 @@ export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChan
                 </div>
               </div>
             )}
+
+            {/* Support Tab */}
+            {activeTab === 'support' && <SupportTicketsTab />}
 
             {/* Billing Tab */}
             {activeTab === 'billing' && <BillingPage onSubscriptionChange={onSubscriptionChange} />}

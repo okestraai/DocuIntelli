@@ -36,6 +36,15 @@ export function handleDeepLink(url: string) {
     return;
   }
 
+  // Handle emergency access invite
+  if (parsed.path === 'emergency-invite') {
+    const token = parsed.queryParams?.token as string | undefined;
+    if (token) {
+      router.push({ pathname: '/emergency-invite', params: { token } });
+    }
+    return;
+  }
+
   // For all other deep links, Expo Router handles them automatically
 }
 

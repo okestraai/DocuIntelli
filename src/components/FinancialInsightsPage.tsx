@@ -23,6 +23,8 @@ import {
   Loader2,
   X,
   Target,
+  Plus,
+  Tag,
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import {
@@ -35,6 +37,11 @@ import {
   commitAccountSelection,
   cancelConnection,
   getTransactionsByCategory,
+  getTagOptions,
+  addTransactionTag,
+  removeTransactionTag,
+  addIncomeStreamTag,
+  removeIncomeStreamTag,
   FinancialSummary,
   CategoryBreakdown,
   RecurringBill,
@@ -52,7 +59,7 @@ import { AccountSelectionModal, ExistingAccount, NewAccount } from './AccountSel
 
 // ── Plaid Link Button ─────────────────────────────────────────
 
-function PlaidLinkButton({ onExchangeComplete, onLoading, bankCount, bankLimit }: {
+function PlaidLinkButton({ onExchangeComplete, onLoading, bankCount, bankLimit, onUpgrade }: {
   onExchangeComplete: (result: {
     item_id: string;
     accounts: any[];
@@ -61,6 +68,7 @@ function PlaidLinkButton({ onExchangeComplete, onLoading, bankCount, bankLimit }
   onLoading: (loading: boolean) => void;
   bankCount: number;
   bankLimit: number;
+  onUpgrade?: () => void;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,18 +119,13 @@ function PlaidLinkButton({ onExchangeComplete, onLoading, bankCount, bankLimit }
 
   if (blocked) {
     return (
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-amber-600 font-medium">
-          Upgrade to connect banks
-        </span>
-        <button
-          disabled
-          className="inline-flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-500 font-semibold rounded-xl cursor-not-allowed"
-        >
-          <Landmark className="h-5 w-5" />
-          Upgrade Required
-        </button>
-      </div>
+      <button
+        onClick={onUpgrade}
+        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-teal-700 shadow-md hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+      >
+        <Landmark className="h-5 w-5" />
+        Connect Bank Account
+      </button>
     );
   }
 
@@ -414,7 +417,7 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
             </p>
 
             <div className="mb-8">
-              <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} />
+              <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} onUpgrade={onUpgrade} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
@@ -468,7 +471,7 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
           <p className="text-slate-500 mt-1">AI-powered analysis of your financial health</p>
         </div>
         <div className="flex items-center gap-2">
-          <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} />
+          <PlaidLinkButton onExchangeComplete={handleExchangeComplete} onLoading={setLinkLoading} bankCount={totalAccountCount} bankLimit={bankAccountLimit} onUpgrade={onUpgrade} />
         </div>
       </div>
 
@@ -793,6 +796,12 @@ function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) 
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [loadingCategory, setLoadingCategory] = useState<string | null>(null);
   const [transactionCache, setTransactionCache] = useState<Record<string, TransactionDetail[]>>({});
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [openTagDropdown, setOpenTagDropdown] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTagOptions().then(opts => setTagOptions(opts.transaction_tags)).catch(() => {});
+  }, []);
 
   if (categories.length === 0) {
     return <p className="text-slate-500 text-sm">No spending data available yet.</p>;
@@ -807,7 +816,7 @@ function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) 
       return;
     }
     setExpandedCategory(key);
-    if (transactionCache[key]) return; // already fetched
+    if (transactionCache[key]) return;
     setLoadingCategory(key);
     try {
       const txns = await getTransactionsByCategory(key);
@@ -816,6 +825,58 @@ function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) 
       console.error('Failed to load transactions:', err);
     } finally {
       setLoadingCategory(null);
+    }
+  };
+
+  const handleAddTag = async (txn: TransactionDetail, tag: string) => {
+    // Optimistic update
+    setTransactionCache(prev => {
+      const updated = { ...prev };
+      for (const key in updated) {
+        updated[key] = updated[key].map(t =>
+          t.transaction_id === txn.transaction_id
+            ? { ...t, user_tags: [...(t.user_tags || []), tag] }
+            : t
+        );
+      }
+      return updated;
+    });
+    setOpenTagDropdown(null);
+    try {
+      await addTransactionTag(txn.transaction_id, tag);
+    } catch (err) {
+      console.error('Failed to add tag:', err);
+      // Revert on failure
+      setTransactionCache(prev => {
+        const updated = { ...prev };
+        for (const key in updated) {
+          updated[key] = updated[key].map(t =>
+            t.transaction_id === txn.transaction_id
+              ? { ...t, user_tags: (t.user_tags || []).filter(tt => tt !== tag) }
+              : t
+          );
+        }
+        return updated;
+      });
+    }
+  };
+
+  const handleRemoveTag = async (txn: TransactionDetail, tag: string) => {
+    setTransactionCache(prev => {
+      const updated = { ...prev };
+      for (const key in updated) {
+        updated[key] = updated[key].map(t =>
+          t.transaction_id === txn.transaction_id
+            ? { ...t, user_tags: (t.user_tags || []).filter(tt => tt !== tag) }
+            : t
+        );
+      }
+      return updated;
+    });
+    try {
+      await removeTransactionTag(txn.transaction_id, tag);
+    } catch (err) {
+      console.error('Failed to remove tag:', err);
     }
   };
 
@@ -868,21 +929,73 @@ function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) 
                   </div>
                 ) : txns && txns.length > 0 ? (
                   <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                    {txns.map((txn, i) => (
-                      <div key={i} className="flex items-center justify-between px-3 py-2">
-                        <div className="min-w-0 flex-1 mr-3">
-                          <p className="text-sm text-slate-700 truncate">
-                            {txn.merchant_name || txn.name}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {new Date(txn.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </p>
+                    {txns.map((txn) => {
+                      const txnTags = txn.user_tags || [];
+                      const availableTags = tagOptions.filter(t => !txnTags.includes(t));
+                      const isDropdownOpen = openTagDropdown === txn.transaction_id;
+
+                      return (
+                        <div key={txn.transaction_id} className="px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0 flex-1 mr-3">
+                              <p className="text-sm text-slate-700 truncate">
+                                {txn.merchant_name || txn.name}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {new Date(txn.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </p>
+                            </div>
+                            <span className="text-sm font-medium text-slate-900 flex-shrink-0">
+                              {formatCurrency(txn.amount)}
+                            </span>
+                          </div>
+                          {/* Tags row */}
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {txnTags.map(tag => (
+                              <span
+                                key={tag}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-semibold group"
+                              >
+                                {tag}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRemoveTag(txn, tag); }}
+                                  className="opacity-60 hover:opacity-100 hover:text-red-500 ml-0.5"
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </button>
+                              </span>
+                            ))}
+                            {availableTags.length > 0 && (
+                              <div className="relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenTagDropdown(isDropdownOpen ? null : txn.transaction_id);
+                                  }}
+                                  className="inline-flex items-center px-1 py-0.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                                  title="Add tag"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                                {isDropdownOpen && (
+                                  <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+                                    {availableTags.map(tag => (
+                                      <button
+                                        key={tag}
+                                        onClick={(e) => { e.stopPropagation(); handleAddTag(txn, tag); }}
+                                        className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                                      >
+                                        {tag}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm font-medium text-slate-900 flex-shrink-0">
-                          {formatCurrency(txn.amount)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500 px-3 py-3">No transactions found.</p>
@@ -939,40 +1052,159 @@ function RecurringBillsList({ bills }: { bills: RecurringBill[] }) {
 }
 
 function IncomeStreamsList({ streams }: { streams: IncomeStream[] }) {
+  const [incomeTagOptions, setIncomeTagOptions] = useState<string[]>([]);
+  const [streamTags, setStreamTags] = useState<Record<string, string[]>>({});
+  const [openTagDropdown, setOpenTagDropdown] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTagOptions().then(opts => setIncomeTagOptions(opts.income_tags)).catch(() => {});
+  }, []);
+
+  // Initialize local tag state from stream data
+  useEffect(() => {
+    const tags: Record<string, string[]> = {};
+    for (const s of streams) {
+      if (s.merchant_stem) {
+        const userTags = s.user_tags || [];
+        // If auto-detected salary and no user tags include "Salary", add it as auto
+        if (s.is_salary && !userTags.includes('Salary')) {
+          tags[s.merchant_stem] = ['Salary', ...userTags];
+        } else {
+          tags[s.merchant_stem] = [...userTags];
+        }
+      }
+    }
+    setStreamTags(tags);
+  }, [streams]);
+
   if (streams.length === 0) {
     return <p className="text-slate-500 text-sm">No recurring income streams detected yet.</p>;
   }
 
+  const handleAddTag = async (stream: IncomeStream, tag: string) => {
+    const stem = stream.merchant_stem;
+    // Optimistic update
+    setStreamTags(prev => ({
+      ...prev,
+      [stem]: [...(prev[stem] || []), tag],
+    }));
+    setOpenTagDropdown(null);
+    try {
+      const isSalaryOverride = tag === 'Salary' ? true : undefined;
+      await addIncomeStreamTag(stem, tag, isSalaryOverride);
+    } catch (err) {
+      console.error('Failed to add income tag:', err);
+      setStreamTags(prev => ({
+        ...prev,
+        [stem]: (prev[stem] || []).filter(t => t !== tag),
+      }));
+    }
+  };
+
+  const handleRemoveTag = async (stream: IncomeStream, tag: string) => {
+    const stem = stream.merchant_stem;
+    setStreamTags(prev => ({
+      ...prev,
+      [stem]: (prev[stem] || []).filter(t => t !== tag),
+    }));
+    try {
+      const isSalaryOverride = tag === 'Salary' ? false : undefined;
+      if (isSalaryOverride !== undefined) {
+        // When removing Salary, also update the salary override
+        await addIncomeStreamTag(stem, tag, false);
+        await removeIncomeStreamTag(stem, tag);
+      } else {
+        await removeIncomeStreamTag(stem, tag);
+      }
+    } catch (err) {
+      console.error('Failed to remove income tag:', err);
+    }
+  };
+
   return (
     <div className="divide-y divide-slate-100">
-      {streams.map((stream, i) => (
-        <div key={i} className="flex items-center justify-between py-3">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${stream.is_salary ? 'bg-blue-50' : 'bg-slate-50'}`}>
-              {stream.is_salary ? (
-                <Banknote className="h-4 w-4 text-blue-600" />
-              ) : (
-                <DollarSign className="h-4 w-4 text-slate-600" />
+      {streams.map((stream, i) => {
+        const stem = stream.merchant_stem || `stream-${i}`;
+        const tags = streamTags[stem] || [];
+        const availableTags = incomeTagOptions.filter(t => !tags.includes(t));
+        const isDropdownOpen = openTagDropdown === stem;
+        const hasSalaryTag = tags.includes('Salary');
+
+        return (
+          <div key={i} className="py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${hasSalaryTag ? 'bg-blue-50' : 'bg-slate-50'}`}>
+                  {hasSalaryTag ? (
+                    <Banknote className="h-4 w-4 text-blue-600" />
+                  ) : (
+                    <DollarSign className="h-4 w-4 text-slate-600" />
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900 text-sm">{stream.source}</p>
+                  <p className="text-xs text-slate-500">{stream.frequency}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold text-emerald-600 text-sm">{formatCurrency(stream.monthly_amount ?? stream.average_amount)}/mo</p>
+                <p className="text-xs text-slate-400">{formatCurrency(stream.average_amount)} × {stream.frequency}</p>
+              </div>
+            </div>
+            {/* Tags row */}
+            <div className="flex flex-wrap items-center gap-1 mt-1.5 ml-11">
+              {tags.map(tag => {
+                const isAutoSalary = tag === 'Salary' && stream.is_salary && !(stream.user_tags || []).includes('Salary');
+                return (
+                  <span
+                    key={tag}
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                      tag === 'Salary'
+                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                        : 'bg-teal-50 text-teal-700 border border-teal-200'
+                    } ${isAutoSalary ? 'opacity-60' : ''}`}
+                  >
+                    {isAutoSalary ? 'Auto: ' : ''}{tag}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemoveTag(stream, tag); }}
+                      className="opacity-60 hover:opacity-100 hover:text-red-500 ml-0.5"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                );
+              })}
+              {availableTags.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenTagDropdown(isDropdownOpen ? null : stem);
+                    }}
+                    className="inline-flex items-center px-1 py-0.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"
+                    title="Add label"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+                      {availableTags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={(e) => { e.stopPropagation(); handleAddTag(stream, tag); }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition-colors"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-            <div>
-              <p className="font-medium text-slate-900 text-sm">{stream.source}</p>
-              <p className="text-xs text-slate-500">
-                {stream.frequency}
-                {stream.is_salary && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold uppercase">
-                    Salary
-                  </span>
-                )}
-              </p>
-            </div>
           </div>
-          <div className="text-right">
-            <p className="font-semibold text-emerald-600 text-sm">{formatCurrency(stream.monthly_amount ?? stream.average_amount)}/mo</p>
-            <p className="text-xs text-slate-400">{formatCurrency(stream.average_amount)} × {stream.frequency}</p>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

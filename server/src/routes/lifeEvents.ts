@@ -49,13 +49,44 @@ router.get('/templates/:id', (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { template_id, intake_answers } = req.body;
+    const { template_id, intake_answers, title } = req.body;
 
     if (!template_id) {
       res.status(400).json({ success: false, error: 'template_id is required' });
       return;
     }
 
+    // Custom event (no template)
+    if (template_id === 'custom') {
+      if (!title || !title.trim()) {
+        res.status(400).json({ success: false, error: 'title is required for custom events' });
+        return;
+      }
+
+      const eventResult = await query(
+        `INSERT INTO life_events (user_id, template_id, title, intake_answers)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [userId, 'custom', title.trim(), '{}']
+      );
+      const event = eventResult.rows[0];
+
+      // No template requirements — score starts at 0, user adds custom docs
+      const readiness = {
+        eventId: event.id,
+        templateId: 'custom',
+        readinessScore: 0,
+        totalWeight: 0,
+        completedWeight: 0,
+        requirements: [],
+        nextBestAction: 'Add your first document requirement using the "Add Your Own Document" button below.',
+      };
+
+      res.json({ success: true, event, readiness });
+      return;
+    }
+
+    // Template-based event
     const template = getTemplateById(template_id);
     if (!template) {
       res.status(404).json({ success: false, error: 'Template not found' });
@@ -115,11 +146,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     // Enrich with template metadata
     const enriched = events.map((ev: any) => {
       const tmpl = getTemplateById(ev.template_id);
+      const isCustom = ev.template_id === 'custom';
       return {
         ...ev,
-        templateName: tmpl?.name || ev.template_id,
-        templateIcon: tmpl?.icon || 'FileText',
-        requirementCount: tmpl?.requirements.length || 0,
+        templateName: isCustom ? ev.title : (tmpl?.name || ev.template_id),
+        templateIcon: isCustom ? 'FileText' : (tmpl?.icon || 'FileText'),
+        requirementCount: isCustom ? 0 : (tmpl?.requirements.length || 0),
       };
     });
 
@@ -150,7 +182,10 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     const template = getTemplateById(event.template_id);
-    const readiness = await computeReadiness(eventId, userId);
+    const isCustom = event.template_id === 'custom';
+    const readiness = isCustom
+      ? await getReadinessSnapshot(eventId, userId)
+      : await computeReadiness(eventId, userId);
 
     // Enrich template with custom requirements so frontend can group by section
     const customReqsResult = await query(
@@ -159,30 +194,38 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     );
     const customReqs = customReqsResult.rows || [];
 
-    const enrichedTemplate = template ? {
-      ...template,
-      requirements: [
-        ...template.requirements,
-        ...customReqs.map((cr: any) => ({
-          id: `custom-${cr.id}`,
-          title: cr.title,
-          description: cr.description || '',
-          section: cr.section || 'Custom',
-          docCategories: [],
-          suggestedTags: [],
-          keywords: [],
-          validation: {},
-          weight: 1,
-        })),
-      ],
-    } : template;
+    const customReqItems = customReqs.map((cr: any) => ({
+      id: `custom-${cr.id}`,
+      title: cr.title,
+      description: cr.description || '',
+      section: cr.section || 'Custom',
+      docCategories: [],
+      suggestedTags: [],
+      keywords: [],
+      validation: {},
+      weight: 1,
+    }));
+
+    // For custom events, create a synthetic template
+    const enrichedTemplate = isCustom
+      ? {
+          id: 'custom',
+          name: event.title,
+          description: '',
+          icon: 'FileText',
+          intakeQuestions: [],
+          requirements: customReqItems,
+        }
+      : template
+        ? { ...template, requirements: [...template.requirements, ...customReqItems] }
+        : template;
 
     res.json({
       success: true,
       event: {
         ...event,
-        templateName: template?.name,
-        templateIcon: template?.icon,
+        templateName: isCustom ? event.title : template?.name,
+        templateIcon: isCustom ? 'FileText' : template?.icon,
       },
       template: enrichedTemplate,
       readiness,
@@ -199,7 +242,13 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 router.post('/:id/recompute', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const readiness = await computeReadiness(req.params.id, userId);
+    const eventId = req.params.id;
+    // Check if custom event — use snapshot instead of full compute
+    const evResult = await query('SELECT template_id FROM life_events WHERE id = $1 AND user_id = $2', [eventId, userId]);
+    if (!evResult.rows[0]) { res.status(404).json({ success: false, error: 'Event not found' }); return; }
+    const readiness = evResult.rows[0].template_id === 'custom'
+      ? await getReadinessSnapshot(eventId, userId)
+      : await computeReadiness(eventId, userId);
     res.json({ success: true, readiness });
   } catch (err: any) {
     console.error('Recompute error:', err);
@@ -240,7 +289,10 @@ router.post(
       );
 
       // Recompute
-      const readiness = await computeReadiness(eventId, userId);
+      const evCheck = await query('SELECT template_id FROM life_events WHERE id = $1', [eventId]);
+      const readiness = evCheck.rows[0]?.template_id === 'custom'
+        ? await getReadinessSnapshot(eventId, userId)
+        : await computeReadiness(eventId, userId);
       res.json({ success: true, readiness });
     } catch (err: any) {
       console.error('Not-applicable error:', err);
@@ -304,7 +356,10 @@ router.post(
         [eventId, rid, document_id]
       );
 
-      const readiness = await computeReadiness(eventId, userId);
+      const evCheck2 = await query('SELECT template_id FROM life_events WHERE id = $1', [eventId]);
+      const readiness = evCheck2.rows[0]?.template_id === 'custom'
+        ? await getReadinessSnapshot(eventId, userId)
+        : await computeReadiness(eventId, userId);
       res.json({ success: true, readiness });
     } catch (err: any) {
       console.error('Manual match error:', err);
@@ -372,7 +427,10 @@ router.post('/:id/archive', async (req: Request, res: Response): Promise<void> =
     // Send archive email (non-blocking)
     if (event) {
       const template = getTemplateById(event.template_id);
-      const readiness = await computeReadiness(eventId, userId);
+      const isCustomEvent = event.template_id === 'custom';
+      const readiness = isCustomEvent
+        ? await getReadinessSnapshot(eventId, userId)
+        : await computeReadiness(eventId, userId);
       const totalReqs = template?.requirements.length || 0;
       const metReqs = readiness.requirements?.filter(
         (r: any) => r.status === 'met' || r.status === 'needs_update'
@@ -437,7 +495,10 @@ router.get('/:id/export', async (req: Request, res: Response): Promise<void> => 
     }
 
     const template = getTemplateById(event.template_id);
-    const readiness = await computeReadiness(eventId, userId);
+    const isCustomExport = event.template_id === 'custom';
+    const readiness = isCustomExport
+      ? await getReadinessSnapshot(eventId, userId)
+      : await computeReadiness(eventId, userId);
 
     // Load custom requirements for export lookup
     const customReqsResult = await query(

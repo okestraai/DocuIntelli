@@ -14,9 +14,15 @@ interface DocumentViewerProps {
   onUpgrade?: () => void;
   onUploadRenewal?: (doc: Document) => void;
   onNavigateToDocument?: (documentId: string) => void;
+  /** When provided, skip internal fetch and use this blob URL directly (e.g. shared docs) */
+  preloadedBlobUrl?: string;
+  /** Hide the download button (e.g. for shared docs) */
+  hideDownload?: boolean;
+  /** Render in overlay/modal mode (h-full instead of h-screen) */
+  isOverlay?: boolean;
 }
 
-export function DocumentViewer({ document, onBack, onChatWithDocument, currentPlan, onUpgrade, onUploadRenewal, onNavigateToDocument }: DocumentViewerProps) {
+export function DocumentViewer({ document, onBack, onChatWithDocument, currentPlan, onUpgrade, onUploadRenewal, onNavigateToDocument, preloadedBlobUrl, hideDownload, isOverlay }: DocumentViewerProps) {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -29,8 +35,9 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
   const [newerVersion, setNewerVersion] = useState<{ id: string; name: string } | null>(null);
   const feedback = useFeedback();
 
-  // Fetch renewal chain relationships
+  // Fetch renewal chain relationships (skip for preloaded/shared docs)
   useEffect(() => {
+    if (preloadedBlobUrl) return;
     let cancelled = false;
     (async () => {
       try {
@@ -52,6 +59,13 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
   }, [document.id]);
 
   const loadDocument = useCallback(async () => {
+    // When a preloaded blob URL is provided (e.g. shared docs), skip fetching
+    if (preloadedBlobUrl) {
+      setBlobUrl(preloadedBlobUrl);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
@@ -161,22 +175,22 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
     } finally {
       setIsLoading(false);
     }
-  }, [document]);
+  }, [document, preloadedBlobUrl]);
 
   useEffect(() => {
     console.log('DocumentViewer mounted or document changed');
     loadDocument();
   }, [loadDocument]);
 
-  // Separate effect for cleanup
+  // Separate effect for cleanup (don't revoke preloaded URLs — caller owns them)
   useEffect(() => {
     return () => {
-      if (blobUrl) {
+      if (blobUrl && blobUrl !== preloadedBlobUrl) {
         console.log('Revoking object URL:', blobUrl);
         URL.revokeObjectURL(blobUrl);
       }
     };
-  }, [blobUrl]);
+  }, [blobUrl, preloadedBlobUrl]);
 
   const handleDownload = async () => {
     // Check if we're in a browser environment
@@ -288,7 +302,7 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 h-screen flex flex-col">
+    <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${isOverlay ? 'h-full' : 'h-screen'} flex flex-col`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
@@ -312,24 +326,26 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => isPro ? setShowHealthPanel(!showHealthPanel) : onUpgrade?.()}
-            className={`relative flex items-center space-x-2 px-3 py-2 rounded-lg font-medium text-sm transition-all border ${
-              showHealthPanel && isPro
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-200'
-            }`}
-            title={isPro ? (showHealthPanel ? 'Hide health panel' : 'Show health panel') : 'Upgrade to Pro to access Document Health'}
-          >
-            {showHealthPanel && isPro ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-            <span className="hidden sm:inline">Health</span>
-            {!isPro && (
-              <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none shadow-sm">
-                <Crown className="h-2 w-2" />
-                PRO
-              </span>
-            )}
-          </button>
+          {!preloadedBlobUrl && (
+            <button
+              onClick={() => isPro ? setShowHealthPanel(!showHealthPanel) : onUpgrade?.()}
+              className={`relative flex items-center space-x-2 px-3 py-2 rounded-lg font-medium text-sm transition-all border ${
+                showHealthPanel && isPro
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-200'
+              }`}
+              title={isPro ? (showHealthPanel ? 'Hide health panel' : 'Show health panel') : 'Upgrade to Pro to access Document Health'}
+            >
+              {showHealthPanel && isPro ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+              <span className="hidden sm:inline">Health</span>
+              {!isPro && (
+                <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none shadow-sm">
+                  <Crown className="h-2 w-2" />
+                  PRO
+                </span>
+              )}
+            </button>
+          )}
           {onChatWithDocument && (
             <button
               onClick={onChatWithDocument}
@@ -340,14 +356,16 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
               <span className="hidden sm:inline">Chat</span>
             </button>
           )}
-          <button
-            onClick={handleDownload}
-            disabled={!blobUrl && !documentUrl}
-            className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
-          >
-            <Download className="h-4 w-4" />
-            <span>Download</span>
-          </button>
+          {!hideDownload && (
+            <button
+              onClick={handleDownload}
+              disabled={!blobUrl && !documentUrl}
+              className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md disabled:shadow-none"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download</span>
+            </button>
+          )}
         </div>
       </div>
 

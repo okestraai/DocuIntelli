@@ -5,8 +5,8 @@ import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { DocumentVault } from './components/DocumentVault';
 import { UpgradeModal } from './components/UpgradeModal';
-import { ProFeatureGate } from './components/ProFeatureGate';
-import { Compass, ClipboardCheck, Landmark } from 'lucide-react';
+
+
 import { AuthModal } from './components/AuthModal';
 import { UploadModal } from './components/UploadModal';
 import { NotificationsModal } from './components/NotificationsModal';
@@ -24,6 +24,7 @@ import { GlobalSearch } from './components/GlobalSearch';
 import { DunningBanner } from './components/DunningBanner';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { checkAdminStatus } from './lib/adminApi';
+import { getSharedWithMe } from './lib/emergencyAccessApi';
 import { debugDelete } from './utils/deleteDebug';
 import { getPageTitle } from './utils/seoTitles';
 
@@ -46,11 +47,12 @@ const SecurityPolicyPage = React.lazy(() => import('./components/SecurityPolicyP
 const DataRetentionPolicyPage = React.lazy(() => import('./components/DataRetentionPolicyPage').then(m => ({ default: m.DataRetentionPolicyPage })));
 const VulnerabilityManagementPage = React.lazy(() => import('./components/VulnerabilityManagementPage').then(m => ({ default: m.VulnerabilityManagementPage })));
 const AdminPage = React.lazy(() => import('./components/AdminPage').then(m => ({ default: m.AdminPage })));
+const EmergencyInvitePage = React.lazy(() => import('./components/EmergencyInvitePage').then(m => ({ default: m.EmergencyInvitePage })));
 
-export type Page = 'landing' | 'dashboard' | 'vault' | 'pricing' | 'settings' | 'audit' | 'life-events' | 'financial-insights' | 'admin' | 'terms' | 'privacy' | 'cookies' | 'help' | 'status' | 'features' | 'beta' | 'security-policy' | 'data-retention' | 'vulnerability-management';
+export type Page = 'landing' | 'dashboard' | 'vault' | 'pricing' | 'settings' | 'audit' | 'life-events' | 'financial-insights' | 'admin' | 'terms' | 'privacy' | 'cookies' | 'help' | 'status' | 'features' | 'beta' | 'security-policy' | 'data-retention' | 'vulnerability-management' | 'emergency-invite';
 
 // Path-based routing helpers
-const VALID_PAGES: Page[] = ['dashboard', 'vault', 'pricing', 'settings', 'audit', 'life-events', 'financial-insights', 'admin', 'terms', 'privacy', 'cookies', 'help', 'status', 'features', 'beta', 'security-policy', 'data-retention', 'vulnerability-management'];
+const VALID_PAGES: Page[] = ['dashboard', 'vault', 'pricing', 'settings', 'audit', 'life-events', 'financial-insights', 'admin', 'terms', 'privacy', 'cookies', 'help', 'status', 'features', 'beta', 'security-policy', 'data-retention', 'vulnerability-management', 'emergency-invite'];
 
 function getPageFromPath(): Page | null {
   const path = window.location.pathname.replace(/^\//, ''); // strip leading /
@@ -63,8 +65,9 @@ function getPageFromPath(): Page | null {
 function navigateTo(page: Page, replace = false) {
   const target = page === 'landing' ? '/' : `/${page}`;
   if (replace) {
-    // Always replace when asked — cleans query params even when pathname matches
-    window.history.replaceState(null, '', target);
+    // Preserve query params when replacing to the same page (e.g., ?token= for invite links)
+    const search = window.location.pathname === target ? window.location.search : '';
+    window.history.replaceState(null, '', target + search);
   } else if (window.location.pathname !== target) {
     window.history.pushState(null, '', target);
   }
@@ -94,6 +97,7 @@ function App() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'documents' | 'ai-questions' | 'monthly-uploads' | 'features'>('features');
+  const [upgradeRequiredPlan, setUpgradeRequiredPlan] = useState<'starter' | 'pro'>('starter');
   const [pendingUpgradePlan, setPendingUpgradePlan] = useState<'starter' | 'pro' | null>(null);
   const [upgradePreviewData, setUpgradePreviewData] = useState<{ prorated_amount_display?: string; new_plan_price_display?: string } | null>(null);
   const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false);
@@ -107,12 +111,13 @@ function App() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'security' | 'preferences' | 'billing'>('profile');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'security' | 'preferences' | 'billing' | 'support'>('profile');
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const hasInitialAuth = useRef(false);
   const [dashboardDataVersion, setDashboardDataVersion] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [hasSharedAccess, setHasSharedAccess] = useState(false);
 
   // Capture Stripe redirect params synchronously during first render,
   // BEFORE any useEffect (auth, realtime, etc.) can modify the URL.
@@ -316,7 +321,13 @@ function App() {
     });
     // Check admin status (non-blocking)
     checkAdminStatus().then(setIsAdmin).catch(() => setIsAdmin(false));
+    // Check if user has any shared access (non-blocking)
+    refreshSharedAccess();
   }, [isAuthenticated]);
+
+  const refreshSharedAccess = useCallback(() => {
+    getSharedWithMe().then(events => setHasSharedAccess(events.length > 0)).catch(() => setHasSharedAccess(false));
+  }, []);
 
   // Handle Stripe checkout success/cancel/portal return.
   // Params were captured synchronously during first render (stripeRedirectParams ref).
@@ -389,6 +400,13 @@ function App() {
   const handleAuth = () => {
     setIsAuthenticated(true);
     setShowAuthModal(false);
+    // Check if there's a pending invite redirect
+    const pendingInvite = sessionStorage.getItem('pending_invite_redirect');
+    if (pendingInvite) {
+      sessionStorage.removeItem('pending_invite_redirect');
+      window.location.href = pendingInvite;
+      return;
+    }
     navigateTo('dashboard', true);
     setCurrentPage('dashboard');
   };
@@ -484,8 +502,9 @@ function App() {
     }
   };
 
-  const handleUpgradeNeeded = (reason: 'documents' | 'ai-questions' | 'monthly-uploads' | 'features' = 'features') => {
+  const handleUpgradeNeeded = (reason: 'documents' | 'ai-questions' | 'monthly-uploads' | 'features' = 'features', requiredPlan: 'starter' | 'pro' = 'starter') => {
     setUpgradeReason(reason);
+    setUpgradeRequiredPlan(requiredPlan);
     setShowUpgradeModal(true);
   };
 
@@ -592,6 +611,20 @@ function App() {
     if (currentPage === 'data-retention') return <DataRetentionPolicyPage onBack={publicBack} />;
     if (currentPage === 'vulnerability-management') return <VulnerabilityManagementPage onBack={publicBack} />;
 
+    // Emergency invite page — accessible to both auth and non-auth users
+    if (currentPage === 'emergency-invite') {
+      return (
+        <ErrorBoundary>
+          <EmergencyInvitePage
+            isAuthenticated={isAuthenticated}
+            onNavigate={(page: string) => handleNavigate(page as Page)}
+            onShowAuth={() => setShowAuthModal(true)}
+            onAccessChanged={refreshSharedAccess}
+          />
+        </ErrorBoundary>
+      );
+    }
+
     // Show pricing page if requested, even when not authenticated
     if (currentPage === 'pricing' && !isAuthenticated) {
       return (
@@ -663,7 +696,7 @@ function App() {
       case 'settings':
         return (
           <ErrorBoundary>
-            <AccountSettingsPage initialTab={settingsInitialTab} onSubscriptionChange={refreshSubscription} />
+            <AccountSettingsPage initialTab={settingsInitialTab} onSubscriptionChange={refreshSubscription} currentPlan={subscription?.plan} />
           </ErrorBoundary>
         );
       case 'dashboard':
@@ -701,26 +734,6 @@ function App() {
           </ErrorBoundary>
         );
       case 'audit':
-        if (subscriptionLoading) {
-          return <PageSkeleton title="Weekly Audit" />;
-        }
-        if (!subscription || subscription.plan === 'free') {
-          return (
-            <ErrorBoundary>
-              <ProFeatureGate
-                featureName="Weekly Audit"
-                featureDescription="Automated weekly audits of your document vault to spot gaps, expirations, and action items. Available on Starter and Pro plans."
-                featureIcon={ClipboardCheck}
-                onUpgrade={() => handleUpgradeNeeded('features')}
-                requiredPlan="starter"
-              >
-                <WeeklyAudit
-                  onNavigateToDocument={() => {}}
-                />
-              </ProFeatureGate>
-            </ErrorBoundary>
-          );
-        }
         return (
           <ErrorBoundary>
             <WeeklyAudit
@@ -731,35 +744,24 @@ function App() {
             />
           </ErrorBoundary>
         );
-      case 'life-events':
+      case 'life-events': {
         if (subscriptionLoading) {
           return <PageSkeleton title="Life Events" />;
         }
-        if (!subscription || subscription.plan !== 'pro') {
-          return (
-            <ErrorBoundary>
-              <ProFeatureGate
-                featureName="Life Events"
-                featureDescription="Plan for major life events with smart document checklists that auto-match your existing documents."
-                featureIcon={Compass}
-                onUpgrade={() => handleUpgradeNeeded('features')}
-              >
-                <LifeEventsPage
-                  documents={documents}
-                  onShowUpload={() => {}}
-                />
-              </ProFeatureGate>
-            </ErrorBoundary>
-          );
-        }
+        const isProPlan = subscription?.plan === 'pro';
         return (
           <ErrorBoundary>
             <LifeEventsPage
               documents={documents}
-              onShowUpload={() => setShowUploadModal(true)}
+              onShowUpload={isProPlan ? () => setShowUploadModal(true) : () => {}}
+              hasSharedAccess={hasSharedAccess}
+              isPro={isProPlan}
+              currentPlan={subscription?.plan}
+              onUpgrade={() => handleUpgradeNeeded('features', 'pro')}
             />
           </ErrorBoundary>
         );
+      }
       case 'admin':
         if (!isAdmin) {
           return (
@@ -789,24 +791,9 @@ function App() {
         if (subscriptionLoading) {
           return <PageSkeleton title="Financial Insights" />;
         }
-        if (!subscription || subscription.plan === 'free') {
-          return (
-            <ErrorBoundary>
-              <ProFeatureGate
-                featureName="Financial Insights"
-                featureDescription="Connect your bank account for AI-powered spending analysis, recurring bill detection, and personalized financial recommendations."
-                featureIcon={Landmark}
-                onUpgrade={() => handleUpgradeNeeded('features')}
-                requiredPlan="starter"
-              >
-                <FinancialInsightsPage onUpgrade={() => handleUpgradeNeeded('features')} onAccountsChanged={handleAccountsChanged} />
-              </ProFeatureGate>
-            </ErrorBoundary>
-          );
-        }
         return (
           <ErrorBoundary>
-            <FinancialInsightsPage onUpgrade={() => handleUpgradeNeeded('features')} onAccountsChanged={handleAccountsChanged} />
+            <FinancialInsightsPage onUpgrade={() => handleUpgradeNeeded('features', 'starter')} onAccountsChanged={handleAccountsChanged} />
           </ErrorBoundary>
         );
       default:
@@ -901,6 +888,7 @@ function App() {
           onClose={() => setShowUpgradeModal(false)}
           onUpgrade={handleSelectPlan}
           reason={upgradeReason}
+          requiredPlan={upgradeRequiredPlan}
           currentPlan={subscription.plan}
           currentUsage={{
             documents: documentCount,

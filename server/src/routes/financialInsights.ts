@@ -18,6 +18,13 @@ import {
 import { generateAIInsights, invalidateInsightsCache } from '../services/financialAnalyzer';
 import { detectLoanPayments } from '../services/loanDetector';
 import { analyzeLoanDocument } from '../services/loanAnalyzer';
+import {
+  getTagOptions,
+  addTransactionTag,
+  removeTransactionTag,
+  setIncomeStreamTag,
+  removeIncomeStreamTag,
+} from '../services/transactionTagService';
 import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
 import { sendNotificationEmail } from '../services/emailService';
 import { query } from '../services/db';
@@ -183,6 +190,112 @@ router.get('/transactions-by-category', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching transactions by category:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+// ── Transaction & Income Tagging ─────────────────────────────────
+
+/** Lightweight invalidation for tag changes (skip accounts/goals) */
+async function invalidateTagCaches(userId: string): Promise<void> {
+  await Promise.all([
+    cacheDel(`fin_summary:${userId}`),
+    invalidateInsightsCache(userId),
+  ]);
+}
+
+/**
+ * GET /api/financial/tag-options
+ * Get predefined tag lists for transactions and income streams
+ */
+router.get('/tag-options', (_req: Request, res: Response) => {
+  res.json({ success: true, ...getTagOptions() });
+});
+
+/**
+ * POST /api/financial/transactions/:transactionId/tags
+ * Add a user tag to a transaction
+ */
+router.post('/transactions/:transactionId/tags', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { transactionId } = req.params;
+    const { tag } = req.body;
+
+    if (!tag || typeof tag !== 'string') {
+      res.status(400).json({ error: 'tag is required' });
+      return;
+    }
+
+    await addTransactionTag(userId, transactionId, tag.trim());
+    await invalidateTagCaches(userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding transaction tag:', error);
+    res.status(500).json({ error: 'Failed to add tag' });
+  }
+});
+
+/**
+ * DELETE /api/financial/transactions/:transactionId/tags/:tag
+ * Remove a user tag from a transaction
+ */
+router.delete('/transactions/:transactionId/tags/:tag', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { transactionId, tag } = req.params;
+
+    await removeTransactionTag(userId, transactionId, decodeURIComponent(tag));
+    await invalidateTagCaches(userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing transaction tag:', error);
+    res.status(500).json({ error: 'Failed to remove tag' });
+  }
+});
+
+/**
+ * POST /api/financial/income-streams/tags
+ * Add/update a tag on an income stream
+ */
+router.post('/income-streams/tags', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { merchant_stem, tag, is_salary_override } = req.body;
+
+    if (!merchant_stem || !tag) {
+      res.status(400).json({ error: 'merchant_stem and tag are required' });
+      return;
+    }
+
+    await setIncomeStreamTag(userId, merchant_stem, tag.trim(), is_salary_override);
+    await invalidateTagCaches(userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error setting income stream tag:', error);
+    res.status(500).json({ error: 'Failed to set income tag' });
+  }
+});
+
+/**
+ * DELETE /api/financial/income-streams/tags
+ * Remove a tag from an income stream
+ */
+router.delete('/income-streams/tags', async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { merchant_stem, tag } = req.body;
+
+    if (!merchant_stem || !tag) {
+      res.status(400).json({ error: 'merchant_stem and tag are required' });
+      return;
+    }
+
+    await removeIncomeStreamTag(userId, merchant_stem, tag);
+    await invalidateTagCaches(userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing income stream tag:', error);
+    res.status(500).json({ error: 'Failed to remove income tag' });
   }
 });
 

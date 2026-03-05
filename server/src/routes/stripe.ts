@@ -1301,7 +1301,13 @@ async function syncCustomerFromStripe(customerId: string): Promise<void> {
     );
 
     // Update user_subscriptions table
-    const subscriptionStatus = subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'expired';
+    // Derive 'canceling' status when Stripe says cancel_at_period_end is true
+    const subscriptionStatus =
+      (subscription.status === 'active' || subscription.status === 'trialing') && subscription.cancel_at_period_end
+        ? 'canceling'
+        : subscription.status === 'active' || subscription.status === 'trialing'
+          ? 'active'
+          : 'expired';
 
     await query(
       `UPDATE user_subscriptions SET

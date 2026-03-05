@@ -9,7 +9,7 @@ import { Stack, router, useFocusEffect } from 'expo-router';
 import {
   Compass, Plus, ChevronRight, ChevronLeft, CheckCircle, AlertTriangle,
   Clock, Archive, ArrowLeft, Home, Heart, Briefcase, Baby, GraduationCap,
-  Plane, FileText, RefreshCw,
+  Plane, FileText, RefreshCw, Users,
 } from 'lucide-react-native';
 import {
   getTemplates, getEvents, createEvent, getEventDetail,
@@ -19,7 +19,7 @@ import {
 } from '../src/lib/lifeEventsApi';
 import { useAuth } from '../src/hooks/useAuth';
 import { useSubscription } from '../src/hooks/useSubscription';
-import ProFeatureGate from '../src/components/ProFeatureGate';
+
 import { useDocuments } from '../src/hooks/useDocuments';
 import Button from '../src/components/ui/Button';
 import Card from '../src/components/ui/Card';
@@ -27,11 +27,15 @@ import Badge from '../src/components/ui/Badge';
 import GradientIcon from '../src/components/ui/GradientIcon';
 import LoadingSpinner from '../src/components/ui/LoadingSpinner';
 import { useToast } from '../src/contexts/ToastContext';
+import EmergencyAccessPanel from '../src/components/EmergencyAccessPanel';
+import { SharedWithMeSection } from './shared-with-me';
+import { getSharedWithMe } from '../src/lib/emergencyAccessApi';
 import { colors } from '../src/theme/colors';
 import { typography } from '../src/theme/typography';
 import { spacing, borderRadius } from '../src/theme/spacing';
 
-type SubView = 'list' | 'intake' | 'detail';
+type SubView = 'list' | 'intake' | 'detail' | 'create-custom';
+type ListTab = 'my-events' | 'shared';
 
 // Status badge variant mapping
 const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
@@ -164,18 +168,27 @@ export default function LifeEventsScreen() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
+  // Custom event state
+  const [customEventTitle, setCustomEventTitle] = useState('');
+
+  // Tab state for list view
+  const [listTab, setListTab] = useState<ListTab>('my-events');
+  const [hasSharedAccess, setHasSharedAccess] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [tmpl, evts, archived] = await Promise.all([
+      const [tmpl, evts, archived, shared] = await Promise.all([
         getTemplates(),
         getEvents(),
         getEvents('archived'),
+        getSharedWithMe().catch(() => []),
       ]);
       setTemplates(tmpl);
       setEvents(evts);
       setArchivedEvents(archived);
+      setHasSharedAccess(shared.length > 0);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -187,6 +200,7 @@ export default function LifeEventsScreen() {
 
   // Handlers
   const handleStartEvent = (templateId: string) => {
+    if (!isPro) { router.push('/billing'); return; }
     setSelectedTemplateId(templateId);
     setIntakeAnswers({});
     const tmpl = templates.find(t => t.id === templateId);
@@ -194,6 +208,29 @@ export default function LifeEventsScreen() {
       setSubView('intake');
     } else {
       handleCreateEvent(templateId, {});
+    }
+  };
+
+  const handleStartCustomEvent = () => {
+    if (!isPro) { router.push('/billing'); return; }
+    setCustomEventTitle('');
+    setSubView('create-custom');
+  };
+
+  const handleCreateCustomEvent = async () => {
+    if (!customEventTitle.trim()) { showToast('Please enter a title', 'error'); return; }
+    try {
+      setDetailLoading(true);
+      const result = await createEvent('custom', {}, customEventTitle.trim());
+      const detail = await getEventDetail(result.event.id);
+      setEventDetail(detail);
+      setSubView('detail');
+      showToast('Custom event created', 'success');
+      getEvents().then(setEvents).catch(() => {});
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create event', 'error');
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -279,20 +316,6 @@ export default function LifeEventsScreen() {
     </>
   );
 
-  if (!isPro) {
-    return (
-      <>
-        <Stack.Screen options={{ title: 'Life Events', headerShown: true }} />
-        <ProFeatureGate
-          featureName="Life Events"
-          featureDescription="Plan for life's big moments with personalized document checklists. Track your readiness for moves, marriages, new jobs, and more."
-          onUpgrade={() => router.push('/billing')}
-          requiredPlan="pro"
-        />
-      </>
-    );
-  }
-
   if (loading) return (
     <>
       <Stack.Screen options={{ title: 'Life Events', headerShown: true }} />
@@ -306,6 +329,36 @@ export default function LifeEventsScreen() {
       <>
         <Stack.Screen options={{ title: 'Life Events', headerShown: true }} />
         <SafeAreaView style={styles.safe} edges={['bottom']}>
+          {/* Tab toggle — shown when user has shared access */}
+          {hasSharedAccess && (
+            <View style={styles.tabRow}>
+              <TouchableOpacity
+                onPress={() => setListTab('my-events')}
+                style={[styles.tabButton, listTab === 'my-events' && styles.tabButtonActive]}
+                activeOpacity={0.7}
+              >
+                <Compass size={14} color={listTab === 'my-events' ? colors.slate[900] : colors.slate[500]} strokeWidth={2} />
+                <Text style={[styles.tabButtonText, listTab === 'my-events' && styles.tabButtonTextActive]}>
+                  My Events
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setListTab('shared')}
+                style={[styles.tabButton, listTab === 'shared' && styles.tabButtonActive]}
+                activeOpacity={0.7}
+              >
+                <Users size={14} color={listTab === 'shared' ? colors.slate[900] : colors.slate[500]} strokeWidth={2} />
+                <Text style={[styles.tabButtonText, listTab === 'shared' && styles.tabButtonTextActive]}>
+                  Shared With Me
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Shared With Me tab */}
+          {listTab === 'shared' && hasSharedAccess ? (
+            <SharedWithMeSection />
+          ) : (
           <ScrollView
             contentContainerStyle={styles.scroll}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} tintColor={colors.primary[600]} />}
@@ -428,6 +481,29 @@ export default function LifeEventsScreen() {
                   </Card>
                 </TouchableOpacity>
               ))}
+
+              {/* Create Your Own card */}
+              <TouchableOpacity
+                onPress={handleStartCustomEvent}
+                activeOpacity={0.7}
+              >
+                <View style={styles.customEventCard}>
+                  <View style={styles.templateCardRow}>
+                    <View style={styles.customIconBox}>
+                      <Plus size={22} color={colors.primary[600]} strokeWidth={2} />
+                    </View>
+                    <View style={styles.templateInfoCol}>
+                      <Text style={styles.templateName}>Create Your Own</Text>
+                      <Text style={styles.templateDesc} numberOfLines={2}>
+                        Build a custom checklist for any life event
+                      </Text>
+                    </View>
+                    <View style={styles.templateArrow}>
+                      <ChevronRight size={18} color={colors.primary[600]} strokeWidth={2} />
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* Archived events */}
@@ -484,6 +560,7 @@ export default function LifeEventsScreen() {
               </Text>
             </View>
           </ScrollView>
+          )}
         </SafeAreaView>
       </>
     );
@@ -594,6 +671,95 @@ export default function LifeEventsScreen() {
                   onPress={() => handleCreateEvent(selectedTemplateId, intakeAnswers)}
                   loading={detailLoading}
                   disabled={detailLoading}
+                  style={{ flex: 2 }}
+                  iconRight={<ChevronRight size={16} color={colors.white} strokeWidth={2} />}
+                />
+              </View>
+            </Card>
+          </ScrollView>
+        </SafeAreaView>
+      </>
+    );
+  }
+
+  // ── CREATE CUSTOM VIEW ──────────────────────────────────────────────
+  if (subView === 'create-custom') {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Create Custom Event', headerShown: true }} />
+        <SafeAreaView style={styles.safe} edges={['bottom']}>
+          <ScrollView contentContainerStyle={styles.scroll}>
+            {/* Back button */}
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setSubView('list')}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={18} color={colors.slate[600]} strokeWidth={2} />
+              <Text style={styles.backButtonText}>Back to events</Text>
+            </TouchableOpacity>
+
+            <Card>
+              <View style={styles.intakeHeader}>
+                <View style={styles.customIconBoxLarge}>
+                  <Plus size={28} color={colors.primary[600]} strokeWidth={2} />
+                </View>
+                <Text style={styles.intakeTitle}>Create Your Own Event</Text>
+                <Text style={styles.intakeSubtitle}>
+                  Build a custom document checklist for any life event.
+                </Text>
+              </View>
+
+              <View style={styles.intakeDivider} />
+
+              <View style={styles.customFormField}>
+                <Text style={styles.customFormLabel}>Event Title *</Text>
+                <TextInput
+                  style={styles.customFormInput}
+                  placeholder="e.g., Getting Married, Starting College..."
+                  placeholderTextColor={colors.slate[400]}
+                  value={customEventTitle}
+                  onChangeText={setCustomEventTitle}
+                  autoFocus
+                />
+              </View>
+
+              {/* How it works info */}
+              <View style={styles.customInfoBox}>
+                <Text style={styles.customInfoTitle}>How it works</Text>
+                <View style={styles.customInfoItem}>
+                  <Text style={styles.customInfoBullet}>1.</Text>
+                  <Text style={styles.customInfoText}>
+                    Give your event a name above
+                  </Text>
+                </View>
+                <View style={styles.customInfoItem}>
+                  <Text style={styles.customInfoBullet}>2.</Text>
+                  <Text style={styles.customInfoText}>
+                    Use "Add Custom Document" in the detail view to build your checklist
+                  </Text>
+                </View>
+                <View style={styles.customInfoItem}>
+                  <Text style={styles.customInfoBullet}>3.</Text>
+                  <Text style={styles.customInfoText}>
+                    Match your uploaded documents to track readiness
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.intakeActions}>
+                <Button
+                  title="Cancel"
+                  onPress={() => setSubView('list')}
+                  variant="outline"
+                  style={{ flex: 1 }}
+                  icon={<ChevronLeft size={16} color={colors.slate[700]} strokeWidth={2} />}
+                />
+                <Button
+                  title="Create Event"
+                  onPress={handleCreateCustomEvent}
+                  loading={detailLoading}
+                  disabled={detailLoading || !customEventTitle.trim()}
                   style={{ flex: 2 }}
                   iconRight={<ChevronRight size={16} color={colors.white} strokeWidth={2} />}
                 />
@@ -751,6 +917,12 @@ export default function LifeEventsScreen() {
                   />
                 )}
               </View>
+
+              {/* Emergency Access — inline in header card */}
+              <EmergencyAccessPanel
+                lifeEventId={event.id}
+                lifeEventTitle={event.title || eventDetail.event.templateName || 'Life Event'}
+              />
             </Card>
 
             {/* Status filter chips */}
@@ -893,6 +1065,43 @@ export default function LifeEventsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.slate[50] },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
+
+  // Tab toggle
+  tabRow: {
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+    backgroundColor: colors.slate[100],
+    borderRadius: borderRadius.xl,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.lg,
+  },
+  tabButtonActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tabButtonText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.slate[500],
+  },
+  tabButtonTextActive: {
+    color: colors.slate[900],
+    fontWeight: typography.fontWeight.semibold,
+  },
 
   // Header
   headerSection: { marginBottom: spacing.xs },
@@ -1478,6 +1687,88 @@ const styles = StyleSheet.create({
   emptyFilterText: {
     fontSize: typography.fontSize.sm,
     color: colors.slate[500],
+  },
+
+  // Custom event card
+  customEventCard: {
+    borderWidth: 2,
+    borderColor: colors.primary[200],
+    borderStyle: 'dashed',
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.primary[50],
+    padding: spacing.lg,
+  },
+  customIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.primary[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary[200],
+    borderStyle: 'dashed',
+  },
+  customIconBoxLarge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary[200],
+  },
+
+  // Custom form
+  customFormField: {
+    marginBottom: spacing.lg,
+  },
+  customFormLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.slate[800],
+    marginBottom: spacing.sm,
+  },
+  customFormInput: {
+    borderWidth: 1,
+    borderColor: colors.slate[300],
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: typography.fontSize.base,
+    color: colors.slate[900],
+    backgroundColor: colors.white,
+  },
+  customInfoBox: {
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[100],
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  customInfoTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[800],
+    marginBottom: spacing.xs,
+  },
+  customInfoItem: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  customInfoBullet: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
+  },
+  customInfoText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.primary[700],
+    flex: 1,
+    lineHeight: 20,
   },
 
   // Disclaimer

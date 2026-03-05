@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, string> = {
   'security-policy': 'Information Security Policy — DocuIntelli AI',
   'data-retention': 'Data Retention Policy — DocuIntelli AI',
   'vulnerability-management': 'Vulnerability Management — DocuIntelli AI',
+  'emergency-invite': 'Emergency Access Invitation — DocuIntelli AI',
 };
 
 export function getPageTitle(page: string): string {

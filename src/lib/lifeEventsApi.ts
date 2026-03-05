@@ -146,11 +146,12 @@ export async function getEvents(status = 'active'): Promise<LifeEvent[]> {
 
 export async function createEvent(
   templateId: string,
-  intakeAnswers: Record<string, string>
+  intakeAnswers: Record<string, string>,
+  title?: string
 ): Promise<{ event: LifeEvent; readiness: ReadinessData }> {
   return apiFetch('/', {
     method: 'POST',
-    body: JSON.stringify({ template_id: templateId, intake_answers: intakeAnswers }),
+    body: JSON.stringify({ template_id: templateId, intake_answers: intakeAnswers, ...(title ? { title } : {}) }),
   });
 }
 

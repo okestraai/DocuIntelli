@@ -14,6 +14,7 @@ import { sendNotificationEmail, resolveUserInfo } from './emailService';
 import { processDocumentVLLMEmbeddings } from './vllmEmbeddings';
 import { generateDocumentTags } from './tagGeneration';
 import { runDunningEscalation } from './dunningService';
+import { autoGrantExpiredCooldowns, sendCooldownReminders, reverifyStaleContacts } from './emergencyAccessService';
 
 // ============================================================================
 // Types
@@ -996,7 +997,28 @@ export function startScheduler(): void {
     { timezone: TIMEZONE },
   );
 
-  console.log('[SCHEDULER] All 11 cron jobs registered');
+  // Task 12: Emergency Access Auto-Grant — every 15 minutes
+  cron.schedule(
+    '*/15 * * * *',
+    wrapTask('emergency-auto-grant', runEmergencyAutoGrant),
+    { timezone: TIMEZONE },
+  );
+
+  // Task 13: Emergency Cooldown Reminders — hourly
+  cron.schedule(
+    '0 * * * *',
+    wrapTask('emergency-cooldown-reminders', runEmergencyCooldownReminders),
+    { timezone: TIMEZONE },
+  );
+
+  // Task 14: Trusted Contact Re-verification — 1st of month 10am UTC
+  cron.schedule(
+    '0 10 1 * *',
+    wrapTask('contact-reverification', runContactReverification),
+    { timezone: TIMEZONE },
+  );
+
+  console.log('[SCHEDULER] All 14 cron jobs registered');
   console.log('[SCHEDULER] Schedule summary:');
   console.log('  00:05 UTC daily     — AI questions reset');
   console.log('  00:30 UTC daily     — Preparedness snapshots');
@@ -1009,6 +1031,28 @@ export function startScheduler(): void {
   console.log('  09:00 UTC Mon       — Review cadence reminders');
   console.log('  22:00 UTC Sun       — Weekly audit email');
   console.log('  Every 30 min        — Stuck docs processing');
+  console.log('  Every 15 min        — Emergency access auto-grant');
+  console.log('  Every hour          — Emergency cooldown reminders');
+  console.log('  10:00 UTC 1st/mo    — Contact re-verification');
+}
+
+// ============================================================================
+// Emergency Access Tasks
+// ============================================================================
+
+async function runEmergencyAutoGrant(): Promise<Record<string, unknown>> {
+  const granted = await autoGrantExpiredCooldowns();
+  return { auto_granted: granted };
+}
+
+async function runEmergencyCooldownReminders(): Promise<Record<string, unknown>> {
+  const sent = await sendCooldownReminders();
+  return { reminders_sent: sent };
+}
+
+async function runContactReverification(): Promise<Record<string, unknown>> {
+  const stale = await reverifyStaleContacts();
+  return { stale_contacts: stale };
 }
 
 // ============================================================================
@@ -1027,7 +1071,10 @@ export const cronTasks: Record<string, (userId?: string) => Promise<Record<strin
   'goal-deadline-check': runGoalDeadlineCheck,
   'ai-questions-reset': runAIQuestionsReset,
   'data-cleanup': runDataCleanup,
+  'emergency-auto-grant': runEmergencyAutoGrant,
+  'emergency-cooldown-reminders': runEmergencyCooldownReminders,
+  'contact-reverification': runContactReverification,
 };
 
 // Jobs that ignore userId (operate globally)
-export const GLOBAL_ONLY_JOBS = new Set(['dunning-escalation', 'data-cleanup']);
+export const GLOBAL_ONLY_JOBS = new Set(['dunning-escalation', 'data-cleanup', 'emergency-auto-grant', 'emergency-cooldown-reminders', 'contact-reverification']);

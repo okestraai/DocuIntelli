@@ -58,10 +58,12 @@ export interface RecurringBill {
 
 export interface IncomeStream {
   source: string;
+  merchant_stem: string;
   average_amount: number;
   monthly_amount: number;
   frequency: string;
   is_salary: boolean;
+  user_tags: string[];
   last_date: string;
 }
 
@@ -96,11 +98,13 @@ export interface FinancialSummary {
 }
 
 export interface TransactionDetail {
+  transaction_id: string;
   name: string;
   merchant_name: string | null;
   amount: number;
   date: string;
   category_detailed: string | null;
+  user_tags: string[];
 }
 
 export interface DetectedLoanPrompt {
@@ -394,6 +398,92 @@ export async function cancelConnection(itemId: string): Promise<void> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to cancel connection' }));
+    throw new Error(err.error || err.message);
+  }
+}
+
+// ── Transaction & Income Tagging ────────────────────────────────
+
+/** Get predefined tag options */
+export async function getTagOptions(): Promise<{ transaction_tags: string[]; income_tags: string[] }> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(`${API_BASE}/api/financial/tag-options`, { headers });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to load tag options' }));
+    throw new Error(err.error || err.message);
+  }
+
+  return res.json();
+}
+
+/** Add a tag to a transaction */
+export async function addTransactionTag(transactionId: string, tag: string): Promise<void> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(
+    `${API_BASE}/api/financial/transactions/${encodeURIComponent(transactionId)}/tags`,
+    { method: 'POST', headers, body: JSON.stringify({ tag }) },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to add tag' }));
+    throw new Error(err.error || err.message);
+  }
+}
+
+/** Remove a tag from a transaction */
+export async function removeTransactionTag(transactionId: string, tag: string): Promise<void> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(
+    `${API_BASE}/api/financial/transactions/${encodeURIComponent(transactionId)}/tags/${encodeURIComponent(tag)}`,
+    { method: 'DELETE', headers },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to remove tag' }));
+    throw new Error(err.error || err.message);
+  }
+}
+
+/** Add/update a tag on an income stream */
+export async function addIncomeStreamTag(
+  merchantStem: string,
+  tag: string,
+  isSalaryOverride?: boolean,
+): Promise<void> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(`${API_BASE}/api/financial/income-streams/tags`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      merchant_stem: merchantStem,
+      tag,
+      ...(isSalaryOverride !== undefined && { is_salary_override: isSalaryOverride }),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to set income tag' }));
+    throw new Error(err.error || err.message);
+  }
+}
+
+/** Remove a tag from an income stream */
+export async function removeIncomeStreamTag(merchantStem: string, tag: string): Promise<void> {
+  const session = await getSession();
+  const headers = await backendHeaders(session.access_token);
+  const res = await fetch(`${API_BASE}/api/financial/income-streams/tags`, {
+    method: 'DELETE',
+    headers,
+    body: JSON.stringify({ merchant_stem: merchantStem, tag }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to remove income tag' }));
     throw new Error(err.error || err.message);
   }
 }

@@ -310,7 +310,7 @@ function ManageSubscriptionTab({ subscription, paymentMethods, onManage, getPlan
     }
   };
 
-  const isCanceling = subscription?.status === 'canceling';
+  const isCanceling = subscription?.status === 'canceling' || subscription?.cancel_at_period_end === true;
 
   const handleCancelSubscription = async () => {
     setIsProcessing(true);
@@ -504,7 +504,7 @@ function ManageSubscriptionTab({ subscription, paymentMethods, onManage, getPlan
               <p className="text-white/90 text-base sm:text-lg mt-1">{planDetails.price}/month</p>
             </div>
             <div className="bg-white/20 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl flex-shrink-0">
-              {getStatusBadge(subscription?.status || 'active')}
+              {getStatusBadge(isCanceling ? 'canceling' : (subscription?.status || 'active'))}
             </div>
           </div>
         </div>

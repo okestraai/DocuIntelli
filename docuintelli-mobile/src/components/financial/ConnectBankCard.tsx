@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Building2, Plus, ArrowRight, Lock } from 'lucide-react-native';
 import Button from '../ui/Button';
@@ -16,18 +16,20 @@ interface ConnectBankCardProps {
   bankCount?: number;
   /** Max banks allowed on current plan */
   bankLimit?: number;
+  /** Called when free user taps upgrade CTA */
+  onUpgrade?: () => void;
 }
 
-export default function ConnectBankCard({ onConnect, loading = false, compact = false, bankCount, bankLimit }: ConnectBankCardProps) {
+export default function ConnectBankCard({ onConnect, loading = false, compact = false, bankCount, bankLimit, onUpgrade }: ConnectBankCardProps) {
   const limitReached = bankLimit !== undefined && bankCount !== undefined && bankCount >= bankLimit;
   const noAccess = bankLimit === 0;
 
   if (compact) {
     if (noAccess) {
       return (
-        <View style={styles.compactLimitRow}>
+        <TouchableOpacity style={styles.compactLimitRow} onPress={onUpgrade} activeOpacity={0.7}>
           <Text style={styles.compactLimitText}>Upgrade to connect</Text>
-        </View>
+        </TouchableOpacity>
       );
     }
     if (limitReached) {
@@ -83,12 +85,11 @@ export default function ConnectBankCard({ onConnect, loading = false, compact = 
 
         <Button
           title="Upgrade to Connect"
-          onPress={() => {}}
+          onPress={onUpgrade || (() => {})}
           variant="primary"
           size="lg"
           icon={<Lock size={18} color={colors.white} strokeWidth={2} />}
           fullWidth
-          disabled
         />
       </View>
     );

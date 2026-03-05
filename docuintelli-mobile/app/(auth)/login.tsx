@@ -21,6 +21,7 @@ import {
   ArrowRight,
 } from 'lucide-react-native';
 import { signIn, signInWithGoogle } from '../../src/lib/auth';
+import { useAuthStore } from '../../src/store/authStore';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
 import { colors } from '../../src/theme/colors';
@@ -45,7 +46,12 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      await signIn(email, password);
+      const data = await signIn(email, password);
+      // Update auth store synchronously before navigating so the tabs
+      // layout sees the user and doesn't redirect back to login.
+      // fireEvent('SIGNED_IN') uses setTimeout(0), so the store
+      // wouldn't be updated yet if we relied solely on the event.
+      useAuthStore.getState().setSession(data.session);
       router.replace('/(tabs)/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign in failed');
@@ -59,9 +65,12 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      await signInWithGoogle();
-      // On native, the session is set automatically after the browser redirect.
+      const data = await signInWithGoogle();
       // On web, the page redirects so this line won't execute.
+      // On native, update the auth store before navigating (same race-condition fix).
+      if (data?.session) {
+        useAuthStore.getState().setSession(data.session);
+      }
       router.replace('/(tabs)/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Google sign-in failed');

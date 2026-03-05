@@ -243,8 +243,6 @@ export default function DashboardScreen() {
               subtitle="Vault health"
               cardWidth={actionCardWidth}
               onPress={() => router.push('/audit')}
-              locked={!isStarterOrAbove}
-              requiredPlan="starter"
             />
             <QuickAction
               icon={<Search size={22} color={colors.white} />}

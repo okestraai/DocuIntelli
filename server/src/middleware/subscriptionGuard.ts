@@ -48,6 +48,7 @@ export interface SubscriptionInfo {
   feature_flags: FeatureFlags;
   stripe_subscription_id?: string | null;
   current_period_end?: string | null;
+  cancel_at_period_end?: boolean;
   pending_plan?: string | null;
   documents_to_keep?: string[] | null;
   payment_status?: 'active' | 'past_due' | 'restricted' | 'downgraded';

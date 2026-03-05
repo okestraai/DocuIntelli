@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Activity,
   Smartphone,
+  LifeBuoy,
 } from 'lucide-react-native';
 import { useAuthStore } from '../../src/store/authStore';
 import { useSubscription } from '../../src/hooks/useSubscription';
@@ -67,6 +68,14 @@ const MENU_ITEMS = [
     label: 'Billing',
     subtitle: 'Subscription & payments',
     route: '/billing' as const,
+  },
+  {
+    icon: LifeBuoy,
+    iconColor: colors.info[600],
+    iconBg: colors.info[50],
+    label: 'Support',
+    subtitle: 'Raise & track tickets',
+    route: '/settings/support' as const,
   },
   {
     icon: HelpCircle,

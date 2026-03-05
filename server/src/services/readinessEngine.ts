@@ -88,7 +88,10 @@ export async function computeReadiness(
   if (!event) throw new Error('Life event not found');
 
   const template = getTemplateById(event.template_id);
-  if (!template) throw new Error(`Template "${event.template_id}" not found`);
+  const isCustom = event.template_id === 'custom';
+  if (!template && !isCustom) throw new Error(`Template "${event.template_id}" not found`);
+
+  const templateRequirements = template?.requirements || [];
 
   // 2. Load user documents
   const { rows: docs } = await query(
@@ -130,7 +133,7 @@ export async function computeReadiness(
 
   // 4. Filter applicable requirements based on intake answers
   const intakeAnswers: Record<string, string> = event.intake_answers || {};
-  const applicableReqs = template.requirements.filter((req) => {
+  const applicableReqs = templateRequirements.filter((req) => {
     if (naStatuses.has(req.id)) return false; // user marked N/A
     if (!req.notApplicableWhen) return true;
     for (const [qId, triggerVal] of Object.entries(req.notApplicableWhen)) {
@@ -198,7 +201,7 @@ export async function computeReadiness(
   }
 
   // Add N/A requirements
-  for (const req of template.requirements) {
+  for (const req of templateRequirements) {
     if (!applicableReqs.includes(req)) {
       reqResults.push({
         requirementId: req.id,
@@ -241,7 +244,7 @@ export async function computeReadiness(
 
   // 9. Compute score (template + custom)
   const { totalWeight: tmplWeight, completedWeight: tmplCompleted } = computeScore(
-    template.requirements,
+    templateRequirements,
     reqResults,
     applicableReqs
   );
@@ -256,7 +259,7 @@ export async function computeReadiness(
   );
 
   // 11. Determine next best action
-  const nextBestAction = findNextBestAction(reqResults, template.requirements);
+  const nextBestAction = findNextBestAction(reqResults, templateRequirements);
 
   return {
     eventId,
@@ -525,7 +528,10 @@ export async function getReadinessSnapshot(
   if (!event) throw new Error('Life event not found');
 
   const template = getTemplateById(event.template_id);
-  if (!template) throw new Error(`Template "${event.template_id}" not found`);
+  const isCustom = event.template_id === 'custom';
+  if (!template && !isCustom) throw new Error(`Template "${event.template_id}" not found`);
+
+  const templateRequirements = template?.requirements || [];
 
   // Load user docs (for names, tags, expiration)
   const { rows: docs } = await query(
@@ -551,7 +557,7 @@ export async function getReadinessSnapshot(
     if (s.status === 'not_applicable') naStatuses.add(s.requirement_id);
   }
 
-  const applicableReqs = template.requirements.filter((req) => {
+  const applicableReqs = templateRequirements.filter((req) => {
     if (naStatuses.has(req.id)) return false;
     if (!req.notApplicableWhen) return true;
     for (const [qId, triggerVal] of Object.entries(req.notApplicableWhen)) {
@@ -593,7 +599,7 @@ export async function getReadinessSnapshot(
   }
 
   // Add N/A requirements
-  for (const req of template.requirements) {
+  for (const req of templateRequirements) {
     if (!applicableReqs.includes(req)) {
       reqResults.push({
         requirementId: req.id,
@@ -609,7 +615,7 @@ export async function getReadinessSnapshot(
   reqResults.push(...customResult.reqStatuses);
 
   const { totalWeight: tmplWeight, completedWeight: tmplCompleted } = computeScore(
-    template.requirements,
+    templateRequirements,
     reqResults,
     applicableReqs
   );
@@ -630,6 +636,6 @@ export async function getReadinessSnapshot(
     totalWeight,
     completedWeight,
     requirements: reqResults,
-    nextBestAction: findNextBestAction(reqResults, template.requirements),
+    nextBestAction: findNextBestAction(reqResults, templateRequirements),
   };
 }

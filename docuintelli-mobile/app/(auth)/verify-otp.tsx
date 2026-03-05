@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '../../src/utils/navigation';
 import { auth, verifySignupOTP, sendSignupOTP, verifyOTP, resetPasswordWithOTP } from '../../src/lib/auth';
+import { useAuthStore } from '../../src/store/authStore';
 import Button from '../../src/components/ui/Button';
 import { colors } from '../../src/theme/colors';
 import { typography } from '../../src/theme/typography';
@@ -52,6 +53,9 @@ export default function VerifyOtpScreen() {
         if (result.token_hash) {
           const { data, error: verifyError } = await auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
           if (verifyError) throw verifyError;
+          if (data.session) {
+            useAuthStore.getState().setSession(data.session);
+          }
           if (data.user) router.replace('/(tabs)/dashboard');
         } else {
           setSuccess('Account created! Redirecting to sign in...');

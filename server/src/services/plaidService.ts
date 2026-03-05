@@ -290,6 +290,18 @@ export async function syncTransactions(
     }
   }
 
+  // Auto-tag new transactions based on learned rules
+  try {
+    const { autoTagNewTransactions } = require('./transactionTagService');
+    const autoTagged = await autoTagNewTransactions(userId, allTransactions);
+    if (autoTagged > 0) {
+      console.log(`[Plaid] Auto-tagged ${autoTagged} transactions for user ${userId}`);
+    }
+  } catch (err) {
+    // Tag tables may not exist yet; don't break sync
+    console.error('[Plaid] Auto-tagging failed (non-fatal):', err);
+  }
+
   // Update sync timestamp
   await query(
     'UPDATE plaid_items SET last_synced_at = $1 WHERE user_id = $2 AND item_id = $3',
@@ -347,10 +359,12 @@ interface RecurringBill {
 
 interface IncomeStream {
   source: string;
+  merchant_stem: string;
   average_amount: number;
   monthly_amount: number;
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   is_salary: boolean;
+  user_tags: string[];
   last_date: string;
 }
 
@@ -464,8 +478,25 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   // Detect recurring bills
   const recurringBills = detectRecurringBills(expenses);
 
-  // Detect income streams
+  // Detect income streams and merge user tags
   const incomeStreams = detectIncomeStreams(incomeTransactions);
+  try {
+    const { getIncomeStreamTags } = require('./transactionTagService');
+    const userIncomeTags = await getIncomeStreamTags(userId);
+    for (const stream of incomeStreams) {
+      const tagInfo = userIncomeTags[stream.merchant_stem];
+      if (tagInfo) {
+        stream.user_tags = tagInfo.tags;
+        // Apply salary override if user explicitly set it
+        if (tagInfo.is_auto_salary_override !== null) {
+          stream.is_salary = tagInfo.is_auto_salary_override;
+        }
+      }
+    }
+  } catch (err) {
+    // Tag tables may not exist yet; don't break summary
+    console.error('[Financial] Failed to load income stream tags:', err);
+  }
 
   // Monthly averages
   const monthlyAverages = calculateMonthlyAverages(transactions);
@@ -541,7 +572,7 @@ function formatCategoryName(raw: string): string {
  * across months. Uses merchant_name when available (card transactions); falls
  * back to parsing the raw name field (ACH/direct deposit).
  */
-function extractMerchantStem(txn: any): string {
+export function extractMerchantStem(txn: any): string {
   // If Plaid resolved a merchant_name, it's the most reliable source
   if (txn.merchant_name) {
     return txn.merchant_name.toLowerCase().trim()
@@ -821,10 +852,12 @@ function detectIncomeStreams(incomeTransactions: any[]): IncomeStream[] {
 
     streams.push({
       source: displayName,
+      merchant_stem: key,
       average_amount: Math.round(reportedAmount * 100) / 100,
       monthly_amount: Math.round(monthlyAmount * 100) / 100,
       frequency,
       is_salary: isSalary,
+      user_tags: [],  // populated later by getFinancialSummary with user overrides
       last_date: dateToString(txns[txns.length - 1].date),
     });
   }
@@ -1151,24 +1184,31 @@ export async function removeAccountsAndCleanup(
 export async function getTransactionsByCategory(
   userId: string,
   category: string
-): Promise<{ name: string; merchant_name: string | null; amount: number; date: string; category_detailed: string | null }[]> {
+): Promise<{ transaction_id: string; name: string; merchant_name: string | null; amount: number; date: string; category_detailed: string | null; user_tags: string[] }[]> {
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const cutoffDate = twelveMonthsAgo.toISOString().split('T')[0];
 
   const result = await query(
-    `SELECT name, merchant_name, amount, date, category_detailed
+    `SELECT transaction_id, name, merchant_name, amount, date, category_detailed
      FROM plaid_transactions
      WHERE user_id = $1 AND category = $2 AND pending = false AND amount > 0 AND date >= $3
      ORDER BY date DESC`,
     [userId, category, cutoffDate]
   );
 
+  // Batch-fetch user tags for these transactions
+  const { getTagsForTransactions } = require('./transactionTagService');
+  const txnIds = result.rows.map((r: any) => r.transaction_id);
+  const tagMap: Record<string, string[]> = await getTagsForTransactions(userId, txnIds);
+
   return result.rows.map((r: any) => ({
+    transaction_id: r.transaction_id,
     name: r.name,
     merchant_name: r.merchant_name || null,
     amount: Number(r.amount) || 0,
     date: dateToString(r.date),
     category_detailed: r.category_detailed || null,
+    user_tags: tagMap[r.transaction_id] || [],
   }));
 }

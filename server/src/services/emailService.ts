@@ -62,6 +62,13 @@ import {
   goalExpiredEmail,
   goalDeadlineApproachingEmail,
   lifeEventDeadlineApproachingEmail,
+  emergencyContactInviteEmail,
+  emergencyInviteAcceptedEmail,
+  emergencyAccessRequestedEmail,
+  emergencyAccessGrantedEmail,
+  emergencyAccessDeniedEmail,
+  emergencyCooldownReminderEmail,
+  supportTicketCreatedEmail,
   type EmailTemplate,
 } from './emailTemplates';
 
@@ -197,6 +204,17 @@ const TEMPLATE_CATEGORY_MAP: Record<EmailTemplate, NotificationCategory> = {
   goal_expired: 'engagement_digests',
   goal_deadline_approaching: 'engagement_digests',
   life_event_deadline_approaching: 'life_event_alerts',
+
+  // Emergency Access
+  emergency_contact_invite: 'life_event_alerts',
+  emergency_invite_accepted: 'life_event_alerts',
+  emergency_access_requested: 'life_event_alerts',
+  emergency_access_granted: 'life_event_alerts',
+  emergency_access_denied: 'life_event_alerts',
+  emergency_cooldown_reminder: 'life_event_alerts',
+
+  // Support Tickets
+  support_ticket_created: 'activity_alerts',
 };
 
 // Templates that bypass preference checks (always sent regardless of user settings)
@@ -220,6 +238,10 @@ const ALWAYS_SEND_TEMPLATES: EmailTemplate[] = [
   'dunning_deletion_warning',
   'dunning_final_confirmation',
   'dunning_payment_recovered',
+  'emergency_contact_invite',
+  'emergency_access_requested',
+  'emergency_cooldown_reminder',
+  'support_ticket_created',
 ];
 
 // ─── User Preferences ─────────────────────────────────────────────────────────
@@ -292,10 +314,11 @@ async function getUserEmail(userId: string): Promise<string | null> {
 async function getUserName(userId: string): Promise<string> {
   try {
     const result = await query(
-      'SELECT display_name FROM user_profiles WHERE id = $1',
+      'SELECT full_name, display_name FROM user_profiles WHERE id = $1',
       [userId]
     );
-    return result.rows[0]?.display_name || '';
+    const row = result.rows[0];
+    return row?.full_name || row?.display_name || '';
   } catch (err) {
     console.error('Failed to fetch user name:', err);
     return '';
@@ -530,6 +553,24 @@ function generateEmail(template: EmailTemplate, data: any): { subject: string; h
       return goalDeadlineApproachingEmail(data);
     case 'life_event_deadline_approaching':
       return lifeEventDeadlineApproachingEmail(data);
+
+    // Emergency Access
+    case 'emergency_contact_invite':
+      return emergencyContactInviteEmail(data);
+    case 'emergency_invite_accepted':
+      return emergencyInviteAcceptedEmail(data);
+    case 'emergency_access_requested':
+      return emergencyAccessRequestedEmail(data);
+    case 'emergency_access_granted':
+      return emergencyAccessGrantedEmail(data);
+    case 'emergency_access_denied':
+      return emergencyAccessDeniedEmail(data);
+    case 'emergency_cooldown_reminder':
+      return emergencyCooldownReminderEmail(data);
+
+    // Support Tickets
+    case 'support_ticket_created':
+      return supportTicketCreatedEmail(data);
     default:
       return null;
   }

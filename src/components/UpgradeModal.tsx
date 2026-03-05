@@ -6,6 +6,8 @@ interface UpgradeModalProps {
   onClose: () => void;
   onUpgrade: (plan: 'starter' | 'pro') => void;
   reason?: 'documents' | 'ai-questions' | 'monthly-uploads' | 'features';
+  /** Which plan tier the feature requires. 'pro' hides the Starter card. */
+  requiredPlan?: 'starter' | 'pro';
   currentPlan?: 'free' | 'starter' | 'pro';
   currentUsage?: {
     documents: number;
@@ -17,7 +19,7 @@ interface UpgradeModalProps {
   };
 }
 
-export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', currentPlan = 'free', currentUsage }: UpgradeModalProps) {
+export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', requiredPlan = 'starter', currentPlan = 'free', currentUsage }: UpgradeModalProps) {
   const { plans } = usePricing();
 
   if (!isOpen) return null;
@@ -34,7 +36,7 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
       case 'monthly-uploads':
         return 'Monthly Upload Limit Reached';
       case 'features':
-        return 'Upgrade to Pro to Unlock';
+        return requiredPlan === 'pro' ? 'Upgrade to Pro to Unlock' : 'Upgrade to Unlock';
       default:
         return 'Upgrade to Unlock More';
     }
@@ -122,9 +124,9 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
 
         {/* Plans */}
         <div className="p-6">
-          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
-            {/* Starter Plan */}
-            {(() => {
+          <div className={`grid gap-6 mx-auto ${requiredPlan === 'pro' ? 'max-w-lg' : 'md:grid-cols-2 max-w-3xl'}`}>
+            {/* Starter Plan — hidden when feature requires Pro */}
+            {requiredPlan !== 'pro' && (() => {
               const Icon = starterPlan.icon;
               const includedFeatures = starterPlan.features.filter(f => f.included);
               return (

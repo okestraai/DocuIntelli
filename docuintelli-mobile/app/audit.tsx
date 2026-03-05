@@ -11,8 +11,7 @@ import {
   TrendingDown, Minus, ArrowRight, X,
 } from 'lucide-react-native';
 import { useWeeklyAudit, useEngagementActions } from '../src/hooks/useEngagement';
-import { useSubscription } from '../src/hooks/useSubscription';
-import ProFeatureGate from '../src/components/ProFeatureGate';
+
 import Card from '../src/components/ui/Card';
 import Badge from '../src/components/ui/Badge';
 import Button from '../src/components/ui/Button';
@@ -85,7 +84,6 @@ const SECTION_CONFIG: Record<string, {
 export default function AuditScreen() {
   const { data, loading, error, refresh } = useWeeklyAudit();
   const { dismissGap, setCadence, actionLoading } = useEngagementActions();
-  const { isStarterOrAbove, loading: subLoading } = useSubscription();
   const [expandedSection, setExpandedSection] = useState<string | null>('nearing_expiration');
 
   const toggleSection = (key: string) => {
@@ -110,26 +108,9 @@ export default function AuditScreen() {
     refresh();
   };
 
-  if (subLoading) return (
-    <>
-      <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
-      <LoadingSpinner fullScreen />
-    </>
-  );
-
-  if (!isStarterOrAbove) {
-    return (
-      <>
-        <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
-        <ProFeatureGate
-          featureName="Weekly Vault Audit"
-          featureDescription="Get a weekly health check on your document vault. Track expirations, find missing documents, and keep your vault in top shape."
-          onUpgrade={() => router.push('/billing')}
-          requiredPlan="starter"
-        />
-      </>
-    );
-  }
+  const handleNavigateToDocument = (docId: string) => {
+    router.push({ pathname: '/document/[id]', params: { id: docId } });
+  };
 
   if (loading) return (
     <>
@@ -329,7 +310,7 @@ export default function AuditScreen() {
                         <TouchableOpacity
                           key={doc.id}
                           style={styles.docItem}
-                          onPress={() => router.push({ pathname: '/document/[id]', params: { id: doc.id } })}
+                          onPress={() => handleNavigateToDocument(doc.id)}
                           activeOpacity={0.7}
                         >
                           <View style={[styles.docIconBox, { backgroundColor: catColor.bg }]}>

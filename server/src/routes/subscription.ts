@@ -119,8 +119,8 @@ router.post('/cancel', async (req: Request, res: Response): Promise<void> => {
     // Update our database — critical fields only
     try {
       await query(
-        `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
-        ['canceling', new Date().toISOString(), userId]
+        `UPDATE user_subscriptions SET status = $1, cancel_at_period_end = $2, updated_at = $3 WHERE user_id = $4`,
+        ['canceling', true, new Date().toISOString(), userId]
       );
     } catch (dbErr) {
       console.error('❌ DB update failed during cancel:', dbErr);
@@ -216,11 +216,11 @@ router.post('/reactivate', async (req: Request, res: Response): Promise<void> =>
       }
     }
 
-    // Critical DB update: set status to active
+    // Critical DB update: set status to active and clear cancellation flag
     try {
       await query(
-        `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
-        ['active', new Date().toISOString(), userId]
+        `UPDATE user_subscriptions SET status = $1, cancel_at_period_end = $2, updated_at = $3 WHERE user_id = $4`,
+        ['active', false, new Date().toISOString(), userId]
       );
     } catch (dbErr) {
       console.error('❌ DB update failed during reactivate:', dbErr);
@@ -518,11 +518,11 @@ router.post('/downgrade', async (req: Request, res: Response): Promise<void> => 
         }
       );
 
-      // Critical DB update: set status to canceling
+      // Critical DB update: set status to canceling and persist cancellation flag
       try {
         await query(
-          `UPDATE user_subscriptions SET status = $1, updated_at = $2 WHERE user_id = $3`,
-          ['canceling', new Date().toISOString(), userId]
+          `UPDATE user_subscriptions SET status = $1, cancel_at_period_end = $2, updated_at = $3 WHERE user_id = $4`,
+          ['canceling', true, new Date().toISOString(), userId]
         );
       } catch (dbErr) {
         console.error('❌ DB update failed during downgrade-to-free:', dbErr);

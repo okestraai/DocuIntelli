@@ -28,6 +28,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="profile" options={{ title: 'Edit Profile' }} />
       <Stack.Screen name="security" options={{ title: 'Security' }} />
       <Stack.Screen name="preferences" options={{ title: 'Notifications' }} />
+      <Stack.Screen name="support" options={{ title: 'Support Tickets' }} />
     </Stack>
   );
 }

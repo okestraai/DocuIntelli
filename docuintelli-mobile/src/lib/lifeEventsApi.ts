@@ -99,8 +99,8 @@ export async function getEvents(status = 'active'): Promise<LifeEvent[]> {
   return data.events;
 }
 
-export async function createEvent(templateId: string, intakeAnswers: Record<string, string>): Promise<{ event: LifeEvent; readiness: ReadinessData }> {
-  return apiFetch('/', { method: 'POST', body: JSON.stringify({ template_id: templateId, intake_answers: intakeAnswers }) });
+export async function createEvent(templateId: string, intakeAnswers: Record<string, string>, title?: string): Promise<{ event: LifeEvent; readiness: ReadinessData }> {
+  return apiFetch('/', { method: 'POST', body: JSON.stringify({ template_id: templateId, intake_answers: intakeAnswers, ...(title ? { title } : {}) }) });
 }
 
 export async function getEventDetail(eventId: string): Promise<EventDetail> {

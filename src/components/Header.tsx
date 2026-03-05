@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, ShieldAlert, FileText, LayoutDashboard, LogOut, User, Bell, ClipboardCheck, Compass, Crown, Landmark } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, FileText, LayoutDashboard, LogOut, User, Bell, ClipboardCheck, Compass, Landmark } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -13,10 +13,7 @@ interface HeaderProps {
   isAdmin?: boolean;
 }
 
-const PRO_ONLY_PAGES: Page[] = ['life-events'];
-const STARTER_PAGES: Page[] = ['audit', 'financial-insights'];
-
-export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOpenNotifications, notificationCount, currentPlan, isAdmin }: HeaderProps) {
+export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOpenNotifications, notificationCount, isAdmin }: HeaderProps) {
   const goToDashboard = () => onNavigate('dashboard');
   const baseNavItems = [
     { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
@@ -28,13 +25,6 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
   const navItems = isAdmin
     ? [...baseNavItems, { id: 'admin' as Page, label: 'Admin', icon: ShieldAlert }]
     : baseNavItems;
-
-  const getBadgeLabel = (page: Page): string | null => {
-    if (!currentPlan) return null; // Don't flash badges while subscription is loading
-    if (PRO_ONLY_PAGES.includes(page) && currentPlan !== 'pro') return 'PRO';
-    if (STARTER_PAGES.includes(page) && currentPlan === 'free') return 'STARTER';
-    return null;
-  };
 
   return (
     <>
@@ -61,17 +51,8 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
                     }`}
                   >
                     <Icon className="h-6 w-6" strokeWidth={2} />
-                    {getBadgeLabel(id) && (
-                      <span className={`absolute -top-1 -right-1 flex items-center justify-center h-4 w-4 rounded-full shadow-sm ${
-                        getBadgeLabel(id) === 'PRO'
-                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500'
-                          : 'bg-gradient-to-r from-emerald-600 to-teal-600'
-                      }`}>
-                        <Crown className="h-2.5 w-2.5 text-white" />
-                      </span>
-                    )}
                     <span className="absolute top-full mt-2 px-2.5 py-1.5 bg-slate-900 text-white text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                      {label}{getBadgeLabel(id) && ` (${getBadgeLabel(id)})`}
+                      {label}
                     </span>
                   </button>
                 ))}
@@ -132,15 +113,6 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
             >
               <Icon className={`h-5 w-5 mb-0.5 ${currentPage === id ? 'stroke-[2.5]' : 'stroke-2'}`} />
               <span className={`text-xs ${currentPage === id ? 'font-semibold' : 'font-medium'}`}>{label}</span>
-              {getBadgeLabel(id) && (
-                <span className={`absolute top-0.5 right-1 flex items-center justify-center h-3.5 w-3.5 rounded-full shadow-sm ${
-                  getBadgeLabel(id) === 'PRO'
-                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500'
-                    : 'bg-gradient-to-r from-emerald-600 to-teal-600'
-                }`}>
-                  <Crown className="h-2 w-2 text-white" />
-                </span>
-              )}
             </button>
           ))}
           <button

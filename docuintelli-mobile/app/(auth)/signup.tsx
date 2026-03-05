@@ -21,6 +21,7 @@ import {
   ArrowRight,
 } from 'lucide-react-native';
 import { sendSignupOTP, signInWithGoogle } from '../../src/lib/auth';
+import { useAuthStore } from '../../src/store/authStore';
 import Button from '../../src/components/ui/Button';
 import Input from '../../src/components/ui/Input';
 import { colors } from '../../src/theme/colors';
@@ -72,7 +73,10 @@ export default function SignupScreen() {
     setError(null);
 
     try {
-      await signInWithGoogle();
+      const data = await signInWithGoogle();
+      if (data?.session) {
+        useAuthStore.getState().setSession(data.session);
+      }
       router.replace('/(tabs)/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Google sign-in failed');

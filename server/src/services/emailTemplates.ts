@@ -2232,6 +2232,188 @@ export function lifeEventDeadlineApproachingEmail(data: LifeEventDeadlineApproac
   };
 }
 
+// ─── Template: Emergency Contact Invite ────────────────────────────────────────
+
+export interface EmergencyContactInviteData {
+  ownerName: string;
+  contactName: string;
+  inviteToken: string;
+  relationship: string | null;
+}
+
+export function emergencyContactInviteEmail(data: EmergencyContactInviteData): { subject: string; html: string } {
+  const firstName = data.contactName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('🤝', BRAND.primaryColor)}
+    ${heading('You\'ve Been Added as a Trusted Contact')}
+    ${subheading(`Hi ${firstName}, ${data.ownerName} has designated you as a trusted contact on DocuIntelli.`)}
+    ${paragraph(`${data.ownerName}${data.relationship ? ` (${data.relationship})` : ''} wants to give you the ability to access important documents in case of an emergency. As a trusted contact, you may be able to view specific life event documents they've shared with you.`)}
+    ${paragraph('To accept this invitation, you\'ll need a DocuIntelli account. Creating one is free and takes less than a minute.')}
+    ${primaryButton('Accept Invitation', `${BRAND.appUrl}/emergency-invite?token=${data.inviteToken}`)}
+    ${paragraph('<strong>What is DocuIntelli?</strong><br>DocuIntelli AI is an intelligent document vault that helps you organize, track, and protect your most important documents — from insurance policies to legal agreements.')}
+  `;
+  return {
+    subject: `${data.ownerName} added you as a Trusted Contact on ${BRAND.name}`,
+    html: baseLayout(content, `${data.ownerName} has added you as a trusted contact.`),
+  };
+}
+
+// ─── Template: Emergency Invite Accepted ───────────────────────────────────────
+
+export interface EmergencyInviteAcceptedData {
+  contactName: string;
+  contactEmail: string;
+  userName?: string;
+}
+
+export function emergencyInviteAcceptedEmail(data: EmergencyInviteAcceptedData): { subject: string; html: string } {
+  const ownerFirst = data.userName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('✅', BRAND.successColor)}
+    ${heading('Trusted Contact Accepted')}
+    ${subheading(`Hi ${ownerFirst}, great news!`)}
+    ${paragraph(`<strong>${data.contactName}</strong> (${data.contactEmail}) has accepted your trusted contact invitation. You can now assign them to your life events for emergency access.`)}
+    ${primaryButton('Manage Emergency Access', `${BRAND.appUrl}/life-events`)}
+  `;
+  return {
+    subject: `${BRAND.name} — ${data.contactName} accepted your trusted contact invitation`,
+    html: baseLayout(content, `${data.contactName} is now your trusted contact.`),
+  };
+}
+
+// ─── Template: Emergency Access Requested ──────────────────────────────────────
+
+export interface EmergencyAccessRequestedData {
+  contactName: string;
+  eventTitle: string;
+  accessPolicy: string;
+  delayHours?: number;
+  message: string;
+  userName?: string;
+}
+
+export function emergencyAccessRequestedEmail(data: EmergencyAccessRequestedData): { subject: string; html: string } {
+  const ownerFirst = data.userName?.split(' ')[0] || 'there';
+  const policyLabel = data.accessPolicy === 'immediate' ? 'Immediate Access' : data.accessPolicy === 'time_delayed' ? `Time-Delayed (${data.delayHours}h)` : 'Approval Required';
+  const content = `
+    ${iconBadge('🔔', BRAND.warningColor)}
+    ${heading('Emergency Access Request')}
+    ${subheading(`Hi ${ownerFirst}, action may be required.`)}
+    ${detailsTable([
+      { label: 'Requested by', value: data.contactName },
+      { label: 'Life Event', value: data.eventTitle },
+      { label: 'Access Policy', value: policyLabel },
+    ])}
+    ${paragraph(data.message)}
+    ${data.accessPolicy === 'approval' ? primaryButton('Review Request', `${BRAND.appUrl}/life-events`) : ''}
+    ${data.accessPolicy === 'time_delayed' ? secondaryButton('Veto Access', `${BRAND.appUrl}/life-events`) : ''}
+  `;
+  return {
+    subject: `${BRAND.name} — ${data.contactName} is requesting access to "${data.eventTitle}"`,
+    html: baseLayout(content, `${data.contactName} has requested access to your ${data.eventTitle} documents.`),
+  };
+}
+
+// ─── Template: Emergency Access Granted ────────────────────────────────────────
+
+export interface EmergencyAccessGrantedData {
+  contactName: string;
+  eventTitle: string;
+  userName?: string;
+}
+
+export function emergencyAccessGrantedEmail(data: EmergencyAccessGrantedData): { subject: string; html: string } {
+  const firstName = data.contactName?.split(' ')[0] || data.userName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('🔓', BRAND.successColor)}
+    ${heading('Access Granted')}
+    ${subheading(`Hi ${firstName}, you now have access.`)}
+    ${paragraph(`Access to the <strong>"${data.eventTitle}"</strong> documents has been granted. You can now view all documents associated with this life event.`)}
+    ${paragraph('Remember: this is read-only access. You can view and download documents, but cannot edit or delete them.')}
+    ${primaryButton('View Documents', `${BRAND.appUrl}/life-events`)}
+  `;
+  return {
+    subject: `${BRAND.name} — Access granted to "${data.eventTitle}" documents`,
+    html: baseLayout(content, `You now have access to ${data.eventTitle} documents.`),
+  };
+}
+
+// ─── Template: Emergency Access Denied ─────────────────────────────────────────
+
+export interface EmergencyAccessDeniedData {
+  contactName: string;
+  eventTitle: string;
+  userName?: string;
+}
+
+export function emergencyAccessDeniedEmail(data: EmergencyAccessDeniedData): { subject: string; html: string } {
+  const firstName = data.contactName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('🚫', BRAND.dangerColor)}
+    ${heading('Access Request Denied')}
+    ${subheading(`Hi ${firstName}, your access request was not approved.`)}
+    ${paragraph(`Your request to access the <strong>"${data.eventTitle}"</strong> documents has been denied by the document owner. If you believe this was a mistake, please contact them directly.`)}
+  `;
+  return {
+    subject: `${BRAND.name} — Access to "${data.eventTitle}" was denied`,
+    html: baseLayout(content, `Your access request to ${data.eventTitle} was denied.`),
+  };
+}
+
+// ─── Template: Emergency Cooldown Reminder ─────────────────────────────────────
+
+export interface EmergencyCooldownReminderData {
+  contactName: string;
+  eventTitle: string;
+  hoursRemaining: number;
+  userName?: string;
+}
+
+export function emergencyCooldownReminderEmail(data: EmergencyCooldownReminderData): { subject: string; html: string } {
+  const ownerFirst = data.userName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('⏰', BRAND.warningColor)}
+    ${heading('Access Auto-Grant Reminder')}
+    ${subheading(`Hi ${ownerFirst}, time is running out to veto.`)}
+    ${paragraph(`<strong>${data.contactName}</strong> requested access to your <strong>"${data.eventTitle}"</strong> documents. Access will be <strong>automatically granted in ${data.hoursRemaining} hour${data.hoursRemaining !== 1 ? 's' : ''}</strong> unless you veto.`)}
+    ${paragraph('If you do not want this person to have access, you must veto the request before the timer expires.')}
+    ${primaryButton('Review & Veto', `${BRAND.appUrl}/life-events`)}
+  `;
+  return {
+    subject: `${BRAND.name} — ${data.hoursRemaining}h until ${data.contactName} gains access to "${data.eventTitle}"`,
+    html: baseLayout(content, `${data.contactName} will gain access to ${data.eventTitle} in ${data.hoursRemaining} hours.`),
+  };
+}
+
+// ─── Template: Support Ticket Created ────────────────────────────────────────
+
+export interface SupportTicketCreatedData {
+  ticketNumber: string;
+  subject: string;
+  category: string;
+  priority: string;
+}
+
+export function supportTicketCreatedEmail(data: SupportTicketCreatedData): { subject: string; html: string } {
+  const content = `
+    ${iconBadge('🎫', BRAND.infoColor)}
+    ${heading('Support Ticket Created')}
+    ${subheading('We\'ve received your request and will get back to you shortly.')}
+    ${detailsTable([
+      { label: 'Ticket Number', value: data.ticketNumber },
+      { label: 'Subject', value: data.subject },
+      { label: 'Category', value: data.category },
+      { label: 'Priority', value: data.priority },
+    ])}
+    ${paragraph('Our support team will review your ticket and respond as soon as possible. You can track the status of your ticket from your Account Settings.')}
+    ${primaryButton('View My Tickets', `${BRAND.appUrl}/settings`)}
+  `;
+  return {
+    subject: `${BRAND.name} — Ticket ${data.ticketNumber} created: "${data.subject}"`,
+    html: baseLayout(content, `Your support ticket ${data.ticketNumber} has been created.`),
+  };
+}
+
 // ─── Template Map (for programmatic access) ────────────────────────────────────
 
 export type EmailTemplate =
@@ -2288,4 +2470,11 @@ export type EmailTemplate =
   | 'goal_completed'
   | 'goal_expired'
   | 'goal_deadline_approaching'
-  | 'life_event_deadline_approaching';
+  | 'life_event_deadline_approaching'
+  | 'emergency_contact_invite'
+  | 'emergency_invite_accepted'
+  | 'emergency_access_requested'
+  | 'emergency_access_granted'
+  | 'emergency_access_denied'
+  | 'emergency_cooldown_reminder'
+  | 'support_ticket_created';
