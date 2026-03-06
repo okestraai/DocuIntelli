@@ -1122,6 +1122,95 @@ export function documentReviewOverdueEmail(data: DocumentReviewOverdueData): { s
   };
 }
 
+// ─── Template: Document Review Due Soon ─────────────────────────────────────
+
+export interface DocumentReviewDueSoonData {
+  userName: string;
+  documentName: string;
+  category: string;
+  cadenceDays: number;
+  percentComplete: number;
+  daysRemaining: number;
+}
+
+export function documentReviewDueSoonEmail(data: DocumentReviewDueSoonData): { subject: string; html: string } {
+  const firstName = data.userName?.split(' ')[0] || 'there';
+  const urgency = data.percentComplete >= 90 ? 'due very soon' : 'coming up';
+  const barColor = data.percentComplete >= 90 ? BRAND.warningColor : BRAND.primaryColor;
+  const content = `
+    ${iconBadge('🔔', barColor)}
+    ${heading(`Document Review ${data.percentComplete >= 90 ? 'Due Soon' : 'Coming Up'}`)}
+    ${subheading(`Hi ${firstName}, your document review is ${urgency}.`)}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+      <tr>
+        <td style="padding:16px; border-radius:12px; background:${BRAND.bgLight}; border:1px solid ${BRAND.borderColor};" class="email-bg">
+          <p style="font-size:16px; font-weight:700; color:${BRAND.textDark}; margin:0;" class="email-text-dark">${data.documentName}</p>
+          <p style="font-size:13px; color:${BRAND.textMuted}; margin:4px 0 12px;" class="email-text-muted">${data.category.charAt(0).toUpperCase() + data.category.slice(1)} &bull; Review every ${data.cadenceDays} days</p>
+          <div style="background:#e2e8f0; border-radius:8px; height:8px; width:100%; overflow:hidden;">
+            <div style="background:${barColor}; height:8px; width:${Math.min(data.percentComplete, 100)}%; border-radius:8px;"></div>
+          </div>
+          <p style="font-size:12px; color:${BRAND.textMuted}; margin:8px 0 0; text-align:right;" class="email-text-muted">
+            <strong style="color:${barColor};">${data.daysRemaining} day${data.daysRemaining !== 1 ? 's' : ''}</strong> remaining
+          </p>
+        </td>
+      </tr>
+    </table>
+    ${paragraph('Regular reviews keep your vault accurate and your preparedness score high.')}
+    ${primaryButton('Review Now', `${BRAND.appUrl}#vault`)}
+  `;
+  return {
+    subject: `${BRAND.name} — ${data.documentName} review due in ${data.daysRemaining} days`,
+    html: baseLayout(content, `${data.documentName} review ${urgency}.`),
+  };
+}
+
+// ─── Template: Metadata Extracted ───────────────────────────────────────────
+
+export interface MetadataExtractedData {
+  userName: string;
+  documentName: string;
+  category: string;
+  fieldsExtracted: string[];
+}
+
+export function metadataExtractedEmail(data: MetadataExtractedData): { subject: string; html: string } {
+  const firstName = data.userName?.split(' ')[0] || 'there';
+  const fieldCount = data.fieldsExtracted.length;
+  const fieldList = data.fieldsExtracted.map(f =>
+    `<tr>
+      <td style="padding:6px 0; border-bottom:1px solid ${BRAND.borderColor};" class="email-border">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${BRAND.successColor}; margin-right:8px; vertical-align:middle;"></span>
+        <span style="font-size:14px; color:${BRAND.textDark};" class="email-text-dark">${f}</span>
+      </td>
+    </tr>`
+  ).join('');
+  const content = `
+    ${iconBadge('✨', BRAND.primaryColor)}
+    ${heading('Details Extracted')}
+    ${subheading(`Hi ${firstName}, we automatically extracted key details from your document.`)}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+      <tr>
+        <td style="padding:16px; border-radius:12px; background:${BRAND.bgLight}; border:1px solid ${BRAND.borderColor};" class="email-bg">
+          <p style="font-size:16px; font-weight:700; color:${BRAND.textDark}; margin:0;" class="email-text-dark">${data.documentName}</p>
+          <p style="font-size:13px; color:${BRAND.textMuted}; margin:4px 0 12px;" class="email-text-muted">${data.category.charAt(0).toUpperCase() + data.category.slice(1)}</p>
+          ${fieldCount > 0 ? `
+          <p style="font-size:12px; font-weight:600; color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 8px;" class="email-text-muted">Fields Found</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${fieldList}</table>
+          ` : `
+          <p style="font-size:13px; color:${BRAND.textMuted}; margin:0;" class="email-text-muted">No fields could be auto-detected. You can add them manually.</p>
+          `}
+        </td>
+      </tr>
+    </table>
+    ${paragraph('Please review the extracted details and confirm or update them to keep your vault accurate.')}
+    ${primaryButton('Review & Confirm', `${BRAND.appUrl}#vault`)}
+  `;
+  return {
+    subject: `${BRAND.name} — We extracted details from ${data.documentName}`,
+    html: baseLayout(content, `${fieldCount} detail${fieldCount !== 1 ? 's' : ''} extracted from ${data.documentName}.`),
+  };
+}
+
 // ─── Template: Gap Suggestion ───────────────────────────────────────────────
 
 export interface GapSuggestionData {
@@ -2441,6 +2530,7 @@ export type EmailTemplate =
   | 'document_deleted'
   | 'document_metadata_updated'
   | 'document_review_overdue'
+  | 'document_review_due_soon'
   | 'gap_suggestion'
   | 'preparedness_score_drop'
   | 'life_event_readiness_change'
@@ -2477,4 +2567,5 @@ export type EmailTemplate =
   | 'emergency_access_granted'
   | 'emergency_access_denied'
   | 'emergency_cooldown_reminder'
-  | 'support_ticket_created';
+  | 'support_ticket_created'
+  | 'metadata_extracted';

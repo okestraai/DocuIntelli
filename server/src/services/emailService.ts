@@ -32,6 +32,7 @@ import {
   documentDeletedEmail,
   documentMetadataUpdatedEmail,
   documentReviewOverdueEmail,
+  documentReviewDueSoonEmail,
   gapSuggestionEmail,
   preparednessScoreDropEmail,
   lifeEventReadinessChangeEmail,
@@ -69,6 +70,7 @@ import {
   emergencyAccessDeniedEmail,
   emergencyCooldownReminderEmail,
   supportTicketCreatedEmail,
+  metadataExtractedEmail,
   type EmailTemplate,
 } from './emailTemplates';
 
@@ -161,6 +163,7 @@ const TEMPLATE_CATEGORY_MAP: Record<EmailTemplate, NotificationCategory> = {
   document_health_alert: 'document_alerts',
   document_metadata_updated: 'document_alerts',
   document_review_overdue: 'document_alerts',
+  document_review_due_soon: 'document_alerts',
 
   // Engagement Digests
   weekly_audit: 'engagement_digests',
@@ -215,6 +218,9 @@ const TEMPLATE_CATEGORY_MAP: Record<EmailTemplate, NotificationCategory> = {
 
   // Support Tickets
   support_ticket_created: 'activity_alerts',
+
+  // Metadata Extraction
+  metadata_extracted: 'document_alerts',
 };
 
 // Templates that bypass preference checks (always sent regardless of user settings)
@@ -493,6 +499,8 @@ function generateEmail(template: EmailTemplate, data: any): { subject: string; h
       return documentMetadataUpdatedEmail(data);
     case 'document_review_overdue':
       return documentReviewOverdueEmail(data);
+    case 'document_review_due_soon':
+      return documentReviewDueSoonEmail(data);
     case 'gap_suggestion':
       return gapSuggestionEmail(data);
     case 'preparedness_score_drop':
@@ -571,6 +579,10 @@ function generateEmail(template: EmailTemplate, data: any): { subject: string; h
     // Support Tickets
     case 'support_ticket_created':
       return supportTicketCreatedEmail(data);
+
+    // Metadata Extraction
+    case 'metadata_extracted':
+      return metadataExtractedEmail(data);
     default:
       return null;
   }

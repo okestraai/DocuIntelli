@@ -1,9 +1,12 @@
-import React, { useState, useMemo } from 'react';
-import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle, HeartPulse } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
+import { WeeklyAudit } from './WeeklyAudit';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
 import { formatUTCDate } from '../lib/dateUtils';
+
+export type VaultTab = 'documents' | 'health';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -11,10 +14,13 @@ interface DocumentVaultProps {
   onDocumentView: (doc: Document) => void;
   onDocumentUpload?: (documentsData: DocumentUploadRequest[]) => Promise<void>;
   onDocumentDelete?: (documentId: string) => Promise<void>;
+  initialTab?: VaultTab;
+  onNavigateToDocument?: (documentId: string) => void;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete }: DocumentVaultProps) {
+export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete, initialTab, onNavigateToDocument }: DocumentVaultProps) {
+  const [activeTab, setActiveTab] = useState<VaultTab>(initialTab ?? 'documents');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'expiring' | 'expired'>('all');
@@ -23,6 +29,10 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 9;
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
 
   const categories = [
     { value: 'all', label: 'All Documents' },
@@ -125,6 +135,42 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
         </div>
       </div>
 
+      {/* Vault Tabs — segmented control */}
+      <div className="bg-slate-100 rounded-xl p-1 flex mb-6 sm:mb-8">
+        <button
+          onClick={() => setActiveTab('documents')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'documents'
+              ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <FolderOpen className="h-4 w-4" />
+          <span>Documents</span>
+          <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-bold ${
+            activeTab === 'documents'
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-slate-200 text-slate-500'
+          }`}>{documents.length}</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('health')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'health'
+              ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <HeartPulse className="h-4 w-4" />
+          <span>Health</span>
+        </button>
+      </div>
+
+      {activeTab === 'health' && (
+        <WeeklyAudit embedded onNavigateToDocument={onNavigateToDocument} />
+      )}
+
+      {activeTab === 'documents' && <>
       {/* Upload Area */}
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl sm:rounded-2xl p-6 sm:p-8 mb-6 sm:mb-8 text-center">
         <div className="bg-gradient-to-br from-emerald-600 to-teal-600 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
@@ -405,6 +451,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
           </button>
         </div>
       )}
+      </>}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (

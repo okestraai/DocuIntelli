@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { useFocusEffect } from 'expo-router';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
   View,
   Text,
   TextInput,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
@@ -32,6 +33,7 @@ import {
   ChevronRight,
   MessageCircle,
   Tag,
+  HeartPulse,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useDocuments } from '../../src/hooks/useDocuments';
@@ -46,7 +48,9 @@ import { typography } from '../../src/theme/typography';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { DOCUMENT_CATEGORIES, type DocumentCategory } from '../../src/types/document';
 import type { Document } from '../../src/types/document';
+import { AuditContent } from '../audit';
 
+type VaultTab = 'documents' | 'health';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ── Category icon mapping ────────────────────────────────────────────
@@ -100,9 +104,24 @@ export default function VaultScreen() {
   const { isAuthenticated } = useAuth();
   const { documents, loading, deleteDocument, refetch } = useDocuments(isAuthenticated);
   const { showToast } = useToast();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<VaultTab>(tab === 'health' ? 'health' : 'documents');
+  const hasSetInitialTab = useRef(false);
 
   // Re-fetch documents whenever the screen gains focus
   useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+
+  // Sync tab when deep-linking to health tab
+  useFocusEffect(
+    useCallback(() => {
+      if (tab === 'health' && !hasSetInitialTab.current) {
+        setActiveTab('health');
+        hasSetInitialTab.current = true;
+      }
+    }, [tab])
+  );
 
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | 'all'>('all');
@@ -145,9 +164,9 @@ export default function VaultScreen() {
     router.push({ pathname: '/document/[id]', params: { id } });
   }, []);
 
-  // ── Header Section ─────────────────────────────────────────────────
-  const renderHeader = () => (
-    <View style={styles.headerSection}>
+  // ── Title + Tabs Section ─────────────────────────────────────────
+  const renderTitleAndTabs = () => (
+    <>
       {/* Title row */}
       <View style={styles.titleRow}>
         <View style={styles.titleLeft}>
@@ -177,6 +196,42 @@ export default function VaultScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Vault tab — segmented control */}
+      <View style={styles.tabRow}>
+        <View style={styles.tabSegmentedControl}>
+          <TouchableOpacity
+            onPress={() => setActiveTab('documents')}
+            activeOpacity={0.7}
+            style={[styles.tabSegment, activeTab === 'documents' && styles.tabSegmentActive]}
+          >
+            <FolderOpen size={16} color={activeTab === 'documents' ? colors.primary[700] : colors.slate[400]} strokeWidth={2} />
+            <Text style={[styles.tabSegmentText, activeTab === 'documents' && styles.tabSegmentTextActive]}>
+              Documents
+            </Text>
+            <View style={[styles.tabBadge, activeTab === 'documents' && styles.tabBadgeActive]}>
+              <Text style={[styles.tabBadgeText, activeTab === 'documents' && styles.tabBadgeTextActive]}>
+                {documents.length}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setActiveTab('health')}
+            activeOpacity={0.7}
+            style={[styles.tabSegment, activeTab === 'health' && styles.tabSegmentActive]}
+          >
+            <HeartPulse size={16} color={activeTab === 'health' ? colors.primary[700] : colors.slate[400]} strokeWidth={2} />
+            <Text style={[styles.tabSegmentText, activeTab === 'health' && styles.tabSegmentTextActive]}>
+              Health
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </>
+  );
+
+  // ── Document Filters ────────────────────────────────────────────
+  const renderDocumentFilters = () => (
+    <>
       {/* Search bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchIconContainer}>
@@ -261,6 +316,14 @@ export default function VaultScreen() {
           </Text>
         </View>
       )}
+    </>
+  );
+
+  // ── Combined Header ───────────────────────────────────────────────
+  const renderHeader = () => (
+    <View style={styles.headerSection}>
+      {renderTitleAndTabs()}
+      {activeTab === 'documents' && renderDocumentFilters()}
     </View>
   );
 
@@ -480,7 +543,17 @@ export default function VaultScreen() {
         style={styles.bgGradient}
       />
 
-      {loading && documents.length === 0 ? (
+      {activeTab === 'health' ? (
+        <ScrollView
+          contentContainerStyle={styles.healthScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.headerSection}>
+            {renderTitleAndTabs()}
+          </View>
+          <AuditContent embedded />
+        </ScrollView>
+      ) : loading && documents.length === 0 ? (
         <>
           {renderHeader()}
           <LoadingSpinner fullScreen />
@@ -533,6 +606,64 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: spacing.xl,
+  },
+  healthScrollContent: {
+    paddingBottom: spacing.xl,
+  },
+
+  // ── Tab Segmented Control ────────────────────────────────────────────
+  tabRow: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  tabSegmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: colors.slate[100],
+    borderRadius: borderRadius.xl,
+    padding: 4,
+  },
+  tabSegment: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: 12,
+    borderRadius: borderRadius.lg,
+  },
+  tabSegmentActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabSegmentText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.slate[500],
+  },
+  tabSegmentTextActive: {
+    color: colors.primary[700],
+  },
+  tabBadge: {
+    backgroundColor: colors.slate[200],
+    borderRadius: borderRadius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 2,
+  },
+  tabBadgeActive: {
+    backgroundColor: colors.primary[100],
+  },
+  tabBadgeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold as any,
+    color: colors.slate[500],
+  },
+  tabBadgeTextActive: {
+    color: colors.primary[700],
   },
 
   // ── Header ─────────────────────────────────────────────────────────

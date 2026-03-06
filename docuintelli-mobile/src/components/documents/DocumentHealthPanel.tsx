@@ -12,6 +12,11 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Sparkles,
+  Building2,
+  User,
+  Hash,
+  MapPin,
 } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -88,6 +93,9 @@ export default function DocumentHealthPanel({
   const [issuer, setIssuer] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [expirationDate, setExpirationDate] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [policyNumber, setPolicyNumber] = useState('');
+  const [address, setAddress] = useState('');
 
   // Populate form when data loads
   React.useEffect(() => {
@@ -95,6 +103,9 @@ export default function DocumentHealthPanel({
       setIssuer(data.metadata.issuer || '');
       setOwnerName(data.metadata.ownerName || '');
       setExpirationDate(data.metadata.expirationDate || '');
+      setEffectiveDate(data.metadata.effectiveDate || '');
+      setPolicyNumber(data.metadata.policyNumber || '');
+      setAddress(data.metadata.address || '');
     }
   }, [data?.metadata]);
 
@@ -110,12 +121,16 @@ export default function DocumentHealthPanel({
     if (showMetadataForm) setShowMetadataForm(false);
   };
 
-  const handleSaveMetadata = async () => {
+  const handleSaveMetadata = async (confirm = false) => {
     try {
       await updateMetadata(documentId, {
         issuer: issuer || undefined,
         ownerName: ownerName || undefined,
         expirationDate: expirationDate || undefined,
+        effectiveDate: effectiveDate || undefined,
+        policyNumber: policyNumber || undefined,
+        address: address || undefined,
+        ...(confirm ? { metadataConfirmed: true } : {}),
       });
       setShowMetadataForm(false);
       refresh();
@@ -169,9 +184,65 @@ export default function DocumentHealthPanel({
   );
   const isMetadataIncomplete = !metadata?.issuer || !metadata?.ownerName;
   const hasNoReviewDate = !nextReviewDate;
+  const showConfirmation = metadata && metadata.metadataConfirmed === false;
+
+  const confirmationFields = [
+    { icon: Building2, label: 'Issuer', value: metadata?.issuer },
+    { icon: User, label: 'Owner', value: metadata?.ownerName },
+    { icon: Hash, label: 'Policy #', value: metadata?.policyNumber },
+    { icon: MapPin, label: 'Address', value: metadata?.address },
+    { icon: Calendar, label: 'Effective', value: metadata?.effectiveDate ? new Date(metadata.effectiveDate).toLocaleDateString() : '' },
+    { icon: Calendar, label: 'Expires', value: metadata?.expirationDate ? new Date(metadata.expirationDate).toLocaleDateString() : '' },
+  ];
 
   return (
     <View style={styles.container}>
+      {/* 0. Metadata Confirmation Card */}
+      {showConfirmation && !showMetadataForm && (
+        <Card style={styles.confirmCard}>
+          <View style={styles.confirmHeader}>
+            <View style={styles.confirmIconBox}>
+              <Sparkles size={16} color="#7c3aed" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.confirmTitle}>Review Extracted Details</Text>
+              <Text style={styles.confirmSubtitle}>We detected key details from this document</Text>
+            </View>
+          </View>
+
+          <View style={styles.confirmFieldsList}>
+            {confirmationFields.map(({ icon: Icon, label, value }) => (
+              <View key={label} style={styles.confirmFieldRow}>
+                <Icon size={14} color={colors.slate[400]} />
+                <Text style={styles.confirmFieldLabel}>{label}</Text>
+                {value ? (
+                  <Text style={styles.confirmFieldValue} numberOfLines={1}>{value}</Text>
+                ) : (
+                  <Text style={styles.confirmFieldEmpty}>Not detected</Text>
+                )}
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.confirmActions}>
+            <Button
+              title="Confirm Details"
+              variant="primary"
+              size="sm"
+              icon={<CheckCircle size={14} color={colors.white} />}
+              onPress={() => handleSaveMetadata(true)}
+              loading={actionLoading === 'metadata'}
+            />
+            <Button
+              title="Edit & Confirm"
+              variant="outline"
+              size="sm"
+              onPress={toggleMetadataForm}
+            />
+          </View>
+        </Card>
+      )}
+
       {/* 1. Health State Card */}
       <Card style={[styles.healthCard, { borderLeftColor: stateColor.border }]}>
         <View style={styles.healthHeader}>
@@ -305,14 +376,35 @@ export default function DocumentHealthPanel({
             label="Issuer / Provider"
             value={issuer}
             onChangeText={setIssuer}
-            placeholder="e.g. State Farm, Comcast"
+            placeholder="Not detected — add manually"
             containerStyle={styles.formField}
           />
           <Input
             label="Owner / Policyholder"
             value={ownerName}
             onChangeText={setOwnerName}
-            placeholder="e.g. John Doe"
+            placeholder="Not detected — add manually"
+            containerStyle={styles.formField}
+          />
+          <Input
+            label="Policy / Contract Number"
+            value={policyNumber}
+            onChangeText={setPolicyNumber}
+            placeholder="Not detected — add manually"
+            containerStyle={styles.formField}
+          />
+          <Input
+            label="Address"
+            value={address}
+            onChangeText={setAddress}
+            placeholder="Not detected — add manually"
+            containerStyle={styles.formField}
+          />
+          <Input
+            label="Effective Date"
+            value={effectiveDate}
+            onChangeText={setEffectiveDate}
+            placeholder="YYYY-MM-DD"
             containerStyle={styles.formField}
           />
           <Input
@@ -324,10 +416,10 @@ export default function DocumentHealthPanel({
           />
           <View style={styles.formButtons}>
             <Button
-              title="Save"
+              title={showConfirmation ? 'Confirm Details' : 'Save'}
               variant="primary"
               size="sm"
-              onPress={handleSaveMetadata}
+              onPress={() => handleSaveMetadata(!!showConfirmation)}
               loading={actionLoading === 'metadata'}
             />
             <Button
@@ -614,6 +706,67 @@ const styles = StyleSheet.create({
     color: colors.slate[500],
     fontStyle: 'italic',
     marginTop: spacing.xs,
+  },
+
+  /* Confirmation Card */
+  confirmCard: {
+    borderWidth: 2,
+    borderColor: '#ddd6fe',
+    backgroundColor: '#f5f3ff',
+  },
+  confirmHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  confirmIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.lg,
+    backgroundColor: '#ede9fe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: '#4c1d95',
+  },
+  confirmSubtitle: {
+    fontSize: typography.fontSize.xs,
+    color: '#6d28d9',
+    marginTop: 2,
+  },
+  confirmFieldsList: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  confirmFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  confirmFieldLabel: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[500],
+    width: 70,
+  },
+  confirmFieldValue: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.slate[900],
+  },
+  confirmFieldEmpty: {
+    flex: 1,
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[400],
+    fontStyle: 'italic',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
 
   /* Related Documents */

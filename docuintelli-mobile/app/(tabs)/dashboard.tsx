@@ -242,7 +242,7 @@ export default function DashboardScreen() {
               title="Audit"
               subtitle="Vault health"
               cardWidth={actionCardWidth}
-              onPress={() => router.push('/audit')}
+              onPress={() => router.push({ pathname: '/(tabs)/vault', params: { tab: 'health' } })}
             />
             <QuickAction
               icon={<Search size={22} color={colors.white} />}

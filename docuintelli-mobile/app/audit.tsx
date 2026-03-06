@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl,
+  Modal, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -81,25 +82,47 @@ const SECTION_CONFIG: Record<string, {
   },
 };
 
-export default function AuditScreen() {
+const CADENCE_PRESETS = [
+  { days: 90, label: 'Every 3 months' },
+  { days: 180, label: 'Every 6 months' },
+  { days: 365, label: 'Every year' },
+];
+
+const getDefaultCadence = (category: string): number => {
+  switch (category) {
+    case 'lease': case 'contract': return 180;
+    default: return 365;
+  }
+};
+
+/** Reusable audit content — can be embedded in Vault or rendered standalone. */
+export function AuditContent({ embedded }: { embedded?: boolean }) {
   const { data, loading, error, refresh } = useWeeklyAudit();
   const { dismissGap, setCadence, actionLoading } = useEngagementActions();
   const [expandedSection, setExpandedSection] = useState<string | null>('nearing_expiration');
+  const [cadenceModal, setCadenceModal] = useState<{ docId: string; docName: string; category: string } | null>(null);
+  const [selectedCadence, setSelectedCadence] = useState<number>(365);
+  const [customDays, setCustomDays] = useState('');
+  const [useCustom, setUseCustom] = useState(false);
 
   const toggleSection = (key: string) => {
     setExpandedSection(prev => prev === key ? null : key);
   };
 
-  const getDefaultCadence = (category: string): number => {
-    switch (category) {
-      case 'lease': case 'contract': return 180;
-      default: return 365;
-    }
+  const openCadenceModal = (docId: string, docName: string, category: string) => {
+    const defaultDays = getDefaultCadence(category);
+    setSelectedCadence(defaultDays);
+    setCustomDays('');
+    setUseCustom(false);
+    setCadenceModal({ docId, docName, category });
   };
 
-  const handleSetDefaultCadence = async (docId: string, category: string) => {
-    const days = getDefaultCadence(category);
-    await setCadence(docId, days);
+  const handleConfirmCadence = async () => {
+    if (!cadenceModal) return;
+    const days = useCustom ? parseInt(customDays, 10) : selectedCadence;
+    if (!days || days < 7 || days > 730) return;
+    await setCadence(cadenceModal.docId, days);
+    setCadenceModal(null);
     refresh();
   };
 
@@ -112,28 +135,43 @@ export default function AuditScreen() {
     router.push({ pathname: '/document/[id]', params: { id: docId } });
   };
 
-  if (loading) return (
-    <>
-      <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
-      <LoadingSpinner fullScreen />
-    </>
-  );
+  if (loading) {
+    if (embedded) return <LoadingSpinner fullScreen />;
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
+        <LoadingSpinner fullScreen />
+      </>
+    );
+  }
 
-  if (error) return (
-    <>
-      <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
-        <View style={styles.errorContainer}>
-          <GradientIcon size={56} light>
-            <AlertTriangle size={24} color={colors.error[600]} strokeWidth={2} />
-          </GradientIcon>
-          <Text style={styles.errorTitle}>Unable to load audit</Text>
-          <Text style={styles.errorText}>Something went wrong loading your vault audit data.</Text>
-          <Button title="Retry" onPress={refresh} variant="primary" size="md" />
-        </View>
-      </SafeAreaView>
-    </>
-  );
+  if (error) {
+    if (embedded) return (
+      <View style={styles.errorContainer}>
+        <GradientIcon size={56} light>
+          <AlertTriangle size={24} color={colors.error[600]} strokeWidth={2} />
+        </GradientIcon>
+        <Text style={styles.errorTitle}>Unable to load audit</Text>
+        <Text style={styles.errorText}>Something went wrong loading your vault audit data.</Text>
+        <Button title="Retry" onPress={refresh} variant="primary" size="md" />
+      </View>
+    );
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
+        <SafeAreaView style={styles.safe} edges={['bottom']}>
+          <View style={styles.errorContainer}>
+            <GradientIcon size={56} light>
+              <AlertTriangle size={24} color={colors.error[600]} strokeWidth={2} />
+            </GradientIcon>
+            <Text style={styles.errorTitle}>Unable to load audit</Text>
+            <Text style={styles.errorText}>Something went wrong loading your vault audit data.</Text>
+            <Button title="Retry" onPress={refresh} variant="primary" size="md" />
+          </View>
+        </SafeAreaView>
+      </>
+    );
+  }
 
   if (!data) return null;
 
@@ -175,27 +213,8 @@ export default function AuditScreen() {
     : data.preparedness.trend === 'down' ? colors.error[600]
     : colors.slate[400];
 
-  return (
+  const auditBody = (
     <>
-      <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.primary[600]} />}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerRow}>
-              <GradientIcon size={44}>
-                <ClipboardCheck size={22} color={colors.white} strokeWidth={2} />
-              </GradientIcon>
-              <View style={styles.headerTextCol}>
-                <Text style={styles.pageTitle}>Weekly Vault Audit</Text>
-                <Text style={styles.pageSubtitle}>Review your document vault health</Text>
-              </View>
-            </View>
-          </View>
-
           {/* Health summary grid */}
           <View style={styles.summaryGrid}>
             {(['healthy', 'watch', 'risk', 'critical'] as const).map(key => {
@@ -338,7 +357,7 @@ export default function AuditScreen() {
                               style={styles.actionChip}
                               onPress={(e) => {
                                 e.stopPropagation?.();
-                                handleSetDefaultCadence(doc.id, doc.category);
+                                openCadenceModal(doc.id, doc.name, doc.category);
                               }}
                               disabled={actionLoading !== null}
                               activeOpacity={0.7}
@@ -405,10 +424,172 @@ export default function AuditScreen() {
               ))}
             </Card>
           )}
+
+          {/* Cadence Picker Modal */}
+          <Modal
+            visible={cadenceModal !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setCadenceModal(null)}
+          >
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setCadenceModal(null)}
+            >
+              <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+                {/* Header */}
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalIconBox}>
+                    <Clock size={20} color={colors.slate[600]} strokeWidth={2} />
+                  </View>
+                  <View style={styles.modalHeaderInfo}>
+                    <Text style={styles.modalTitle}>Set Review Schedule</Text>
+                    {cadenceModal && (
+                      <Text style={styles.modalDocName} numberOfLines={1}>
+                        {cadenceModal.docName} &bull; {cadenceModal.category}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={() => setCadenceModal(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                    <X size={20} color={colors.slate[400]} strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.modalSectionLabel}>How often should we remind you?</Text>
+
+                {/* Presets */}
+                {CADENCE_PRESETS.map((preset) => {
+                  const isDefault = cadenceModal ? preset.days === getDefaultCadence(cadenceModal.category) : false;
+                  const isSelected = !useCustom && selectedCadence === preset.days;
+                  return (
+                    <TouchableOpacity
+                      key={preset.days}
+                      style={[styles.presetOption, isSelected && styles.presetOptionActive]}
+                      onPress={() => { setSelectedCadence(preset.days); setUseCustom(false); }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.presetOptionLeft}>
+                        <Text style={[styles.presetLabel, isSelected && styles.presetLabelActive]}>
+                          {preset.label}
+                        </Text>
+                        <Text style={[styles.presetDays, isSelected && styles.presetDaysActive]}>
+                          {preset.days} days
+                        </Text>
+                      </View>
+                      <View style={styles.presetOptionRight}>
+                        {isDefault && (
+                          <View style={styles.recommendedBadge}>
+                            <Text style={styles.recommendedText}>Recommended</Text>
+                          </View>
+                        )}
+                        <View style={[styles.radioOuter, isSelected && styles.radioOuterActive]}>
+                          {isSelected && <View style={styles.radioInner} />}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {/* Custom option */}
+                <TouchableOpacity
+                  style={[styles.presetOption, useCustom && styles.presetOptionActive]}
+                  onPress={() => setUseCustom(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.presetOptionLeft}>
+                    <Text style={[styles.presetLabel, useCustom && styles.presetLabelActive]}>Custom</Text>
+                    {useCustom && (
+                      <View style={styles.customInputRow}>
+                        <TextInput
+                          style={styles.customInput}
+                          value={customDays}
+                          onChangeText={setCustomDays}
+                          placeholder="e.g. 120"
+                          placeholderTextColor={colors.slate[400]}
+                          keyboardType="number-pad"
+                          autoFocus
+                          maxLength={3}
+                        />
+                        <Text style={styles.customDaysLabel}>days</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={[styles.radioOuter, useCustom && styles.radioOuterActive]}>
+                    {useCustom && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+
+                <Text style={styles.modalHint}>
+                  We'll notify you at 80%, 90%, and 100% of the review period.
+                </Text>
+
+                {/* Actions */}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={() => setCadenceModal(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalConfirmBtn,
+                      (actionLoading !== null || (useCustom && (!customDays || parseInt(customDays, 10) < 7 || parseInt(customDays, 10) > 730)))
+                        && styles.modalConfirmBtnDisabled,
+                    ]}
+                    onPress={handleConfirmCadence}
+                    disabled={actionLoading !== null || (useCustom && (!customDays || parseInt(customDays, 10) < 7 || parseInt(customDays, 10) > 730))}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalConfirmText}>
+                      {actionLoading === 'cadence' ? 'Setting...' : 'Set Schedule'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+    </>
+  );
+
+  if (embedded) return auditBody;
+
+  return (
+    <>
+      <Stack.Screen options={{ title: 'Weekly Audit', headerShown: true }} />
+      <SafeAreaView style={styles.safe} edges={['bottom']}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.primary[600]} />}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <GradientIcon size={44}>
+                <ClipboardCheck size={22} color={colors.white} strokeWidth={2} />
+              </GradientIcon>
+              <View style={styles.headerTextCol}>
+                <Text style={styles.pageTitle}>Weekly Vault Audit</Text>
+                <Text style={styles.pageSubtitle}>Review your document vault health</Text>
+              </View>
+            </View>
+          </View>
+
+          {auditBody}
         </ScrollView>
       </SafeAreaView>
     </>
   );
+}
+
+/** Redirect: /audit now lives inside the Vault Health tab */
+export default function AuditScreen() {
+  useEffect(() => {
+    router.replace({ pathname: '/(tabs)/vault', params: { tab: 'health' } });
+  }, []);
+  return <LoadingSpinner fullScreen />;
 }
 
 const styles = StyleSheet.create({
@@ -745,5 +926,191 @@ const styles = StyleSheet.create({
     backgroundColor: colors.slate[100],
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Cadence picker modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  modalSheet: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius['2xl'],
+    padding: spacing.xl,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  modalIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.slate[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalHeaderInfo: {
+    flex: 1,
+  },
+  modalTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold as any,
+    color: colors.slate[900],
+  },
+  modalDocName: {
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[500],
+    marginTop: 2,
+  },
+  modalSectionLabel: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.slate[500],
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: spacing.md,
+  },
+  presetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 14,
+    borderRadius: borderRadius.xl,
+    borderWidth: 2,
+    borderColor: colors.slate[200],
+    marginBottom: spacing.sm,
+  },
+  presetOptionActive: {
+    borderColor: colors.primary[500],
+    backgroundColor: colors.primary[50],
+  },
+  presetOptionLeft: {
+    flex: 1,
+  },
+  presetOptionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  presetLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.slate[700],
+  },
+  presetLabelActive: {
+    color: colors.primary[700],
+  },
+  presetDays: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[400],
+    marginTop: 2,
+  },
+  presetDaysActive: {
+    color: colors.primary[500],
+  },
+  recommendedBadge: {
+    backgroundColor: colors.slate[100],
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  recommendedText: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold as any,
+    color: colors.slate[600],
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.slate[300],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOuterActive: {
+    borderColor: colors.primary[500],
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.primary[500],
+  },
+  customInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  customInput: {
+    width: 80,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.primary[300],
+    borderRadius: borderRadius.lg,
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[900],
+    backgroundColor: colors.white,
+  },
+  customDaysLabel: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[600],
+    fontWeight: typography.fontWeight.medium as any,
+  },
+  modalHint: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[400],
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+    lineHeight: 18,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.slate[100],
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.slate[600],
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.primary[600],
+    alignItems: 'center',
+  },
+  modalConfirmBtnDisabled: {
+    opacity: 0.5,
+  },
+  modalConfirmText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.white,
   },
 });

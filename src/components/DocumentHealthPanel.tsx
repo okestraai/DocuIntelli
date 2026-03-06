@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Heart, Shield, Clock, AlertTriangle, CheckCircle, FileText,
   Tag, User, Building2, Calendar, RefreshCw, Link2, ChevronDown,
-  Lightbulb, MessageSquare, Info, Upload
+  Lightbulb, MessageSquare, Info, Upload, Sparkles, MapPin, Hash
 } from 'lucide-react';
 import { useDocumentHealth, useEngagementActions } from '../hooks/useEngagement';
 import { useFeedback } from '../hooks/useFeedback';
@@ -40,6 +40,9 @@ export function DocumentHealthPanel({
     issuer: '',
     ownerName: '',
     expirationDate: '',
+    effectiveDate: '',
+    policyNumber: '',
+    address: '',
   });
   const [cadenceDays, setCadenceDays] = useState<number>(365);
   const metadataFormRef = useRef<HTMLDivElement>(null);
@@ -58,6 +61,9 @@ export function DocumentHealthPanel({
         issuer: data.metadata.issuer || '',
         ownerName: data.metadata.ownerName || '',
         expirationDate: data.metadata.expirationDate ? data.metadata.expirationDate.split('T')[0] : '',
+        effectiveDate: data.metadata.effectiveDate ? data.metadata.effectiveDate.split('T')[0] : '',
+        policyNumber: data.metadata.policyNumber || '',
+        address: data.metadata.address || '',
       });
     }
     setShowMetadataForm(true);
@@ -74,8 +80,9 @@ export function DocumentHealthPanel({
 
   if (error || !data) return null;
 
-  const { health, insights, nextReviewDate, suggestedCadenceDays, relationships, reverseRelationships } = data;
+  const { health, insights, nextReviewDate, suggestedCadenceDays, relationships, reverseRelationships, metadata } = data;
   const hasIncompleteMetadata = insights.some(i => i.type === 'metadata_incomplete');
+  const showConfirmation = metadata && metadata.metadataConfirmed === false;
   const hasRenewal = reverseRelationships.some((r: any) => r.relationship_type === 'supersedes');
   const showRenewalAction = !hasRenewal && (documentStatus === 'expired' || documentStatus === 'expiring') && !!onUploadRenewal;
   const filteredInsights = hasRenewal ? insights.filter(i => i.type !== 'renewal_suggestion') : insights;
@@ -96,17 +103,24 @@ export function DocumentHealthPanel({
     critical: <AlertTriangle className={`h-6 w-6 ${colors.icon}`} />,
   };
 
-  const handleSaveMetadata = async () => {
+  const handleSaveMetadata = async (confirm = false) => {
     const updates: any = {};
     if (metadataFields.issuer) updates.issuer = metadataFields.issuer;
     if (metadataFields.ownerName) updates.ownerName = metadataFields.ownerName;
     if (metadataFields.expirationDate) updates.expirationDate = metadataFields.expirationDate;
+    if (metadataFields.effectiveDate) updates.effectiveDate = metadataFields.effectiveDate;
+    if (metadataFields.policyNumber) updates.policyNumber = metadataFields.policyNumber;
+    if (metadataFields.address) updates.address = metadataFields.address;
+    if (confirm) updates.metadataConfirmed = true;
     if (Object.keys(updates).length > 0) {
       try {
         await updateMetadata(documentId, updates);
         setShowMetadataForm(false);
         refresh();
-        feedback.showSuccess('Details saved', 'Document metadata updated successfully');
+        feedback.showSuccess(
+          confirm ? 'Details confirmed' : 'Details saved',
+          confirm ? 'Extracted details have been confirmed' : 'Document metadata updated successfully',
+        );
       } catch {
         feedback.showError('Save failed', 'Could not update document details');
       }
@@ -127,6 +141,59 @@ export function DocumentHealthPanel({
 
   return (
     <div className="space-y-4">
+      {/* Metadata Confirmation Card — shown when LLM extracted details but user hasn't confirmed */}
+      {showConfirmation && !showMetadataForm && (
+        <div className="rounded-xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-purple-50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-8 w-8 rounded-lg bg-violet-100 flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-violet-900">Review Extracted Details</h4>
+              <p className="text-xs text-violet-600">We automatically detected key details from this document</p>
+            </div>
+          </div>
+
+          <div className="space-y-2 mb-4">
+            {[
+              { icon: <Building2 className="h-3.5 w-3.5" />, label: 'Issuer', value: metadata?.issuer },
+              { icon: <User className="h-3.5 w-3.5" />, label: 'Owner', value: metadata?.ownerName },
+              { icon: <Hash className="h-3.5 w-3.5" />, label: 'Policy / Contract #', value: metadata?.policyNumber },
+              { icon: <MapPin className="h-3.5 w-3.5" />, label: 'Address', value: metadata?.address },
+              { icon: <Calendar className="h-3.5 w-3.5" />, label: 'Effective Date', value: metadata?.effectiveDate ? new Date(metadata.effectiveDate).toLocaleDateString() : '' },
+              { icon: <Calendar className="h-3.5 w-3.5" />, label: 'Expiration Date', value: metadata?.expirationDate ? new Date(metadata.expirationDate).toLocaleDateString() : '' },
+            ].map(({ icon, label, value }) => (
+              <div key={label} className="flex items-center gap-2 text-sm">
+                <span className="text-violet-400">{icon}</span>
+                <span className="text-slate-500 w-32 flex-shrink-0">{label}</span>
+                {value ? (
+                  <span className="text-slate-900 font-medium">{value}</span>
+                ) : (
+                  <span className="text-slate-400 italic text-xs">Not detected</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleSaveMetadata(true)}
+              disabled={actionLoading !== null}
+              className="text-xs bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Confirm Details
+            </button>
+            <button
+              onClick={openMetadataForm}
+              className="text-xs text-violet-700 hover:text-violet-900 font-medium px-3 py-2 bg-violet-100 hover:bg-violet-200 rounded-lg transition-colors"
+            >
+              Edit & Confirm
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Health State */}
       <div className={`rounded-xl border-2 ${colors.border} ${colors.bg} p-4`}>
         <div className="flex items-center justify-between mb-3">
@@ -227,8 +294,10 @@ export function DocumentHealthPanel({
 
       {/* Metadata Form */}
       {showMetadataForm && (
-        <div ref={metadataFormRef} className="bg-white rounded-xl border-2 border-emerald-200 p-4">
-          <h4 className="text-sm font-semibold text-slate-900 mb-3">Edit Document Details</h4>
+        <div ref={metadataFormRef} className={`bg-white rounded-xl border-2 p-4 ${showConfirmation ? 'border-violet-200' : 'border-emerald-200'}`}>
+          <h4 className="text-sm font-semibold text-slate-900 mb-3">
+            {showConfirmation ? 'Edit & Confirm Extracted Details' : 'Edit Document Details'}
+          </h4>
           <div className="space-y-3">
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Issuer / Provider</label>
@@ -238,7 +307,7 @@ export function DocumentHealthPanel({
                   type="text"
                   value={metadataFields.issuer}
                   onChange={(e) => setMetadataFields(prev => ({ ...prev, issuer: e.target.value }))}
-                  placeholder="e.g., State Farm, Wells Fargo"
+                  placeholder="Not detected — add manually"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                 />
               </div>
@@ -251,27 +320,68 @@ export function DocumentHealthPanel({
                   type="text"
                   value={metadataFields.ownerName}
                   onChange={(e) => setMetadataFields(prev => ({ ...prev, ownerName: e.target.value }))}
-                  placeholder="e.g., John Smith"
+                  placeholder="Not detected — add manually"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                 />
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Expiration Date</label>
-              <input
-                type="date"
-                value={metadataFields.expirationDate}
-                onChange={(e) => setMetadataFields(prev => ({ ...prev, expirationDate: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              />
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Policy / Contract Number</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={metadataFields.policyNumber}
+                  onChange={(e) => setMetadataFields(prev => ({ ...prev, policyNumber: e.target.value }))}
+                  placeholder="Not detected — add manually"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Address</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={metadataFields.address}
+                  onChange={(e) => setMetadataFields(prev => ({ ...prev, address: e.target.value }))}
+                  placeholder="Not detected — add manually"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Effective Date</label>
+                <input
+                  type="date"
+                  value={metadataFields.effectiveDate}
+                  onChange={(e) => setMetadataFields(prev => ({ ...prev, effectiveDate: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Expiration Date</label>
+                <input
+                  type="date"
+                  value={metadataFields.expirationDate}
+                  onChange={(e) => setMetadataFields(prev => ({ ...prev, expirationDate: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
             </div>
             <div className="flex gap-2">
               <button
-                onClick={handleSaveMetadata}
+                onClick={() => handleSaveMetadata(showConfirmation)}
                 disabled={actionLoading !== null}
-                className="text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                className={`text-xs text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+                  showConfirmation
+                    ? 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700'
+                }`}
               >
-                Save Details
+                {showConfirmation ? 'Confirm Details' : 'Save Details'}
               </button>
               <button
                 onClick={() => setShowMetadataForm(false)}

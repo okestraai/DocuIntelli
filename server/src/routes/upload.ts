@@ -23,6 +23,7 @@ router.use(loadSubscription);
 // Import services for document processing and embeddings (was edge function calls)
 import { processDocumentVLLMEmbeddings } from '../services/vllmEmbeddings';
 import { processDocument as reprocessDocument } from '../services/chunking';
+import { extractDocumentMetadata } from '../services/metadataExtractor';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -226,6 +227,11 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
                 expirationDetected: expirationDate || undefined,
               }).catch(() => {});
             }
+          });
+
+          // Trigger metadata extraction (non-blocking, independent of embeddings)
+          extractDocumentMetadata(documentData.id, userId, name.trim(), category).catch(err => {
+            console.error('⚠️ Metadata extraction failed:', err.message);
           });
 
           // Trigger embedding generation directly

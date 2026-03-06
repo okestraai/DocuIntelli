@@ -33,7 +33,7 @@ const DocumentChat = React.lazy(() => import('./components/DocumentChat').then(m
 const DocumentViewer = React.lazy(() => import('./components/DocumentViewer').then(m => ({ default: m.DocumentViewer })));
 const PricingPage = React.lazy(() => import('./components/PricingPage').then(m => ({ default: m.PricingPage })));
 const AccountSettingsPage = React.lazy(() => import('./components/AccountSettingsPage').then(m => ({ default: m.AccountSettingsPage })));
-const WeeklyAudit = React.lazy(() => import('./components/WeeklyAudit').then(m => ({ default: m.WeeklyAudit })));
+// WeeklyAudit is now embedded inside DocumentVault (Health tab)
 const LifeEventsPage = React.lazy(() => import('./components/LifeEventsPage').then(m => ({ default: m.LifeEventsPage })));
 const FinancialInsightsPage = React.lazy(() => import('./components/FinancialInsightsPage').then(m => ({ default: m.FinancialInsightsPage })));
 const TermsPage = React.lazy(() => import('./components/TermsPage').then(m => ({ default: m.TermsPage })));
@@ -49,17 +49,27 @@ const VulnerabilityManagementPage = React.lazy(() => import('./components/Vulner
 const AdminPage = React.lazy(() => import('./components/AdminPage').then(m => ({ default: m.AdminPage })));
 const EmergencyInvitePage = React.lazy(() => import('./components/EmergencyInvitePage').then(m => ({ default: m.EmergencyInvitePage })));
 
-export type Page = 'landing' | 'dashboard' | 'vault' | 'pricing' | 'settings' | 'audit' | 'life-events' | 'financial-insights' | 'admin' | 'terms' | 'privacy' | 'cookies' | 'help' | 'status' | 'features' | 'beta' | 'security-policy' | 'data-retention' | 'vulnerability-management' | 'emergency-invite';
+export type Page = 'landing' | 'dashboard' | 'vault' | 'pricing' | 'settings' | 'life-events' | 'financial-insights' | 'admin' | 'terms' | 'privacy' | 'cookies' | 'help' | 'status' | 'features' | 'beta' | 'security-policy' | 'data-retention' | 'vulnerability-management' | 'emergency-invite';
 
 // Path-based routing helpers
-const VALID_PAGES: Page[] = ['dashboard', 'vault', 'pricing', 'settings', 'audit', 'life-events', 'financial-insights', 'admin', 'terms', 'privacy', 'cookies', 'help', 'status', 'features', 'beta', 'security-policy', 'data-retention', 'vulnerability-management', 'emergency-invite'];
+const VALID_PAGES: Page[] = ['dashboard', 'vault', 'pricing', 'settings', 'life-events', 'financial-insights', 'admin', 'terms', 'privacy', 'cookies', 'help', 'status', 'features', 'beta', 'security-policy', 'data-retention', 'vulnerability-management', 'emergency-invite'];
 
 function getPageFromPath(): Page | null {
   const path = window.location.pathname.replace(/^\//, ''); // strip leading /
+  // Backward compat: /audit redirects to /vault?tab=health
+  if (path === 'audit') {
+    window.history.replaceState(null, '', '/vault?tab=health');
+    return 'vault';
+  }
   if (path && VALID_PAGES.includes(path as Page)) {
     return path as Page;
   }
   return null;
+}
+
+function getVaultTabFromUrl(): 'documents' | 'health' {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('tab') === 'health' ? 'health' : 'documents';
 }
 
 function navigateTo(page: Page, replace = false) {
@@ -112,6 +122,7 @@ function App() {
   const [isMobile, setIsMobile] = useState(false);
   const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
   const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'security' | 'preferences' | 'billing' | 'support'>('profile');
+  const [vaultInitialTab, setVaultInitialTab] = useState<'documents' | 'health'>(getVaultTabFromUrl);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const hasInitialAuth = useRef(false);
@@ -152,6 +163,7 @@ function App() {
       const page = getPageFromPath();
       if (page) {
         setCurrentPage(page);
+        if (page === 'vault') setVaultInitialTab(getVaultTabFromUrl());
       } else if (isAuthenticated) {
         setCurrentPage('dashboard');
       } else {
@@ -439,9 +451,19 @@ function App() {
     // Clear any selected/viewing document states when navigating
     setSelectedDocument(null);
     setViewingDocument(null);
+    // Reset vault tab when navigating to vault without explicit tab
+    if (page === 'vault') setVaultInitialTab('documents');
     // Push to history so back/forward buttons work
     navigateTo(page);
     setCurrentPage(page);
+  };
+
+  const handleNavigateToVaultHealth = () => {
+    setSelectedDocument(null);
+    setViewingDocument(null);
+    setVaultInitialTab('health');
+    setCurrentPage('vault');
+    window.history.pushState(null, '', '/vault?tab=health');
   };
 
   const handleDocumentsUploadNew = async (documentsData: DocumentUploadRequest[]) => {
@@ -714,6 +736,7 @@ function App() {
                 const doc = documents.find(d => d.id === docId);
                 if (doc) handleDocumentView(doc);
               }}
+              onNavigateToVaultHealth={handleNavigateToVaultHealth}
             />
           </ErrorBoundary>
         );
@@ -729,14 +752,7 @@ function App() {
               onDocumentView={handleDocumentView}
               onDocumentUpload={handleDocumentsUploadNew}
               onDocumentDelete={handleDocumentDelete}
-              feedback={feedback}
-            />
-          </ErrorBoundary>
-        );
-      case 'audit':
-        return (
-          <ErrorBoundary>
-            <WeeklyAudit
+              initialTab={vaultInitialTab}
               onNavigateToDocument={(docId) => {
                 const doc = documents.find(d => d.id === docId);
                 if (doc) handleDocumentView(doc);
@@ -811,6 +827,7 @@ function App() {
                 const doc = documents.find(d => d.id === docId);
                 if (doc) handleDocumentView(doc);
               }}
+              onNavigateToVaultHealth={handleNavigateToVaultHealth}
             />
           </ErrorBoundary>
         );

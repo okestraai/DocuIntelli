@@ -91,6 +91,9 @@ export function useEngagementActions() {
     ownerName?: string;
     effectiveDate?: string;
     expirationDate?: string;
+    policyNumber?: string;
+    address?: string;
+    metadataConfirmed?: boolean;
   }) => {
     setActionLoading('metadata');
     try {

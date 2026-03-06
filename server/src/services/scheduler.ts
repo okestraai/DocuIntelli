@@ -563,76 +563,144 @@ async function runReviewCadenceReminders(userId?: string): Promise<Record<string
 
   if (!docs || docs.length === 0) return { sent: 0 };
 
-  // Find overdue documents
-  const overdue = docs.filter((d: any) => {
-    const last = d.last_reviewed_at
-      ? new Date(d.last_reviewed_at)
-      : new Date(d.upload_date);
-    const next = new Date(last.getTime() + d.review_cadence_days * 86400000);
-    return next <= now;
-  });
+  // Threshold definitions — each notification fires once per cadence cycle
+  const THRESHOLDS = [
+    { pct: 80, label: '80' },
+    { pct: 90, label: '90' },
+    { pct: 100, label: '100' },
+  ] as const;
 
-  if (overdue.length === 0) return { sent: 0, overdue: 0 };
+  let emailsSent = 0;
+  let inAppCreated = 0;
 
-  // Group by user
-  const byUser = new Map<string, typeof overdue>();
-  for (const d of overdue) {
-    const list = byUser.get(d.user_id) || [];
-    list.push(d);
-    byUser.set(d.user_id, list);
-  }
-
-  let sent = 0;
-  const weekAgo = new Date(now.getTime() - 7 * 86400000);
-
-  for (const [userId, userDocs] of byUser) {
+  for (const doc of docs) {
     try {
-      // Deduplicate: 1 email per user per week
-      const recentResult = await query(
+      const last = doc.last_reviewed_at
+        ? new Date(doc.last_reviewed_at)
+        : new Date(doc.upload_date);
+      const daysSinceReview = Math.ceil(
+        (now.getTime() - last.getTime()) / 86400000,
+      );
+      const percentElapsed = (daysSinceReview / doc.review_cadence_days) * 100;
+      const daysRemaining = Math.max(0, doc.review_cadence_days - daysSinceReview);
+
+      // Determine which threshold this document has reached
+      let activeThreshold: typeof THRESHOLDS[number] | null = null;
+      for (const t of THRESHOLDS) {
+        if (percentElapsed >= t.pct) {
+          activeThreshold = t;
+        }
+      }
+      if (!activeThreshold) continue; // Below 80%, skip
+
+      // Dedup: check if this (document, threshold) was already notified in this cadence cycle
+      // A cadence cycle starts from last_reviewed_at (or upload_date)
+      const cycleStart = last.toISOString();
+      const alreadySent = await query(
         `SELECT id FROM notification_logs
          WHERE user_id = $1
-           AND notification_type = $2
-           AND sent_at >= $3
+           AND notification_type IN ('email:document_review_due_soon', 'email:document_review_overdue')
+           AND metadata->>'documentId' = $2
+           AND metadata->>'threshold' = $3
+           AND sent_at >= $4
          LIMIT 1`,
-        [userId, 'email:document_review_overdue', weekAgo.toISOString()],
+        [doc.user_id, doc.id, activeThreshold.label, cycleStart],
       );
-      if (recentResult.rows.length > 0) continue;
+      if (alreadySent.rows.length > 0) continue;
 
-      const userInfo = await resolveUserInfo(userId);
+      const userInfo = await resolveUserInfo(doc.user_id);
       if (!userInfo) continue;
       const { userName } = userInfo;
 
-      // Build document list for template
-      const documents = userDocs.slice(0, 5).map((d: any) => {
-        const last = d.last_reviewed_at
-          ? new Date(d.last_reviewed_at)
-          : new Date(d.upload_date);
-        const daysOverdue = Math.ceil(
-          (now.getTime() - last.getTime()) / 86400000,
+      if (activeThreshold.pct >= 100) {
+        // 100% — overdue: use existing document_review_overdue template
+        const lastReviewed = last.toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+        });
+        const result = await sendNotificationEmail(
+          doc.user_id,
+          'document_review_overdue',
+          {
+            userName,
+            documents: [{
+              name: doc.name,
+              category: doc.category,
+              lastReviewed,
+              daysSinceReview,
+            }],
+            overdueCount: 1,
+          },
         );
-        return {
-          name: d.name,
-          category: d.category,
-          daysOverdue,
-        };
-      });
+        if (result.sent) emailsSent++;
 
-      const result = await sendNotificationEmail(
-        userId,
-        'document_review_overdue',
-        {
-          userName,
-          documents,
-          overdueCount: userDocs.length,
-        },
+        // Create in-app notification
+        await query(
+          `INSERT INTO in_app_notifications (user_id, type, title, message, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            doc.user_id,
+            'review_overdue',
+            'Review Overdue',
+            `${doc.name} is overdue for review`,
+            JSON.stringify({ documentId: doc.id, category: doc.category, threshold: '100' }),
+          ],
+        );
+        inAppCreated++;
+      } else {
+        // 80% or 90% — due soon: use new document_review_due_soon template
+        const result = await sendNotificationEmail(
+          doc.user_id,
+          'document_review_due_soon',
+          {
+            userName,
+            documentName: doc.name,
+            category: doc.category,
+            cadenceDays: doc.review_cadence_days,
+            percentComplete: Math.round(percentElapsed),
+            daysRemaining,
+          },
+        );
+        if (result.sent) emailsSent++;
+
+        // Create in-app notification
+        const title = activeThreshold.pct >= 90 ? 'Review Due Soon' : 'Review Coming Up';
+        await query(
+          `INSERT INTO in_app_notifications (user_id, type, title, message, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            doc.user_id,
+            'review_due_soon',
+            title,
+            `${doc.name} review due in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}`,
+            JSON.stringify({ documentId: doc.id, category: doc.category, threshold: activeThreshold.label }),
+          ],
+        );
+        inAppCreated++;
+      }
+
+      // Log to notification_logs with metadata for dedup tracking
+      // (sendNotificationEmail already logs, but we add threshold metadata via a separate insert)
+      await query(
+        `UPDATE notification_logs
+         SET metadata = metadata || $1
+         WHERE user_id = $2
+           AND notification_type IN ('email:document_review_due_soon', 'email:document_review_overdue')
+           AND metadata->>'documentId' IS NULL
+           AND sent_at >= $3
+         ORDER BY sent_at DESC
+         LIMIT 1`,
+        [
+          JSON.stringify({ documentId: doc.id, threshold: activeThreshold.label }),
+          doc.user_id,
+          new Date(now.getTime() - 60000).toISOString(), // Within last minute
+        ],
       );
-      if (result.sent) sent++;
     } catch (err) {
-      console.error(`[CRON] review-cadence-reminders: Error for user ${userId}:`, err);
+      console.error(`[CRON] review-cadence-reminders: Error for doc ${doc.id}:`, err);
     }
   }
 
-  return { sent, overdue: overdue.length, users: byUser.size };
+  return { emailsSent, inAppCreated, docsChecked: docs.length };
 }
 
 // ============================================================================
@@ -955,9 +1023,9 @@ export function startScheduler(): void {
     { timezone: TIMEZONE },
   );
 
-  // Task 6: Review Cadence Reminders — Monday 9am UTC
+  // Task 6: Review Cadence Reminders — daily 9am UTC (80% / 90% / 100% thresholds)
   cron.schedule(
-    '0 9 * * 1',
+    '0 9 * * *',
     wrapTask('review-cadence-reminders', runReviewCadenceReminders),
     { timezone: TIMEZONE },
   );

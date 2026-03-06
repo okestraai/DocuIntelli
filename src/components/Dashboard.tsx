@@ -15,9 +15,10 @@ interface DashboardProps {
   onUpgrade?: () => void;
   onManageSubscription?: () => void;
   onViewDocument?: (documentId: string) => void;
+  onNavigateToVaultHealth?: () => void;
 }
 
-export function Dashboard({ documents, dataVersion, onNavigate, onAddDocument, onDocumentDelete, onUpgrade, onManageSubscription, onViewDocument }: DashboardProps) {
+export function Dashboard({ documents, dataVersion, onNavigate, onAddDocument, onDocumentDelete, onUpgrade, onManageSubscription, onViewDocument, onNavigateToVaultHealth }: DashboardProps) {
   const safeDocuments = documents ?? [];
   const { subscription, documentCount } = useSubscription();
   const planDocLimit: number = subscription ? (PLAN_LIMITS[subscription.plan as PlanId]?.documents ?? subscription.document_limit) : 3;
@@ -424,7 +425,7 @@ export function Dashboard({ documents, dataVersion, onNavigate, onAddDocument, o
         <TodayFeed
           refreshTrigger={dataVersion}
           onNavigateToDocument={(docId) => onViewDocument?.(docId)}
-          onNavigateToAudit={() => onNavigate('audit')}
+          onNavigateToAudit={onNavigateToVaultHealth}
           onAddDocument={onAddDocument}
         />
       </div>

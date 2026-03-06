@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, ShieldAlert, FileText, LayoutDashboard, LogOut, User, Bell, ClipboardCheck, Compass, Landmark } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, FileText, LayoutDashboard, LogOut, User, Bell, Compass, Landmark } from 'lucide-react';
 import type { Page } from '../App';
 
 interface HeaderProps {
@@ -18,7 +18,6 @@ export function Header({ currentPage, onNavigate, onSignOut, onOpenProfile, onOp
   const baseNavItems = [
     { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vault' as Page, label: 'Vault', icon: FileText },
-    { id: 'audit' as Page, label: 'Audit', icon: ClipboardCheck },
     { id: 'life-events' as Page, label: 'Life Events', icon: Compass },
     { id: 'financial-insights' as Page, label: 'Financial', icon: Landmark },
   ];

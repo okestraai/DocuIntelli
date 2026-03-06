@@ -169,7 +169,7 @@ router.get('/documents/:id/health', async (req: Request, res: Response): Promise
     const { id } = req.params;
 
     const docResult = await query(
-      'SELECT id, user_id, name, category, type, tags, expiration_date, upload_date, last_reviewed_at, review_cadence_days, issuer, owner_name, effective_date, status, processed, health_state, health_computed_at, insights_cache FROM documents WHERE id = $1 AND user_id = $2',
+      'SELECT id, user_id, name, category, type, tags, expiration_date, upload_date, last_reviewed_at, review_cadence_days, issuer, owner_name, effective_date, status, processed, health_state, health_computed_at, insights_cache, policy_number, address, metadata_confirmed FROM documents WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
     const doc = docResult.rows[0];
@@ -218,6 +218,10 @@ router.get('/documents/:id/health', async (req: Request, res: Response): Promise
         issuer: doc.issuer || '',
         ownerName: doc.owner_name || '',
         expirationDate: doc.expiration_date || '',
+        effectiveDate: doc.effective_date || '',
+        policyNumber: doc.policy_number || '',
+        address: doc.address || '',
+        metadataConfirmed: doc.metadata_confirmed || false,
       },
     });
   } catch (error) {
@@ -234,7 +238,7 @@ router.post('/documents/:id/metadata', async (req: Request, res: Response): Prom
   try {
     const userId = req.userId!;
     const { id } = req.params;
-    const { tags, issuer, ownerName, effectiveDate, expirationDate } = req.body;
+    const { tags, issuer, ownerName, effectiveDate, expirationDate, policyNumber, address, metadataConfirmed } = req.body;
     const now = new Date();
 
     const docResult = await query(
@@ -279,6 +283,24 @@ router.post('/documents/:id/metadata', async (req: Request, res: Response): Prom
       params.push(expirationDate);
       paramIdx++;
       updatedFields.push('expiration_date');
+    }
+    if (policyNumber !== undefined) {
+      setClauses.push(`policy_number = $${paramIdx}`);
+      params.push(policyNumber);
+      paramIdx++;
+      updatedFields.push('policy_number');
+    }
+    if (address !== undefined) {
+      setClauses.push(`address = $${paramIdx}`);
+      params.push(address);
+      paramIdx++;
+      updatedFields.push('address');
+    }
+    if (metadataConfirmed !== undefined) {
+      setClauses.push(`metadata_confirmed = $${paramIdx}`);
+      params.push(metadataConfirmed);
+      paramIdx++;
+      updatedFields.push('metadata_confirmed');
     }
 
     if (setClauses.length === 0) {
@@ -341,6 +363,26 @@ router.post('/documents/:id/cadence', async (req: Request, res: Response): Promi
     await query(
       'INSERT INTO review_events (document_id, user_id, action, metadata) VALUES ($1, $2, $3, $4)',
       [id, userId, 'set_cadence', JSON.stringify({ cadenceDays })]
+    );
+
+    // Clear stale threshold notifications for this document (new cadence cycle starts fresh)
+    await query(
+      `DELETE FROM notification_logs
+       WHERE user_id = $1
+         AND notification_type IN ('email:document_review_due_soon', 'email:document_review_overdue')
+         AND metadata->>'documentId' = $2`,
+      [userId, id]
+    );
+
+    // Mark existing in-app review notifications for this document as read
+    await query(
+      `UPDATE in_app_notifications
+       SET read = true
+       WHERE user_id = $1
+         AND type IN ('review_due_soon', 'review_overdue')
+         AND metadata->>'documentId' = $2
+         AND read = false`,
+      [userId, id]
     );
 
     res.json({ success: true, message: `Review cadence set to ${cadenceDays} days` });

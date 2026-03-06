@@ -217,9 +217,9 @@ export default function TodayFeedWidget({ refreshTrigger }: { refreshTrigger?: n
       {!loading && feed.length > 5 && (
         <TouchableOpacity
           style={styles.viewMoreRow}
-          onPress={() => router.push('/audit')}
+          onPress={() => router.push({ pathname: '/(tabs)/vault', params: { tab: 'health' } })}
         >
-          <Text style={styles.viewMoreText}>View Full Audit</Text>
+          <Text style={styles.viewMoreText}>View Vault Health</Text>
           <ChevronRight size={16} color={colors.primary[600]} />
         </TouchableOpacity>
       )}

@@ -148,7 +148,7 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="audit"
-          options={{ headerShown: true, title: 'Weekly Audit' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="billing"

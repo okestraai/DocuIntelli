@@ -9,7 +9,7 @@ const PAGE_TITLES: Record<string, string> = {
   vault: 'Document Vault — DocuIntelli AI',
   pricing: 'Pricing Plans — DocuIntelli AI | Free, Starter & Pro',
   settings: 'Settings — DocuIntelli AI',
-  audit: 'Weekly Audit — DocuIntelli AI',
+
   'life-events': 'Life Events — DocuIntelli AI',
   'financial-insights': 'Financial Insights — DocuIntelli AI',
   admin: 'Admin — DocuIntelli AI',

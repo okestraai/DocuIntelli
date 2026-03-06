@@ -745,11 +745,12 @@ export function compileWeeklyAudit(
       return exp <= thirtyDays && exp >= now;
     }).sort((a, b) => new Date(a.expiration_date!).getTime() - new Date(b.expiration_date!).getTime()),
     incompleteMetadata: docs.filter(d => {
+      // Only check tags, issuer, owner — expiration/cadence are covered
+      // by their own dedicated sections (missingExpirations, missingReviewCadence)
       const missing = [
         !d.tags || d.tags.length === 0,
         !d.issuer,
         !d.owner_name,
-        !d.expiration_date && !d.review_cadence_days,
       ].filter(Boolean).length;
       return missing >= 2;
     }),

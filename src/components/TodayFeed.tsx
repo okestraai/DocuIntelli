@@ -111,7 +111,7 @@ export function TodayFeed({ refreshTrigger, onNavigateToDocument, onNavigateToAu
                 onClick={onNavigateToAudit}
                 className="text-emerald-600 hover:text-emerald-700 text-sm font-medium flex items-center gap-1"
               >
-                Audit <ArrowRight className="h-3 w-3" />
+                Health <ArrowRight className="h-3 w-3" />
               </button>
             )}
           </div>
@@ -156,7 +156,7 @@ export function TodayFeed({ refreshTrigger, onNavigateToDocument, onNavigateToAu
             onClick={onNavigateToAudit}
             className="text-emerald-600 hover:text-emerald-700 text-xs font-medium"
           >
-            {feed.length - 5} more items — View Full Audit
+            {feed.length - 5} more items — View Vault Health
           </button>
         </div>
       )}

@@ -120,6 +120,10 @@ export interface DocumentHealthResponse {
     issuer: string;
     ownerName: string;
     expirationDate: string;
+    effectiveDate: string;
+    policyNumber: string;
+    address: string;
+    metadataConfirmed: boolean;
   };
 }
 
@@ -149,6 +153,9 @@ export async function updateDocumentMetadata(
     ownerName?: string;
     effectiveDate?: string;
     expirationDate?: string;
+    policyNumber?: string;
+    address?: string;
+    metadataConfirmed?: boolean;
   }
 ): Promise<{ success: boolean; updatedFields: string[] }> {
   return fetchApi(`/documents/${documentId}/metadata`, {
