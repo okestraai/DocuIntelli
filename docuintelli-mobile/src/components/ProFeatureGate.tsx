@@ -23,7 +23,7 @@ export default function ProFeatureGate({
   price,
 }: ProFeatureGateProps) {
   const isStarter = requiredPlan === 'starter';
-  const displayPrice = price ?? (isStarter ? 9 : 19);
+  const displayPrice = price ?? (isStarter ? 9 : 15);
   const badgeLabel = isStarter ? 'STARTER FEATURE' : 'PRO FEATURE';
   const buttonLabel = isStarter ? 'Upgrade to Starter' : 'Upgrade to Pro';
   const GateIcon = isStarter ? Zap : Crown;

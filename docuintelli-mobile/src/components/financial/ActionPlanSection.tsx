@@ -1,15 +1,17 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Target, AlertCircle, ArrowUpCircle, MinusCircle } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { Target, AlertCircle, ArrowUpCircle, MinusCircle, CheckCircle2 } from 'lucide-react-native';
 import type { ActionItem } from '../../lib/financialApi';
+import { createGoal, getGoals, GoalType } from '../../lib/financialGoalsApi';
 import CollapsibleSection from './CollapsibleSection';
 import Badge from '../ui/Badge';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing } from '../../theme/spacing';
+import { spacing, borderRadius } from '../../theme/spacing';
 
 interface ActionPlanSectionProps {
   items: ActionItem[];
+  onGoalCreated?: () => void;
 }
 
 const formatCurrency = (amount: number): string =>
@@ -33,8 +35,61 @@ const PRIORITY_CONFIG: Record<string, { variant: 'error' | 'warning' | 'info'; i
   },
 };
 
-export default function ActionPlanSection({ items }: ActionPlanSectionProps) {
+function inferGoalType(title: string): GoalType {
+  const lower = title.toLowerCase();
+  if (/save|saving|emergency fund/i.test(lower)) return 'savings';
+  if (/reduce|cut|limit|spend/i.test(lower)) return 'spending_limit';
+  if (/debt|pay off|loan/i.test(lower)) return 'debt_paydown';
+  if (/income|earn/i.test(lower)) return 'income_target';
+  return 'ad_hoc';
+}
+
+export default function ActionPlanSection({ items, onGoalCreated }: ActionPlanSectionProps) {
+  const [addedGoals, setAddedGoals] = useState<Set<number>>(new Set());
+  const [addingGoal, setAddingGoal] = useState<number | null>(null);
+
+  // On mount, check existing goals to persist "Added to Goals" state across reloads
+  useEffect(() => {
+    if (items.length === 0) return;
+    getGoals().then(data => {
+      const goalNames = new Set(data.goals.map(g => g.name.toLowerCase()));
+      const matched = new Set<number>();
+      items.forEach((item, i) => {
+        if (goalNames.has(item.title.slice(0, 60).toLowerCase())) {
+          matched.add(i);
+        }
+      });
+      if (matched.size > 0) setAddedGoals(matched);
+    }).catch(() => {});
+  }, [items]);
+
   if (!items.length) return null;
+
+  const handleAddAsGoal = async (item: ActionItem, index: number) => {
+    setAddingGoal(index);
+    try {
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + 30);
+      const targetAmount = item.potential_savings
+        ? Math.round(item.potential_savings * 6)
+        : 500;
+
+      await createGoal({
+        goal_type: inferGoalType(item.title),
+        name: item.title.slice(0, 60),
+        description: item.description,
+        target_amount: targetAmount,
+        target_date: targetDate.toISOString().split('T')[0],
+        linked_account_ids: [],
+      });
+      setAddedGoals(prev => new Set(prev).add(index));
+      onGoalCreated?.();
+    } catch (err) {
+      console.error('Failed to create goal:', err);
+    } finally {
+      setAddingGoal(null);
+    }
+  };
 
   return (
     <CollapsibleSection
@@ -44,6 +99,9 @@ export default function ActionPlanSection({ items }: ActionPlanSectionProps) {
       <View style={styles.list}>
         {items.map((item, i) => {
           const config = PRIORITY_CONFIG[item.priority] || PRIORITY_CONFIG.low;
+          const isAdded = addedGoals.has(i);
+          const isAdding = addingGoal === i;
+
           return (
             <View key={i} style={styles.item}>
               <View style={styles.itemHeader}>
@@ -57,6 +115,23 @@ export default function ActionPlanSection({ items }: ActionPlanSectionProps) {
                   Potential savings: {formatCurrency(item.potential_savings)}/mo
                 </Text>
               )}
+              <TouchableOpacity
+                onPress={() => handleAddAsGoal(item, i)}
+                disabled={isAdded || isAdding}
+                style={[styles.goalButton, isAdded && styles.goalButtonAdded]}
+                activeOpacity={0.7}
+              >
+                {isAdding ? (
+                  <ActivityIndicator size={14} color={colors.slate[500]} />
+                ) : isAdded ? (
+                  <CheckCircle2 size={14} color={colors.success[600]} strokeWidth={2} />
+                ) : (
+                  <Target size={14} color={colors.slate[500]} strokeWidth={2} />
+                )}
+                <Text style={[styles.goalButtonText, isAdded && styles.goalButtonTextAdded]}>
+                  {isAdded ? 'Added to Goals' : 'Add as Goal'}
+                </Text>
+              </TouchableOpacity>
             </View>
           );
         })}
@@ -97,5 +172,31 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semibold,
     color: colors.primary[600],
     paddingLeft: spacing.xl,
+  },
+  goalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    marginLeft: spacing.xl,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.slate[200],
+    backgroundColor: colors.white,
+  },
+  goalButtonAdded: {
+    backgroundColor: colors.success[50],
+    borderColor: colors.success[200],
+  },
+  goalButtonText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.slate[600],
+  },
+  goalButtonTextAdded: {
+    color: colors.success[700],
   },
 });

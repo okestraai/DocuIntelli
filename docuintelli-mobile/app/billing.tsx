@@ -83,7 +83,7 @@ function buildPlans(starterPrice: number, proPrice: number) {
       name: 'Free',
       price: '$0',
       period: '/month',
-      features: ['3 documents', '5 AI questions/month', '3 uploads/month'],
+      features: ['3 documents', '50K AI tokens/month', '3 uploads/month'],
     },
     {
       id: 'starter' as const,
@@ -92,8 +92,8 @@ function buildPlans(starterPrice: number, proPrice: number) {
       period: '/month',
       features: [
         '25 documents',
-        'Unlimited AI questions',
-        '25 uploads/month',
+        '500K AI tokens/month',
+        '30 uploads/month',
         'Weekly audit reports',
       ],
     },
@@ -104,8 +104,8 @@ function buildPlans(starterPrice: number, proPrice: number) {
       period: '/month',
       features: [
         '100 documents',
-        'Unlimited AI questions',
-        '100 uploads/month',
+        '2M AI tokens/month',
+        '150 uploads/month',
         'Life events planner',
         'Priority support',
       ],
@@ -199,7 +199,7 @@ export default function BillingScreen() {
   });
 
   // Dynamic plan prices from Stripe API
-  const [plans, setPlans] = useState(() => buildPlans(7, 19));
+  const [plans, setPlans] = useState(() => buildPlans(9, 15));
 
   useEffect(() => {
     fetchPlanPrices().then((prices) => {
@@ -487,8 +487,8 @@ export default function BillingScreen() {
     : 0;
   const aiUsagePercent =
     !isUnlimitedAI && subscription
-      ? subscription.ai_questions_limit > 0
-        ? (subscription.ai_questions_used / subscription.ai_questions_limit) * 100
+      ? (subscription.tokens_limit ?? 50000) > 0
+        ? ((subscription.tokens_used ?? 0) / (subscription.tokens_limit ?? 50000)) * 100
         : 0
       : 0;
   const uploadUsagePercent = subscription
@@ -1069,18 +1069,18 @@ export default function BillingScreen() {
           />
         </Card>
 
-        {/* AI Questions */}
+        {/* Monthly Tokens */}
         <Card>
           <UsageBar
-            label="AI Questions"
+            label="Monthly Tokens"
             icon={<MessageSquare size={18} color={colors.primary[600]} strokeWidth={2} />}
-            used={subscription.ai_questions_used}
-            limit={subscription.ai_questions_limit}
+            used={subscription.tokens_used ?? 0}
+            limit={subscription.tokens_limit ?? 50000}
             isUnlimited={isUnlimitedAI}
           />
-          {subscription.ai_questions_reset_date && (
+          {subscription.tokens_reset_date && (
             <Text style={styles.resetNote}>
-              Resets {formatDate(subscription.ai_questions_reset_date)}
+              Resets {formatDate(subscription.tokens_reset_date)}
             </Text>
           )}
         </Card>

@@ -134,7 +134,7 @@ export const SEO_CONFIG: Record<string, RouteSeoConfig> = {
 
   '/pricing': {
     title: 'Pricing Plans — DocuIntelli AI | Free, Starter & Pro',
-    description: 'Compare DocuIntelli AI plans. Free plan with 3 documents and 5 AI questions. Starter at $9/mo with 25 docs and unlimited AI. Pro at $19/mo with 100 docs, financial insights, and life events. Start free today.',
+    description: 'Compare DocuIntelli AI plans. Free plan with 3 documents and 5 AI questions. Starter at $9/mo with 25 docs and unlimited AI. Pro at $15/mo with 100 docs, financial insights, and life events. Start free today.',
     canonicalPath: '/pricing',
     twitterCard: 'summary_large_image',
     ogImage: `${BASE_URL}/og/pricing.png`,
@@ -219,6 +219,12 @@ export const SEO_CONFIG: Record<string, RouteSeoConfig> = {
     jsonLd: [breadcrumb('Vulnerability Management', '/vulnerability-management')],
   },
 
+  // Auth pages — noindex to prevent crawling login/signup shells
+  '/login': { title: 'Sign In — DocuIntelli AI', description: '', canonicalPath: '/login', noindex: true },
+  '/signup': { title: 'Sign Up — DocuIntelli AI', description: '', canonicalPath: '/signup', noindex: true },
+  '/register': { title: 'Register — DocuIntelli AI', description: '', canonicalPath: '/register', noindex: true },
+  '/forgot-password': { title: 'Reset Password — DocuIntelli AI', description: '', canonicalPath: '/forgot-password', noindex: true },
+
   // Authenticated pages — noindex to prevent crawling empty SPA shells
   '/dashboard': { title: 'Dashboard — DocuIntelli AI', description: '', canonicalPath: '/dashboard', noindex: true },
   '/vault': { title: 'Document Vault — DocuIntelli AI', description: '', canonicalPath: '/vault', noindex: true },
@@ -233,8 +239,13 @@ export const DEFAULT_SEO: RouteSeoConfig = {
   title: 'DocuIntelli AI — AI-Powered Document Management',
   description: 'Organize your important documents, get AI-powered insights, and stay on top of expirations, renewals, and life events with DocuIntelli AI.',
   canonicalPath: '/',
+  noindex: true,
 };
 
 export function getSeoForRoute(path: string): RouteSeoConfig {
-  return SEO_CONFIG[path] || DEFAULT_SEO;
+  const config = SEO_CONFIG[path];
+  if (config) return config;
+  // Unknown routes: use default SEO but with the actual path as canonical
+  // and noindex to prevent phantom pages from polluting the index
+  return { ...DEFAULT_SEO, canonicalPath: path };
 }

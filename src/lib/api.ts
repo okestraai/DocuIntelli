@@ -289,7 +289,10 @@ export async function chatWithDocument(
   if (contentType.includes('application/json')) {
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ error: 'Chat request failed' }));
-      throw new Error(errorData.error || `Chat failed with status ${res.status}`);
+      const err = new Error(errorData.message || errorData.error || `Chat failed with status ${res.status}`);
+      (err as any).code = errorData.code;
+      (err as any).status = res.status;
+      throw err;
     }
     const data = await res.json();
     return { success: data.success, answer: data.answer || '', sources: data.sources || [] };
@@ -783,8 +786,8 @@ export interface StripePrices {
 
 const DEFAULT_PRICES: StripePrices = {
   free: { monthly: 0, yearly: 0 },
-  starter: { monthly: 7, yearly: 70 },
-  pro: { monthly: 19, yearly: 190 },
+  starter: { monthly: 9, yearly: 90 },
+  pro: { monthly: 15, yearly: 150 },
 };
 
 export async function fetchPlanPrices(): Promise<StripePrices> {
@@ -894,12 +897,16 @@ export async function globalChatStream(
   const contentType = res.headers.get('Content-Type') || '';
   if (contentType.includes('application/json')) {
     const errorData = await res.json().catch(() => ({ error: 'Chat failed' }));
-    if (res.status === 403 && errorData.code === 'FEATURE_NOT_AVAILABLE') {
-      throw Object.assign(new Error(errorData.message || 'Global Chat is a Pro feature'), {
-        code: 'FEATURE_NOT_AVAILABLE',
+    if (res.status === 403) {
+      throw Object.assign(new Error(errorData.message || errorData.error || 'Access denied'), {
+        code: errorData.code,
+        status: res.status,
       });
     }
-    throw new Error(errorData.error || `Chat failed with status ${res.status}`);
+    const err = new Error(errorData.message || errorData.error || `Chat failed with status ${res.status}`);
+    (err as any).code = errorData.code;
+    (err as any).status = res.status;
+    throw err;
   }
 
   if (!res.body) {

@@ -24,7 +24,7 @@ const BRAND = {
   warningColor: '#d97706',     // amber-600
   dangerColor: '#dc2626',      // red-600
   infoColor: '#2563eb',        // blue-600
-  appUrl: process.env.APP_URL || 'https://docuintelli.com',
+  appUrl: process.env.APP_URL || 'https://www.docuintelli.com',
   supportEmail: process.env.SUPPORT_EMAIL || 'support@docuintelli.com',
   year: new Date().getFullYear(),
 };
@@ -220,7 +220,7 @@ export function welcomeEmail(data: WelcomeEmailData): { subject: string; html: s
         <li>Monitor your document health and preparedness</li>
       </ul>
     `)}
-    ${primaryButton('Open Your Vault', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Open Your Vault', `${BRAND.appUrl}/vault`)}
     ${smallText(`You're currently on the <strong>Free plan</strong> (3 documents, 5 AI questions/month). Upgrade anytime for more.`)}
   `;
   return {
@@ -250,7 +250,7 @@ export function passwordChangedEmail(data: PasswordChangedData): { subject: stri
       <p style="font-size:14px; color:${BRAND.warningColor}; font-weight:600; margin:0 0 4px;">Didn't make this change?</p>
       <p style="font-size:13px; color:${BRAND.textMuted}; margin:0;" class="email-text-muted">If you didn't change your password, please reset it immediately and contact our support team.</p>
     `, BRAND.warningColor)}
-    ${primaryButton('Open Account Settings', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Open Account Settings', `${BRAND.appUrl}/settings`)}
     ${smallText(`If you made this change, no further action is needed.`)}
   `;
   return {
@@ -330,7 +330,7 @@ export function subscriptionConfirmedEmail(data: SubscriptionConfirmedData): { s
         <li>Expiration tracking and alerts</li>
       </ul>
     `)}
-    ${primaryButton('Go to Dashboard', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('Go to Dashboard', `${BRAND.appUrl}/dashboard`)}
     ${smallText('You can manage your subscription anytime from Account Settings.')}
   `;
   return {
@@ -365,7 +365,7 @@ export function paymentReceiptEmail(data: PaymentReceiptData): { subject: string
       ...(data.invoiceId ? [{ label: 'Invoice', value: data.invoiceId }] : []),
       ...(data.nextBillingDate ? [{ label: 'Next billing', value: data.nextBillingDate }] : []),
     ])}
-    ${primaryButton('View Billing History', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('View Billing History', `${BRAND.appUrl}/settings`)}
     ${smallText('This receipt confirms your payment was processed successfully.')}
   `;
   return {
@@ -402,7 +402,7 @@ export function paymentFailedEmail(data: PaymentFailedData): { subject: string; 
       { label: 'Plan', value: data.plan.charAt(0).toUpperCase() + data.plan.slice(1) },
       ...(data.retryDate ? [{ label: 'Next retry', value: data.retryDate }] : []),
     ])}
-    ${primaryButton('Update Payment Method', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Update Payment Method', `${BRAND.appUrl}/settings`)}
     ${paragraph(`If your payment isn't resolved, your account will be downgraded to the Free plan and you may lose access to premium features.`)}
     ${smallText(`Need help? Contact us at <a href="mailto:${BRAND.supportEmail}" style="color:${BRAND.primaryColor};">${BRAND.supportEmail}</a>.`)}
   `;
@@ -441,7 +441,7 @@ export function subscriptionCanceledEmail(data: SubscriptionCanceledData): { sub
         <li>You can reactivate anytime before the end date</li>
       </ul>
     `, BRAND.warningColor)}
-    ${primaryButton('Reactivate Subscription', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Reactivate Subscription', `${BRAND.appUrl}/settings`)}
     ${smallText('Changed your mind? You can reactivate your subscription at any time before the end of your billing period.')}
   `;
   return {
@@ -472,7 +472,7 @@ export function subscriptionUpgradedEmail(data: SubscriptionUpgradedData): { sub
       { label: 'Effective', value: data.effectiveDate },
     ])}
     ${paragraph(`Your new limits and features are active right now. Any price difference has been prorated on your next invoice.`)}
-    ${primaryButton('Explore New Features', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('Explore New Features', `${BRAND.appUrl}/dashboard`)}
   `;
   return {
     subject: `${BRAND.name} — Upgraded to ${data.newPlan.charAt(0).toUpperCase() + data.newPlan.slice(1)}`,
@@ -504,7 +504,7 @@ export function subscriptionDowngradedEmail(data: SubscriptionDowngradedData): {
         You'll keep all your current features until ${data.effectiveDate}. After that, your limits will adjust to the new plan.
       </p>
     `, BRAND.warningColor)}
-    ${primaryButton('Review Your Plan', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Review Your Plan', `${BRAND.appUrl}/settings`)}
   `;
   return {
     subject: `${BRAND.name} — Plan downgrade scheduled`,
@@ -525,7 +525,7 @@ export function subscriptionReactivatedEmail(data: SubscriptionReactivatedData):
     ${heading('Subscription Reactivated!')}
     ${subheading(`Great news — your ${data.plan.charAt(0).toUpperCase() + data.plan.slice(1)} plan is back.`)}
     ${paragraph(`Your cancellation has been reversed. You'll continue to be billed as normal and retain full access to all your features.`)}
-    ${primaryButton('Go to Dashboard', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('Go to Dashboard', `${BRAND.appUrl}/dashboard`)}
     ${smallText('Glad to have you staying with us!')}
   `;
   return {
@@ -566,7 +566,7 @@ export function usageLimitWarningEmail(data: UsageLimitWarningData): { subject: 
     </p>
 
     ${paragraph('Upgrade your plan to get more capacity and unlock additional features.')}
-    ${primaryButton('Upgrade Now', `${BRAND.appUrl}#pricing`)}
+    ${primaryButton('Upgrade Now', `${BRAND.appUrl}/pricing`)}
     ${smallText(`You're currently on the ${data.plan.charAt(0).toUpperCase() + data.plan.slice(1)} plan.`)}
   `;
   return {
@@ -615,7 +615,7 @@ export function documentExpiringEmail(data: DocumentExpiringData): { subject: st
       ${docRows}
     </table>
 
-    ${primaryButton('Review in Vault', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Review in Vault', `${BRAND.appUrl}/vault`)}
     ${smallText('Tip: Upload a renewal document and we\'ll automatically link it to the expiring one.')}
   `;
   return {
@@ -646,7 +646,7 @@ export function documentExpiredEmail(data: DocumentExpiredData): { subject: stri
       { label: 'Expired on', value: data.expiredDate },
     ])}
     ${paragraph('Upload a renewed version to keep your vault up to date and maintain your preparedness score.')}
-    ${primaryButton('Upload Renewal', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Upload Renewal', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.documentName}" has expired`,
@@ -672,7 +672,7 @@ export function documentProcessingFailedEmail(data: DocumentProcessingFailedData
       <p style="font-size:13px; color:${BRAND.textMuted}; margin:0; font-family:monospace;" class="email-text-muted">${data.errorMessage}</p>
     `, BRAND.dangerColor)}
     ${paragraph('This can happen with corrupted files, scanned images with poor quality, or unsupported formats. Try re-uploading the document or contact support.')}
-    ${primaryButton('Try Again', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Try Again', `${BRAND.appUrl}/vault`)}
     ${smallText(`Need help? Contact us at <a href="mailto:${BRAND.supportEmail}" style="color:${BRAND.primaryColor};">${BRAND.supportEmail}</a>.`)}
   `;
   return {
@@ -772,7 +772,7 @@ export function weeklyAuditEmail(data: WeeklyAuditData): { subject: string; html
       </ul>
     ` : ''}
 
-    ${primaryButton('View Full Audit', `${BRAND.appUrl}#audit`)}
+    ${primaryButton('View Full Audit', `${BRAND.appUrl}/vault?tab=health`)}
   `;
   return {
     subject: `${BRAND.name} — Weekly Audit: Score ${data.preparednessScore}/100`,
@@ -816,7 +816,7 @@ export function lifeEventCreatedEmail(data: LifeEventCreatedData): { subject: st
     </table>
 
     ${paragraph('Upload missing documents to increase your readiness score. We\'ll automatically match them to your requirements.')}
-    ${primaryButton('View Life Event', `${BRAND.appUrl}#life-events`)}
+    ${primaryButton('View Life Event', `${BRAND.appUrl}/life-events`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.eventTitle}" checklist created`,
@@ -856,7 +856,7 @@ export function lifeEventCompleteEmail(data: LifeEventCompleteData): { subject: 
       { label: 'Completed on', value: data.completionDate },
     ])}
     ${paragraph('All your documents are in order. You can archive this event or keep it for reference.')}
-    ${primaryButton('View Life Event', `${BRAND.appUrl}#life-events`)}
+    ${primaryButton('View Life Event', `${BRAND.appUrl}/life-events`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.eventTitle}" is 100% ready!`,
@@ -907,7 +907,7 @@ export function documentHealthAlertEmail(data: DocumentHealthAlertData): { subje
       </ul>
     ` : ''}
 
-    ${primaryButton('Fix Document', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Fix Document', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: isCritical
@@ -944,7 +944,7 @@ export function subscriptionExpiringSoonEmail(data: SubscriptionExpiringSoonData
         After your plan expires, your account will revert to the Free plan (3 documents, 5 AI questions/month). Documents beyond the free limit become read-only.
       </p>
     `, BRAND.warningColor)}
-    ${primaryButton('Renew Subscription', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Renew Subscription', `${BRAND.appUrl}/settings`)}
     ${smallText('Renew now to keep all your premium features and document capacity.')}
   `;
   return {
@@ -977,7 +977,7 @@ export function documentUploadedEmail(data: DocumentUploadedData): { subject: st
       { label: 'Uploaded', value: data.uploadedAt },
     ])}
     ${paragraph('Your document is being processed. We\'ll extract text, generate tags, and create embeddings for AI chat.')}
-    ${primaryButton('View in Vault', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('View in Vault', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.documentName}" uploaded successfully`,
@@ -1009,7 +1009,7 @@ export function documentProcessingCompleteEmail(data: DocumentProcessingComplete
       ...(data.expirationDetected ? [{ label: 'Expiration detected', value: data.expirationDetected }] : []),
     ])}
     ${paragraph('You can now ask AI questions about this document, and it will appear in your vault with full search capability.')}
-    ${primaryButton('Chat About This Document', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Chat About This Document', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.documentName}" is ready`,
@@ -1077,7 +1077,7 @@ export function documentMetadataUpdatedEmail(data: DocumentMetadataUpdatedData):
       </tr>
       ${changeRows}
     </table>
-    ${primaryButton('View Document', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('View Document', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.documentName}" metadata updated`,
@@ -1114,7 +1114,7 @@ export function documentReviewOverdueEmail(data: DocumentReviewOverdueData): { s
       ${docRows}
     </table>
     ${paragraph('Regular reviews keep your vault accurate and your preparedness score high.')}
-    ${primaryButton('Review Documents', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Review Documents', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — ${count} document${count !== 1 ? 's' : ''} overdue for review`,
@@ -1156,7 +1156,7 @@ export function documentReviewDueSoonEmail(data: DocumentReviewDueSoonData): { s
       </tr>
     </table>
     ${paragraph('Regular reviews keep your vault accurate and your preparedness score high.')}
-    ${primaryButton('Review Now', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Review Now', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — ${data.documentName} review due in ${data.daysRemaining} days`,
@@ -1203,7 +1203,7 @@ export function metadataExtractedEmail(data: MetadataExtractedData): { subject: 
       </tr>
     </table>
     ${paragraph('Please review the extracted details and confirm or update them to keep your vault accurate.')}
-    ${primaryButton('Review & Confirm', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Review & Confirm', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — We extracted details from ${data.documentName}`,
@@ -1250,7 +1250,7 @@ export function gapSuggestionEmail(data: GapSuggestionData): { subject: string; 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       ${suggestionRows}
     </table>
-    ${primaryButton('Upload Documents', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Upload Documents', `${BRAND.appUrl}/vault`)}
     ${smallText('Uploading these documents will improve your preparedness score.')}
   `;
   return {
@@ -1300,7 +1300,7 @@ export function preparednessScoreDropEmail(data: PreparednessScoreDropData): { s
         ${data.reasons.map(r => `<li>${r}</li>`).join('')}
       </ul>
     `, BRAND.dangerColor)}
-    ${primaryButton('Improve Your Score', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('Improve Your Score', `${BRAND.appUrl}/dashboard`)}
   `;
   return {
     subject: `${BRAND.name} — Preparedness score dropped to ${data.newScore}`,
@@ -1352,7 +1352,7 @@ export function lifeEventReadinessChangeEmail(data: LifeEventReadinessChangeData
         ${changeRows}
       </ul>
     ` : ''}
-    ${primaryButton('View Life Event', `${BRAND.appUrl}#life-events`)}
+    ${primaryButton('View Life Event', `${BRAND.appUrl}/life-events`)}
   `;
   return {
     subject: isUp
@@ -1389,7 +1389,7 @@ export function lifeEventRequirementMissingEmail(data: LifeEventRequirementMissi
       ...(data.dueDate ? [{ label: 'Needed by', value: data.dueDate }] : []),
     ])}
     ${paragraph('Upload the required document to check it off your list and improve your readiness score.')}
-    ${primaryButton('Upload Document', `${BRAND.appUrl}#vault`)}
+    ${primaryButton('Upload Document', `${BRAND.appUrl}/vault`)}
   `;
   return {
     subject: `${BRAND.name} — Missing: "${data.requirementName}" for ${data.eventTitle}`,
@@ -1425,7 +1425,7 @@ export function lifeEventArchivedEmail(data: LifeEventArchivedData): { subject: 
       ? 'Great job! All documents are on file. This event has been moved to your archive.'
       : 'This event has been archived. You can restore it later if needed.'
     )}
-    ${primaryButton('View Archive', `${BRAND.appUrl}#life-events`)}
+    ${primaryButton('View Archive', `${BRAND.appUrl}/life-events`)}
   `;
   return {
     subject: `${BRAND.name} — "${data.eventTitle}" ${data.completionStatus}`,
@@ -1464,7 +1464,7 @@ export function newDeviceLoginEmail(data: NewDeviceLoginData): { subject: string
         If you don't recognize this login, change your password immediately and contact support.
       </p>
     `, BRAND.warningColor)}
-    ${primaryButton('Review Account Security', `${BRAND.appUrl}#settings`)}
+    ${primaryButton('Review Account Security', `${BRAND.appUrl}/settings`)}
     ${smallText('You\'re receiving this because you have security alerts enabled.')}
   `;
   return {
@@ -1519,7 +1519,7 @@ export function dailySummaryEmail(data: DailySummaryData): { subject: string; ht
       <p style="font-size:14px; font-weight:600; color:${BRAND.primaryColor}; margin:0 0 4px;">Top Action for Tomorrow</p>
       <p style="font-size:13px; color:${BRAND.textMuted}; margin:0;" class="email-text-muted">${data.topAction}</p>
     `) : ''}
-    ${primaryButton('Open Dashboard', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('Open Dashboard', `${BRAND.appUrl}/dashboard`)}
   `;
   return {
     subject: `${BRAND.name} — Daily Summary for ${data.date}`,
@@ -1580,7 +1580,7 @@ export function monthlySummaryEmail(data: MonthlySummaryData): { subject: string
         ${data.highlights.map(h => `<li>${h}</li>`).join('')}
       </ul>
     ` : ''}
-    ${primaryButton('View Dashboard', `${BRAND.appUrl}#dashboard`)}
+    ${primaryButton('View Dashboard', `${BRAND.appUrl}/dashboard`)}
   `;
   return {
     subject: `${BRAND.name} — Your ${data.month} Summary`,
@@ -2065,7 +2065,7 @@ export function bankAccountConnectedEmail(data: BankAccountConnectedData): { sub
       ...data.accountNames.slice(0, 5).map(name => ({ label: 'Account', value: name })),
     ])}
     ${paragraph('Your transactions will be synced automatically. You can view spending insights, track goals, and more from your Financial Insights dashboard.')}
-    ${primaryButton('View Financial Insights', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('View Financial Insights', `${BRAND.appUrl}/financial-insights`)}
     ${smallText('You can disconnect this bank at any time from the Financial Insights page.')}
   `;
   return {
@@ -2097,7 +2097,7 @@ export function bankAccountDisconnectedEmail(data: BankAccountDisconnectedData):
       <p style="font-size:14px; font-weight:600; color:${BRAND.textDark}; margin:0 0 4px;">Need to reconnect?</p>
       <p style="font-size:13px; color:${BRAND.textMuted}; margin:0;">You can link this bank again at any time from the Financial Insights page.</p>
     `, BRAND.infoColor)}
-    ${primaryButton('Manage Connections', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('Manage Connections', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — ${data.institutionName} disconnected`,
@@ -2135,7 +2135,7 @@ export function goalCreatedEmail(data: GoalCreatedData): { subject: string; html
       { label: 'Deadline', value: data.targetDate },
     ])}
     ${paragraph("We'll track your progress automatically using your connected bank data and notify you when you hit milestones.")}
-    ${primaryButton('View Your Goals', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('View Your Goals', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — Goal created: ${data.goalName}`,
@@ -2172,7 +2172,7 @@ export function goalMilestoneEmail(data: GoalMilestoneData): { subject: string; 
       { label: 'Target', value: `$${data.targetAmount.toLocaleString()}` },
       { label: 'Remaining', value: `$${Math.max(0, data.targetAmount - data.currentAmount).toLocaleString()}` },
     ])}
-    ${primaryButton('View Goal Details', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('View Goal Details', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — ${data.milestonePct}% milestone on "${data.goalName}"`,
@@ -2205,7 +2205,7 @@ export function goalCompletedEmail(data: GoalCompletedData): { subject: string; 
       { label: 'Completed', value: data.completedDate },
     ])}
     ${paragraph("This is a real accomplishment. Consider setting your next financial goal to keep the momentum going.")}
-    ${primaryButton('Set a New Goal', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('Set a New Goal', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — Goal achieved: ${data.goalName} 🏆`,
@@ -2237,7 +2237,7 @@ export function goalExpiredEmail(data: GoalExpiredData): { subject: string; html
       { label: 'Reached', value: `$${data.currentAmount.toLocaleString()} of $${data.targetAmount.toLocaleString()}` },
     ])}
     ${paragraph("Don't be discouraged — you can review this goal in your history and create a new one with an updated timeline.")}
-    ${primaryButton('View Goal History', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('View Goal History', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — Goal expired: ${data.goalName}`,
@@ -2274,7 +2274,7 @@ export function goalDeadlineApproachingEmail(data: GoalDeadlineApproachingData):
       { label: 'Current', value: `$${data.currentAmount.toLocaleString()}` },
       { label: 'Still Needed', value: `$${remaining.toLocaleString()}` },
     ])}
-    ${primaryButton('View Goal', `${BRAND.appUrl}#financial-insights`)}
+    ${primaryButton('View Goal', `${BRAND.appUrl}/financial-insights`)}
   `;
   return {
     subject: `${BRAND.name} — ${data.daysUntil} day${data.daysUntil !== 1 ? 's' : ''} left on "${data.goalName}"`,
@@ -2313,7 +2313,7 @@ export function lifeEventDeadlineApproachingEmail(data: LifeEventDeadlineApproac
       ? paragraph(`You still have ${data.totalRequirements - data.satisfiedRequirements} requirement${data.totalRequirements - data.satisfiedRequirements > 1 ? 's' : ''} to complete. Review your checklist and upload any missing documents.`)
       : paragraph("You're fully prepared! All requirements have been satisfied.")
     }
-    ${primaryButton('View Life Event', `${BRAND.appUrl}#life-events`)}
+    ${primaryButton('View Life Event', `${BRAND.appUrl}/life-events`)}
   `;
   return {
     subject: `${BRAND.name} — ${data.daysUntil} days until "${data.eventTitle}"`,

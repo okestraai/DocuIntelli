@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
   View,
@@ -11,6 +11,7 @@ import {
   RefreshControl,
   Dimensions,
   Platform,
+  Modal as RNModal,
 } from 'react-native';
 import { useToast } from '../../src/contexts/ToastContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,6 +35,7 @@ import {
   MessageCircle,
   Tag,
   HeartPulse,
+  Cloud,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useDocuments } from '../../src/hooks/useDocuments';
@@ -43,12 +45,23 @@ import Button from '../../src/components/ui/Button';
 import ConfirmModal from '../../src/components/subscription/ConfirmModal';
 import GradientIcon from '../../src/components/ui/GradientIcon';
 import LoadingSpinner from '../../src/components/ui/LoadingSpinner';
+import { CloudProviderIcon } from '../../src/components/CloudProviderIcon';
+import { CloudFileBrowserModal } from '../../src/components/CloudFileBrowserModal';
+import {
+  getCloudProviders,
+  connectProvider,
+  disconnectProvider,
+  CloudProvider,
+} from '../../src/lib/cloudStorageApi';
 import { colors } from '../../src/theme/colors';
 import { typography } from '../../src/theme/typography';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { DOCUMENT_CATEGORIES, type DocumentCategory } from '../../src/types/document';
 import type { Document } from '../../src/types/document';
 import { AuditContent } from '../audit';
+
+// Cloud storage is in beta — only visible to these accounts
+const CLOUD_BETA_EMAILS = new Set(['okestraai@gmail.com', 'reviewer@docuintelli.com']);
 
 type VaultTab = 'documents' | 'health';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -101,9 +114,10 @@ function getCategoryColor(category: DocumentCategory) {
 
 // ── Main Screen ──────────────────────────────────────────────────────
 export default function VaultScreen() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { documents, loading, deleteDocument, refetch } = useDocuments(isAuthenticated);
   const { showToast } = useToast();
+  const cloudEnabled = !!user?.email && CLOUD_BETA_EMAILS.has(user.email);
   const { tab } = useLocalSearchParams<{ tab?: string }>();
 
   // Tab state
@@ -127,6 +141,62 @@ export default function VaultScreen() {
   const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | 'all'>('all');
   const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Cloud storage state
+  const [cloudProviders, setCloudProviders] = useState<CloudProvider[]>([]);
+  const [showCloudPicker, setShowCloudPicker] = useState(false);
+  const [showCloudBrowser, setShowCloudBrowser] = useState(false);
+  const [activeCloudProvider, setActiveCloudProvider] = useState<{ name: string; displayName: string } | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<CloudProvider | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // Load cloud providers on mount
+  const loadCloudProviders = useCallback(async () => {
+    try {
+      const providers = await getCloudProviders();
+      setCloudProviders(providers);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  useEffect(() => { if (cloudEnabled) loadCloudProviders(); }, [cloudEnabled, loadCloudProviders]);
+
+  const handlePickProvider = useCallback(async (provider: CloudProvider) => {
+    setShowCloudPicker(false);
+    if (provider.connected) {
+      setActiveCloudProvider({ name: provider.name, displayName: provider.displayName });
+      setShowCloudBrowser(true);
+    } else {
+      // OAuth flow via in-app browser
+      try {
+        const connected = await connectProvider(provider.name);
+        if (connected) {
+          await loadCloudProviders();
+          // Auto-open file browser after connection
+          setActiveCloudProvider({ name: provider.name, displayName: provider.displayName });
+          setShowCloudBrowser(true);
+        }
+      } catch (err: any) {
+        showToast(err.message || 'Failed to connect', 'error');
+      }
+    }
+  }, [loadCloudProviders, showToast]);
+
+  const handleDisconnect = useCallback(async () => {
+    if (!disconnectTarget) return;
+    setDisconnecting(true);
+    try {
+      await disconnectProvider(disconnectTarget.name);
+      showToast(`${disconnectTarget.displayName} disconnected`, 'success');
+      setDisconnectTarget(null);
+      await loadCloudProviders();
+    } catch {
+      showToast('Failed to disconnect', 'error');
+    } finally {
+      setDisconnecting(false);
+    }
+  }, [disconnectTarget, loadCloudProviders, showToast]);
 
   const filtered = useMemo(() => {
     let list = documents;
@@ -180,21 +250,55 @@ export default function VaultScreen() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => router.push('/upload')}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={[...colors.gradient.primary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.addButtonGradient}
+        <View style={styles.headerButtons}>
+          {cloudEnabled && (
+            <TouchableOpacity
+              style={styles.cloudButton}
+              onPress={() => setShowCloudPicker(true)}
+              activeOpacity={0.8}
+            >
+              <Cloud size={18} color={colors.primary[600]} strokeWidth={2} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => router.push('/upload')}
+            activeOpacity={0.8}
           >
-            <Plus size={20} color={colors.white} strokeWidth={2.5} />
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={[...colors.gradient.primary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.addButtonGradient}
+            >
+              <Plus size={20} color={colors.white} strokeWidth={2.5} />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Connected cloud sources */}
+      {cloudEnabled && cloudProviders.filter(p => p.connected).length > 0 && (
+        <View style={styles.connectedRow}>
+          {cloudProviders.filter(p => p.connected).map(p => (
+            <View key={p.name} style={styles.connectedPill}>
+              <TouchableOpacity
+                style={styles.connectedPillContent}
+                onPress={() => { setActiveCloudProvider({ name: p.name, displayName: p.displayName }); setShowCloudBrowser(true); }}
+                activeOpacity={0.7}
+              >
+                <CloudProviderIcon provider={p.name} size={14} />
+                <Text style={styles.connectedText} numberOfLines={1}>
+                  {p.email || p.displayName}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setDisconnectTarget(p)} hitSlop={8}>
+                <Text style={styles.connectedClose}>{'\u00D7'}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Vault tab — segmented control */}
       <View style={styles.tabRow}>
@@ -587,6 +691,56 @@ export default function VaultScreen() {
         confirmVariant="danger"
         loading={deleting}
       />
+
+      {/* Cloud provider picker bottom sheet */}
+      {showCloudPicker && (
+        <RNModal visible transparent animationType="fade" onRequestClose={() => setShowCloudPicker(false)}>
+          <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowCloudPicker(false)}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.pickerTitle}>Import from Cloud</Text>
+              {cloudProviders.map(p => (
+                <TouchableOpacity
+                  key={p.name}
+                  style={styles.pickerProviderRow}
+                  onPress={() => handlePickProvider(p)}
+                  activeOpacity={0.7}
+                >
+                  <CloudProviderIcon provider={p.name} size={20} />
+                  <Text style={styles.pickerProviderName}>{p.displayName}</Text>
+                  {p.connected ? (
+                    <Text style={styles.pickerConnectedBadge}>Connected</Text>
+                  ) : (
+                    <Text style={styles.pickerConnectBadge}>Connect</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </RNModal>
+      )}
+
+      {/* Disconnect confirmation */}
+      <ConfirmModal
+        visible={!!disconnectTarget}
+        onClose={() => setDisconnectTarget(null)}
+        onConfirm={handleDisconnect}
+        title={`Disconnect ${disconnectTarget?.displayName || ''}`}
+        message={`Are you sure you want to disconnect ${disconnectTarget?.displayName || ''}? Previously imported documents will remain in your vault.`}
+        confirmLabel="Disconnect"
+        confirmVariant="danger"
+        loading={disconnecting}
+      />
+
+      {/* Cloud file browser */}
+      {activeCloudProvider && (
+        <CloudFileBrowserModal
+          visible={showCloudBrowser}
+          onClose={() => { setShowCloudBrowser(false); setActiveCloudProvider(null); }}
+          provider={activeCloudProvider.name}
+          providerDisplayName={activeCloudProvider.displayName}
+          onImportComplete={() => { refetch(); }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -697,6 +851,21 @@ const styles = StyleSheet.create({
     color: colors.slate[500],
     marginTop: 2,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cloudButton: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.primary[200],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addButton: {
     shadowColor: colors.primary[600],
     shadowOffset: { width: 0, height: 4 },
@@ -710,6 +879,86 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ── Connected cloud sources ────────────────────────────────────────
+  connectedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  connectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.slate[200],
+    paddingLeft: spacing.sm,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  connectedPillContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  connectedText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[500],
+    maxWidth: 140,
+  },
+  connectedClose: {
+    fontSize: 16,
+    color: colors.slate[400],
+    paddingHorizontal: 4,
+  },
+
+  // ── Cloud picker sheet ─────────────────────────────────────────────
+  pickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+  },
+  pickerSheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: borderRadius['2xl'],
+    borderTopRightRadius: borderRadius['2xl'],
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing['3xl'],
+  },
+  pickerTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold as any,
+    color: colors.slate[900],
+    marginBottom: spacing.lg,
+  },
+  pickerProviderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+  },
+  pickerProviderName: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium as any,
+    color: colors.slate[700],
+  },
+  pickerConnectedBadge: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium as any,
+    color: colors.primary[600],
+  },
+  pickerConnectBadge: {
+    fontSize: typography.fontSize.xs,
+    color: colors.slate[400],
   },
 
   // ── Search ─────────────────────────────────────────────────────────

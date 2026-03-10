@@ -25,7 +25,7 @@ export function ProFeatureGate({
 }: ProFeatureGateProps) {
   const { plans } = usePricing();
   const targetPlan = plans.find(p => p.id === requiredPlan);
-  const price = targetPlan?.price.monthly ?? (requiredPlan === 'starter' ? 9 : 19);
+  const price = targetPlan?.price.monthly ?? (requiredPlan === 'starter' ? 9 : 15);
   const planLabel = requiredPlan === 'starter' ? 'Starter' : 'Pro';
 
   return (

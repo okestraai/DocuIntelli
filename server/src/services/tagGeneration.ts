@@ -1,6 +1,6 @@
 import { query } from '../services/db';
 
-const vllmChatUrl = process.env.VLLM_CHAT_URL || 'https://chat.affinityecho.com';
+const vllmChatUrl = process.env.VLLM_CHAT_URL || 'https://vllm-chat.docuintelli.com';
 const cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID!;
 const cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET!;
 

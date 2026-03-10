@@ -2,6 +2,10 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /login
+Disallow: /signup
+Disallow: /register
+Disallow: /forgot-password
 Disallow: /dashboard
 Disallow: /vault
 Disallow: /settings
@@ -9,6 +13,8 @@ Disallow: /audit
 Disallow: /life-events
 Disallow: /financial-insights
 Disallow: /admin
+Disallow: /plaid-link
+Disallow: /plaid-oauth-redirect
 
 # Sitemap
 Sitemap: https://docuintelli.com/sitemap.xml

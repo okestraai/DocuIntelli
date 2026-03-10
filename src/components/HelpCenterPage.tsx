@@ -52,12 +52,12 @@ const HELP_TOPICS: HelpTopic[] = [
         answer: 'The AI analyzes the actual content of your documents using vector similarity search and provides responses grounded in your document text. However, AI responses are for informational purposes only and should not be treated as legal, financial, or professional advice.',
       },
       {
-        question: 'What counts as an AI question?',
-        answer: 'Each message you send in the document chat counts as one AI question. Free plan users get 5 questions per month. Starter and Pro plans have unlimited questions.',
+        question: 'How do AI tokens work?',
+        answer: 'Each AI chat uses tokens to process your question and generate a response. Free plan users get 50K tokens per month, Starter gets 500K, and Pro gets 2M.',
       },
       {
-        question: 'When does my AI question counter reset?',
-        answer: 'The counter resets automatically at the start of each billing month. You can see your current usage on the Dashboard or Billing page.',
+        question: 'When does my token budget reset?',
+        answer: 'Your token budget resets automatically on the 1st of each month. You can see your current usage on the Dashboard or Billing page.',
       },
     ],
   },
@@ -89,7 +89,7 @@ const HELP_TOPICS: HelpTopic[] = [
     items: [
       {
         question: 'How do I upgrade my plan?',
-        answer: 'Go to the Billing page from the navigation menu and select the plan you want. You can also upgrade when prompted by a limit (document storage, monthly uploads, or AI questions). Upgrades take effect immediately with prorated billing.',
+        answer: 'Go to the Billing page from the navigation menu and select the plan you want. You can also upgrade when prompted by a limit (document storage, monthly uploads, or token budget). Upgrades take effect immediately with prorated billing.',
       },
       {
         question: 'How do I cancel my subscription?',

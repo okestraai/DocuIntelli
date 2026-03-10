@@ -104,7 +104,7 @@ export function useSubscription(): UseSubscriptionReturn {
   const canAskQuestion = loading
     ? true
     : subscription
-    ? subscription.plan !== 'free' || subscription.ai_questions_used < subscription.ai_questions_limit
+    ? (subscription.tokens_used ?? 0) < (subscription.tokens_limit ?? 50000)
     : false;
 
   const plan = subscription?.plan;

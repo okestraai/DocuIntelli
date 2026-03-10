@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Send, FileText, Lightbulb } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { useSubscription } from '../hooks/useSubscription';
@@ -99,7 +100,7 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
       if (onUpgradeNeeded) {
         onUpgradeNeeded();
       } else {
-        feedback.showError('AI Question Limit Reached', `You've used all ${subscription?.ai_questions_limit || 5} AI questions this month. Upgrade to Pro for more questions.`);
+        feedback.showError('Token Budget Exceeded', `You've used all your monthly AI tokens on the ${subscription?.plan || 'free'} plan. Upgrade for a higher token budget.`);
       }
       return;
     }
@@ -161,8 +162,29 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
       } else {
         throw new Error('Failed to get response');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Chat error:', error);
+
+      // Token budget exceeded — trigger upgrade modal
+      if (error?.code === 'TOKEN_BUDGET_EXCEEDED' || error?.code === 'AI_QUESTION_LIMIT_EXCEEDED') {
+        if (onUpgradeNeeded) {
+          onUpgradeNeeded();
+        } else {
+          feedback.showError('Token Budget Exceeded', error.message || `You've used all your monthly AI tokens. Upgrade for a higher token budget.`);
+        }
+        return;
+      }
+
+      // Rate limit — show specific message with retry hint
+      if (error?.status === 429) {
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant' as const,
+          content: "You're sending messages too quickly. Please wait a moment and try again.",
+          timestamp: new Date(),
+        }]);
+        return;
+      }
 
       // Log the real error to backend for admin troubleshooting
       logClientError('document_chat', error instanceof Error ? error.message : 'Unknown error', {
@@ -245,8 +267,12 @@ export function DocumentChat({ document, onBack, onUpgradeNeeded }: DocumentChat
                       prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
                       prose-code:bg-slate-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
                       prose-pre:bg-slate-200 prose-pre:p-2 prose-pre:rounded prose-pre:text-xs
+                      prose-table:w-full prose-table:text-xs prose-table:border-collapse prose-table:my-2
+                      prose-th:bg-slate-100 prose-th:border prose-th:border-slate-300 prose-th:px-2 prose-th:py-1.5 prose-th:text-left prose-th:font-semibold prose-th:text-slate-700
+                      prose-td:border prose-td:border-slate-200 prose-td:px-2 prose-td:py-1.5
+                      [&_table]:rounded-lg [&_table]:overflow-hidden
                     ">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   )}
                 </div>

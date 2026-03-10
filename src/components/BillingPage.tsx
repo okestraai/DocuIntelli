@@ -1255,11 +1255,9 @@ function UsageTab({ subscription, documentCount }: any) {
     ? Math.min((documentCount / subscription.document_limit) * 100, 100)
     : 0;
 
-  const aiUsagePercent = subscription?.ai_questions_limit >= 999999
-    ? 0
-    : Math.min((subscription?.ai_questions_used / subscription?.ai_questions_limit) * 100, 100);
-
-  const isUnlimited = subscription?.ai_questions_limit >= 999999;
+  const tokensUsed = subscription?.tokens_used ?? 0;
+  const tokensLimit = subscription?.tokens_limit ?? 50000;
+  const tokenUsagePercent = Math.min((tokensUsed / tokensLimit) * 100, 100);
 
   const monthlyUploadLimit = subscription?.monthly_upload_limit || 3;
   const monthlyUploadsUsed = subscription?.monthly_uploads_used || 0;
@@ -1340,20 +1338,15 @@ function UsageTab({ subscription, documentCount }: any) {
           </div>
         </div>
 
-        {/* AI Questions Usage Card */}
+        {/* Monthly Tokens Usage Card */}
         <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-xl overflow-hidden">
           <div className="bg-gradient-to-br from-purple-600 to-pink-600 px-4 sm:px-8 py-4 sm:py-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-purple-100 text-xs sm:text-sm font-semibold mb-1">AI Questions</p>
+                <p className="text-purple-100 text-xs sm:text-sm font-semibold mb-1">Monthly Tokens</p>
                 <div className="flex items-baseline gap-2">
-                  <h3 className="text-2xl sm:text-4xl font-bold text-white">{subscription?.ai_questions_used || 0}</h3>
-                  {!isUnlimited && (
-                    <span className="text-purple-100 text-2xl">/ {subscription?.ai_questions_limit || 5}</span>
-                  )}
-                  {isUnlimited && (
-                    <span className="text-purple-100 text-2xl">/ ∞</span>
-                  )}
+                  <h3 className="text-2xl sm:text-4xl font-bold text-white">{(tokensUsed / 1000).toFixed(0)}K</h3>
+                  <span className="text-purple-100 text-2xl">/ {(tokensLimit / 1000).toFixed(0)}K</span>
                 </div>
               </div>
               <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3">
@@ -1363,61 +1356,45 @@ function UsageTab({ subscription, documentCount }: any) {
           </div>
 
           <div className="p-4 sm:p-8">
-            {!isUnlimited ? (
-              <>
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-600">Usage This Month</span>
-                    <span className="text-sm font-bold text-gray-900">{aiUsagePercent.toFixed(0)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                    <div
-                      className={`h-4 rounded-full transition-all duration-500 ${
-                        aiUsagePercent >= 90
-                          ? 'bg-gradient-to-r from-red-500 to-orange-500'
-                          : aiUsagePercent >= 70
-                          ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
-                          : 'bg-gradient-to-r from-purple-600 to-pink-600'
-                      }`}
-                      style={{ width: `${aiUsagePercent}%` }}
-                    />
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-600">Usage This Month</span>
+                <span className="text-sm font-bold text-gray-900">{tokenUsagePercent.toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div
+                  className={`h-4 rounded-full transition-all duration-500 ${
+                    tokenUsagePercent >= 90
+                      ? 'bg-gradient-to-r from-red-500 to-orange-500'
+                      : tokenUsagePercent >= 70
+                      ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                      : 'bg-gradient-to-r from-purple-600 to-pink-600'
+                  }`}
+                  style={{ width: `${tokenUsagePercent}%` }}
+                />
+              </div>
+            </div>
+
+            {subscription?.tokens_reset_date && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-blue-600" />
+                  <p className="text-sm text-blue-900">
+                    <span className="font-semibold">Resets:</span> {formatUTCDate(subscription.tokens_reset_date)}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {tokenUsagePercent >= 90 && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-900 mb-1">Limit Almost Reached</p>
+                    <p className="text-xs text-red-800">Upgrade for a higher monthly token budget.</p>
                   </div>
                 </div>
-
-                {subscription?.ai_questions_reset_date && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-blue-600" />
-                      <p className="text-sm text-blue-900">
-                        <span className="font-semibold">Resets:</span> {formatUTCDate(subscription.ai_questions_reset_date)}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {aiUsagePercent >= 90 && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-red-900 mb-1">Limit Almost Reached</p>
-                        <p className="text-xs text-red-800">Upgrade for unlimited AI questions.</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="bg-purple-100 p-2 rounded-lg">
-                    <CheckCircle className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <p className="text-sm font-bold text-purple-900">Unlimited Questions</p>
-                </div>
-                <p className="text-xs text-purple-800">
-                  You have unlimited AI questions with your {subscription?.plan || 'current'} plan. Ask away!
-                </p>
               </div>
             )}
           </div>
@@ -1506,7 +1483,7 @@ function UsageTab({ subscription, documentCount }: any) {
             <div className="flex-1">
               <h4 className="text-2xl font-bold text-emerald-900 mb-3">Ready to Upgrade?</h4>
               <p className="text-emerald-800 mb-6 text-lg">
-                You're getting close to your limits. Upgrade now to unlock more storage and unlimited AI questions.
+                You're getting close to your limits. Upgrade now to unlock more storage and a higher monthly token budget.
               </p>
               <div className="flex gap-4">
                 <button
@@ -1545,9 +1522,9 @@ function UsageTab({ subscription, documentCount }: any) {
             </p>
           </div>
           <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl p-5">
-            <p className="text-sm font-semibold text-gray-600 mb-2">AI Questions</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Monthly Tokens</p>
             <p className="text-2xl font-bold text-gray-900">
-              {isUnlimited ? 'Unlimited' : `${subscription?.ai_questions_used || 0} / ${subscription?.ai_questions_limit || 5}`}
+              {(tokensUsed / 1000).toFixed(0)}K / {(tokensLimit / 1000).toFixed(0)}K
             </p>
           </div>
         </div>

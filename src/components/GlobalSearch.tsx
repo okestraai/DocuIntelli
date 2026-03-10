@@ -4,6 +4,7 @@ import {
   ChevronRight, MessageSquare, Send, Sparkles,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   globalSearch,
   GlobalSearchResultGroup,
@@ -45,16 +46,16 @@ interface ChatMessage {
  */
 function cleanLLMOutput(text: string): string {
   let c = text;
-  // ANY parenthesized text containing "chunk" or "section" + a number
+  // Strip internal chunk/section reference noise (implementation details)
   // e.g. (chunk 5), (github test, chunk 39), (section 3), (chunks 1-4)
   c = c.replace(/\s*\([^)]*\bchunks?\s*\d+[^)]*\)/gi, '');
   c = c.replace(/\s*\([^)]*\bsections?\s*\d+[^)]*\)/gi, '');
   // Standalone "chunk 5:" or "section 3:"
   c = c.replace(/\bchunks?\s*\d+\s*:/gi, '');
   c = c.replace(/\bsections?\s*\d+\s*:/gi, '');
-  // "From 'docname':" or "From: docname" citation patterns
-  c = c.replace(/\bFrom[:\s]+['""'][^'""']+['""']\s*:?/gi, '');
-  // [[Document Name]]
+  // Strip [Document: "..."] tags if LLM echoes them (these are internal context tags)
+  c = c.replace(/\[Document:\s*"[^"]*"\]\s*/gi, '');
+  // [[Document Name]] bracket citations
   c = c.replace(/\[\[[^\]]+\]\]/g, '');
   // Collapse multiple spaces and trim
   c = c.replace(/  +/g, ' ').replace(/\n /g, '\n');
@@ -388,7 +389,7 @@ export function GlobalSearch({
     }
   };
 
-  const proPrice = plans.find((p) => p.id === 'pro')?.price.monthly ?? 19;
+  const proPrice = plans.find((p) => p.id === 'pro')?.price.monthly ?? 15;
 
   // ─── Gate Panel (non-Pro) ─────────────────────────────────────────
   const renderGatePanel = () => (
@@ -563,8 +564,12 @@ export function GlobalSearch({
                 }`}
               >
                 {msg.role === 'assistant' ? (
-                  <div className="prose prose-sm prose-slate max-w-none [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:mb-1.5 [&>ol]:mb-1.5">
-                    <ReactMarkdown>{cleanLLMOutput(msg.content) || (msg.isStreaming ? '...' : '')}</ReactMarkdown>
+                  <div className="prose prose-sm prose-slate max-w-none [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:mb-1.5 [&>ol]:mb-1.5
+                    prose-table:w-full prose-table:text-xs prose-table:border-collapse prose-table:my-2
+                    prose-th:bg-slate-100 prose-th:border prose-th:border-slate-300 prose-th:px-2 prose-th:py-1.5 prose-th:text-left prose-th:font-semibold prose-th:text-slate-700
+                    prose-td:border prose-td:border-slate-200 prose-td:px-2 prose-td:py-1.5
+                    [&_table]:rounded-lg [&_table]:overflow-hidden">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanLLMOutput(msg.content) || (msg.isStreaming ? '...' : '')}</ReactMarkdown>
                     {msg.isStreaming && msg.content && (
                       <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 rounded-sm align-text-bottom" />
                     )}

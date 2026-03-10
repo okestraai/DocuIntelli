@@ -54,12 +54,12 @@ function getFAQSections(plans: PlanData[]): FAQSection[] {
         answer: "No. Deleting a document frees up document storage space, but it does not reduce your monthly upload count. For example, if you've uploaded 3 documents this month on the Free plan, you've used all 3 monthly uploads even if you delete some of those documents. The monthly upload counter resets at the start of your next billing month.",
       },
       {
-        question: 'How do AI questions work?',
-        answer: 'Free plan users get 5 AI questions per month. Each time you ask the AI about your documents in the chat, it counts as one question. The counter resets automatically at the start of each month. Starter and Pro plans include unlimited AI questions, so you can chat with your documents as much as you like.',
+        question: 'How do AI tokens work?',
+        answer: 'Every AI chat uses tokens to process your question and generate a response. Free plan users get 50K tokens per month, Starter gets 500K, and Pro gets 2M. Your token budget resets automatically on the 1st of each month.',
       },
       {
         question: 'When do my monthly counters reset?',
-        answer: 'Both your AI question counter and monthly upload counter reset automatically at the beginning of each billing month. You can check your current usage and reset date on the Dashboard or the Billing page.',
+        answer: 'Your token budget resets on the 1st of each month, and your monthly upload counter resets at the beginning of each billing month. You can check your current usage and reset date on the Dashboard or the Billing page.',
       },
     ],
   },

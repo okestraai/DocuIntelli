@@ -112,7 +112,7 @@ const allTemplates: TemplatePayload[] = [
       userName: 'Alex Johnson',
       oldPlan: 'starter',
       newPlan: 'pro',
-      newAmount: '$19/month',
+      newAmount: '$15/month',
       effectiveDate: 'February 13, 2026',
     },
   },

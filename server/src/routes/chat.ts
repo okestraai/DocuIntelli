@@ -15,18 +15,20 @@ import { detectImpersonation } from '../middleware/impersonation';
 import {
   loadSubscription,
   checkAIQuestionLimit,
+  checkTokenBudget,
+  incrementTokensUsed,
+  checkAIChatRateLimit,
 } from '../middleware/subscriptionGuard';
+import { getLLMConfig, estimateTokens } from '../services/llmRouter';
 
 const router = Router();
 
 // ── Environment ──────────────────────────────────────────────────────────────
 
-const vllmChatUrl = process.env.VLLM_CHAT_URL || 'https://chat.affinityecho.com';
-const vllmEmbedderUrl = process.env.VLLM_EMBEDDER_URL || 'https://embedder.affinityecho.com';
+const vllmEmbedderUrl = process.env.VLLM_EMBEDDER_URL || 'https://vllm-embedder.docuintelli.com';
 const cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID!;
 const cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET!;
-const chatModel = 'hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4';
-const embeddingModel = 'intfloat/e5-mistral-7b-instruct';
+const embeddingModel = 'BAAI/bge-m3';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,7 +85,9 @@ router.post(
   embeddingPreflight,
   loadSubscription,
   detectImpersonation,
+  checkAIChatRateLimit,
   checkAIQuestionLimit,
+  checkTokenBudget,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.userId;
@@ -111,35 +115,43 @@ router.post(
         return;
       }
 
-      if (!cfAccessClientId || !cfAccessClientSecret) {
-        res.status(500).json({ success: false, error: 'Cloudflare Access credentials not configured' });
-        return;
-      }
-
-      // ── Await pre-fired embedding + DB queries in parallel ──
+      // ── Await embedding + DB queries in parallel ──
       // embeddingPreflight already started the fetch before auth middleware ran,
       // so the embedding has been in-flight the whole time. Just await the result.
-      const embeddingPromise: Promise<globalThis.Response> =
+      const embeddingPromise: Promise<globalThis.Response> | null =
         (req as any)._embeddingPromise ||
-        // Fallback: start fresh if pre-flight didn't fire (should not happen for valid requests)
-        (() => {
-          const questionFormatted = `Instruct: Given a web search query, retrieve relevant passages\nQuery: ${question}`;
-          return fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'CF-Access-Client-Id': cfAccessClientId,
-              'CF-Access-Client-Secret': cfAccessClientSecret,
-            },
-            body: JSON.stringify({
-              model: embeddingModel,
-              input: [questionFormatted],
-            }),
-          });
-        })();
+        (cfAccessClientId && cfAccessClientSecret
+          ? (() => {
+              const questionFormatted = `Instruct: Given a web search query, retrieve relevant passages\nQuery: ${question}`;
+              return fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'CF-Access-Client-Id': cfAccessClientId,
+                  'CF-Access-Client-Secret': cfAccessClientSecret,
+                },
+                body: JSON.stringify({
+                  model: embeddingModel,
+                  input: [questionFormatted],
+                }),
+              });
+            })()
+          : null);
 
-      const [embeddingResponse, docResult, historyResult] = await Promise.all([
-        embeddingPromise,
+      const [embeddingResult, docResult, historyResult] = await Promise.all([
+        embeddingPromise
+          ? embeddingPromise.then(async (resp) => {
+              if (!resp.ok) {
+                console.warn(`[Chat] Embedder returned ${resp.status}, will fall back to text search`);
+                return null;
+              }
+              const data = await resp.json() as any;
+              return data?.data?.[0]?.embedding as number[] | null;
+            }).catch((err) => {
+              console.warn(`[Chat] Embedding request failed: ${err.message}, falling back to text search`);
+              return null;
+            })
+          : Promise.resolve(null),
         query(
           `SELECT id FROM documents
            WHERE id = $1 AND user_id = $2`,
@@ -164,43 +176,71 @@ router.post(
       const conversation_history = historyResult.rows || [];
       console.log(`[Chat] Loaded ${conversation_history.length} previous messages`);
 
-      // ── Process embedding response ───────────────────────────────────
-      if (!embeddingResponse.ok) {
-        const errorText = await embeddingResponse.text();
-        throw new Error(`vLLM Embedding API error: ${embeddingResponse.status} - ${errorText}`);
+      // ── Retrieve relevant chunks (vector search with text fallback) ──
+      let relevantChunks: any[];
+
+      if (embeddingResult && Array.isArray(embeddingResult)) {
+        // Vector similarity search (preferred path)
+        console.log(`[Chat] Question embedding generated: ${embeddingResult.length} dimensions`);
+        const embeddingStr = JSON.stringify(embeddingResult);
+
+        const searchResult = await query(
+          `SELECT
+             dc.chunk_index,
+             dc.chunk_text,
+             1 - (dc.embedding <=> $1::vector) AS similarity
+           FROM document_chunks dc
+           WHERE dc.document_id = $2::uuid
+             AND dc.embedding IS NOT NULL
+             AND 1 - (dc.embedding <=> $1::vector) >= $3
+           ORDER BY dc.embedding <=> $1::vector
+           LIMIT $4`,
+          [embeddingStr, document_id, 0.2, 8]
+        );
+        relevantChunks = searchResult.rows || [];
+      } else {
+        // Text-based fallback: keyword search on chunk text
+        console.warn('[Chat] Using text-based fallback (embedder unavailable)');
+        const keywords = question
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .filter((w: string) => w.length > 2);
+
+        const tsQuery = keywords.join(' & ');
+        const searchResult = await query(
+          `SELECT
+             dc.chunk_index,
+             dc.chunk_text,
+             ts_rank(to_tsvector('english', dc.chunk_text), to_tsquery('english', $1)) AS similarity
+           FROM document_chunks dc
+           WHERE dc.document_id = $2::uuid
+             AND to_tsvector('english', dc.chunk_text) @@ to_tsquery('english', $1)
+           ORDER BY similarity DESC
+           LIMIT $3`,
+          [tsQuery, document_id, 8]
+        );
+        relevantChunks = searchResult.rows || [];
+
+        // If ts_query found nothing, grab the first N chunks as context
+        if (relevantChunks.length === 0) {
+          console.warn('[Chat] Text search found no matches, using first chunks as context');
+          const fallbackResult = await query(
+            `SELECT chunk_index, chunk_text, 0.5 AS similarity
+             FROM document_chunks
+             WHERE document_id = $1::uuid
+             ORDER BY chunk_index ASC
+             LIMIT $2`,
+            [document_id, 6]
+          );
+          relevantChunks = fallbackResult.rows || [];
+        }
       }
 
-      const embeddingData = await embeddingResponse.json() as any;
-      const questionEmbedding: number[] = embeddingData.data[0].embedding;
-
-      if (!questionEmbedding || !Array.isArray(questionEmbedding)) {
-        throw new Error('Failed to generate question embedding');
-      }
-
-      console.log(`[Chat] Question embedding generated: ${questionEmbedding.length} dimensions`);
-
-      // ── Vector similarity search (direct SQL with pgvector) ──────────
-      const embeddingStr = JSON.stringify(questionEmbedding);
-
-      const searchResult = await query(
-        `SELECT
-           dc.chunk_index,
-           dc.chunk_text,
-           1 - (dc.embedding <=> $1::vector) AS similarity
-         FROM document_chunks dc
-         WHERE dc.document_id = $2::uuid
-           AND dc.embedding IS NOT NULL
-           AND 1 - (dc.embedding <=> $1::vector) >= $3
-         ORDER BY dc.embedding <=> $1::vector
-         LIMIT $4`,
-        [embeddingStr, document_id, 0.3, 4]
-      );
-
-      const relevantChunks = searchResult.rows || [];
       console.log(`[Chat] Found ${relevantChunks.length} relevant chunks`);
 
       // Build context from relevant chunks -- cap each to reduce prompt size
-      const MAX_CHUNK_CHARS = 600;
+      const MAX_CHUNK_CHARS = 1200;
       let context = '';
       if (relevantChunks.length > 0) {
         context = relevantChunks
@@ -222,8 +262,38 @@ router.post(
       // ── Build chat messages ──────────────────────────────────────────
       // System message is CONSTANT so vLLM prefix cache always hits (~100%).
       // Variable content (chunks) goes in a user message before the question.
-      const systemMessage = `You are a concise document assistant. Answer using ONLY the provided document sections. Be brief and direct.
-Rules: Only state facts from the sections provided by the user. If not found, say so. Never mention sources. Use conversation history for follow-up context.`;
+      const systemMessage = `You are a thorough document assistant for DocuIntelli. Answer based on the provided document sections. Source documents are shown separately — never name, cite, or reference sources, chunks, or sections.
+
+RESPONSE RULES:
+1. Be detailed and specific. Extract every relevant data point — names, dates, dollar amounts, percentages, terms, conditions. Users need precise information, not summaries.
+2. Structure your response. Use bold headers, bullet points, and numbered lists to organize information clearly. Group related data (e.g., income items together, deductions together).
+3. Be authoritative. State facts directly. No hedging ("it seems," "it appears," "may vary"). No "I couldn't find" if relevant info exists.
+4. Include all specifics found in the sections — dollar amounts should be stated exactly, names spelled out, dates included. Never round or approximate when exact figures are available.
+5. For financial/tax documents: break down totals into components, list all line items found, and show the relationship between figures.
+6. For contracts/policies: state key terms, obligations, dates, parties, and conditions explicitly.
+7. Scale depth to the question: broad questions ("tell me about this document") get a comprehensive overview with all key data points organized by category. Narrow questions get focused detail on that topic.
+
+REASONING AND INFERENCE:
+- Do NOT just quote text verbatim. Analyze and reason about the data to answer the user's question.
+- Distinguish between form templates/instructions (generic text like "If you have more than...") and actual filled-in data (specific names, amounts, dates). Prioritize the actual data.
+- When the user asks a question, infer the answer from available data points. For example, if a tax return lists a name under "Dependents," state that name as the dependent — don't just quote the form field label.
+- Connect related data points to give a complete answer. If multiple sections contain parts of the answer, synthesize them into one coherent response.
+- If data allows a clear inference, state it confidently. Only say information is missing if it truly is not present or inferable from the sections.
+
+ANTI-HALLUCINATION:
+- NEVER invent data, numbers, or facts not present in the provided sections.
+- NEVER use placeholder variables (x, y, z) or algebraic equations. Only state real values from the document.
+- NEVER describe how to calculate something step-by-step with empty formulas. If the actual result is in the data, state it directly. If it is not, say the information is not available.
+- NEVER generate hypothetical scenarios or speculative answers. Stick strictly to what the document data shows.
+- If you do not have enough information to answer, say so in one sentence. Do not fill the gap with made-up content.
+
+CONVERSATION CONTEXT:
+- Use conversation history to resolve follow-up references.
+- If a follow-up is genuinely ambiguous, ask ONE specific question.
+
+EDGE CASES:
+- Gibberish input: Reply "I didn't understand that. How can I help with your document?"
+- No relevant info: "I don't have information about that in this document. Try rephrasing your question."`;
 
       const contextMessage = context
         ? `[Document sections]\n${context}\n[End sections]`
@@ -236,27 +306,26 @@ Rules: Only state facts from the sections provided by the user. If not found, sa
       ];
 
       // ── SSE streaming chat response ──────────────────────────────────
-      console.log(`[Chat] Calling vLLM Chat (streaming)...`);
+      const llmConfig = getLLMConfig(req.subscription?.plan || 'free');
+      console.log(`[Chat] Calling LLM (${llmConfig.model}) via ${llmConfig.baseUrl} (streaming)...`);
 
-      const chatResponse = await fetch(`${vllmChatUrl}/v1/chat/completions`, {
+      const chatResponse = await fetch(`${llmConfig.baseUrl}/v1/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'CF-Access-Client-Id': cfAccessClientId,
-          'CF-Access-Client-Secret': cfAccessClientSecret,
-        },
+        headers: llmConfig.headers,
         body: JSON.stringify({
-          model: chatModel,
+          model: llmConfig.model,
           messages,
           temperature: 0.4,
-          max_tokens: 400,
+          max_tokens: llmConfig.maxTokens,
+          frequency_penalty: 0.3,
           stream: true,
+          ...llmConfig.extraParams,
         }),
       });
 
       if (!chatResponse.ok) {
         const errorData = await chatResponse.text();
-        throw new Error(`vLLM Chat API error: ${chatResponse.status} - ${errorData}`);
+        throw new Error(`LLM Chat API error (${llmConfig.model}): ${chatResponse.status} - ${errorData}`);
       }
 
       // Set SSE headers
@@ -329,6 +398,13 @@ Rules: Only state facts from the sections provided by the user. If not found, sa
                     `UPDATE user_subscriptions SET ai_questions_used = $1, updated_at = $2 WHERE id = $3`,
                     [(req.subscription.ai_questions_used || 0) + 1, new Date().toISOString(), req.subscription.id]
                   ).catch(() => {});
+                }
+
+                // Track token usage (fire-and-forget)
+                if (req.subscription) {
+                  const promptTokens = estimateTokens(JSON.stringify(messages));
+                  const completionTokens = estimateTokens(fullAnswer);
+                  incrementTokensUsed(req.subscription.id, promptTokens + completionTokens).catch(() => {});
                 }
               } else {
                 console.log('[Chat] Impersonation mode -- skipping chat persistence');

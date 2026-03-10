@@ -46,7 +46,7 @@ export function PrivacyPage({ onBack }: PrivacyPageProps) {
 
             <h3 className="text-lg font-medium text-slate-800 mt-4 mb-2">Usage Data</h3>
             <p className="text-slate-600 leading-relaxed">
-              We collect usage information such as features accessed, documents uploaded, AI questions asked, and subscription activity. This data helps us improve the Service and enforce plan limits.
+              We collect usage information such as features accessed, documents uploaded, AI token usage, and subscription activity. This data helps us improve the Service and enforce plan limits.
             </p>
           </section>
 

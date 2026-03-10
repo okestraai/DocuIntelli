@@ -36,6 +36,7 @@
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.14",
     "react-plaid-link": "^4.1.1",
+    "remark-gfm": "^4.0.1",
     "tesseract.js": "^6.0.1",
     "ts-node": "^10.9.2",
     "uuid": "^11.1.0"

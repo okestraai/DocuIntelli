@@ -494,17 +494,15 @@ export function Dashboard({ documents, dataVersion, onNavigate, onAddDocument, o
                   </div>
                 </div>
                 <div className="flex-1 sm:flex-none">
-                  <div className="text-xs sm:text-sm text-slate-600 mb-1">AI Questions</div>
+                  <div className="text-xs sm:text-sm text-slate-600 mb-1">Monthly Tokens</div>
                   <div className="text-sm sm:text-lg font-bold text-slate-900">
-                    {subscription.ai_questions_used} / {subscription.plan !== 'free' ? '∞' : subscription.ai_questions_limit}
+                    {((subscription.tokens_used ?? 0) / 1000).toFixed(0)}K / {((subscription.tokens_limit ?? 50000) / 1000).toFixed(0)}K
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
                     <div
                       className="bg-gradient-to-r from-emerald-600 to-teal-600 h-1.5 rounded-full transition-all"
                       style={{
-                        width: subscription.plan !== 'free'
-                          ? '100%'
-                          : `${Math.min((subscription.ai_questions_used / subscription.ai_questions_limit) * 100, 100)}%`
+                        width: `${Math.min(((subscription.tokens_used ?? 0) / (subscription.tokens_limit ?? 50000)) * 100, 100)}%`
                       }}
                     />
                   </div>

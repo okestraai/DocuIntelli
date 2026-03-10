@@ -48,12 +48,14 @@ export interface CategoryBreakdown {
 export interface RecurringBill {
   name: string;
   merchant: string | null;
+  merchant_stem: string;
   amount: number;
   monthly_amount: number;
   frequency: string;
   category: string;
   last_date: string;
   next_expected: string;
+  user_tags: string[];
 }
 
 export interface IncomeStream {
@@ -405,7 +407,7 @@ export async function cancelConnection(itemId: string): Promise<void> {
 // ── Transaction & Income Tagging ────────────────────────────────
 
 /** Get predefined tag options */
-export async function getTagOptions(): Promise<{ transaction_tags: string[]; income_tags: string[] }> {
+export async function getTagOptions(): Promise<{ transaction_tags: string[]; income_tags: string[]; bill_tags: string[] }> {
   const session = await getSession();
   const headers = await backendHeaders(session.access_token);
   const res = await fetch(`${API_BASE}/api/financial/tag-options`, { headers });

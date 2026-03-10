@@ -54,6 +54,7 @@ import { SmartDocumentPrompts } from './SmartDocumentPrompts';
 import { FinancialGoalsWidget } from './FinancialGoalsWidget';
 import { LoanAnalysisPanel } from './LoanAnalysisPanel';
 import { getAnalyzedLoans, AnalyzedLoan } from '../lib/financialApi';
+import { createGoal, getGoals, GoalType } from '../lib/financialGoalsApi';
 import { useSubscription } from '../hooks/useSubscription';
 import { AccountSelectionModal, ExistingAccount, NewAccount } from './AccountSelectionModal';
 
@@ -171,6 +172,9 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
     actionPlan: true,
   });
 
+  // Goals refresh key — increment to force FinancialGoalsWidget to remount
+  const [goalsRefreshKey, setGoalsRefreshKey] = useState(0);
+
   // Account selection modal state
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newItemId, setNewItemId] = useState<string | null>(null);
@@ -195,6 +199,19 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
 
       if (accountsResult.accounts.length > 0 && summaryResult) {
         setSummary(summaryResult);
+
+        // If AI insights are missing (still generating in background), auto-refresh once
+        const hasAIData = summaryResult.account_analysis && Object.keys(summaryResult.account_analysis).length > 0;
+        if (!hasAIData && accountsResult.accounts.length > 0) {
+          setTimeout(async () => {
+            try {
+              const refreshed = await getFinancialSummary();
+              if (refreshed?.account_analysis && Object.keys(refreshed.account_analysis).length > 0) {
+                setSummary(refreshed);
+              }
+            } catch { /* silent retry */ }
+          }, 20000);
+        }
       } else {
         setSummary(null);
         if (accountsResult.accounts.length === 0) setAnalyzedLoans([]);
@@ -581,7 +598,7 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
             expanded={expandedSections.goals}
             onToggle={() => toggleSection('goals')}
           >
-            <FinancialGoalsWidget connectedAccounts={connectedAccounts} />
+            <FinancialGoalsWidget key={goalsRefreshKey} connectedAccounts={connectedAccounts} />
           </CollapsibleSection>
 
           {/* Smart Document Prompts */}
@@ -712,7 +729,7 @@ export function FinancialInsightsPage({ onUpgrade, onAccountsChanged }: { onUpgr
             expanded={expandedSections.actionPlan}
             onToggle={() => toggleSection('actionPlan')}
           >
-            <ActionPlanList items={summary.action_plan} />
+            <ActionPlanList items={summary.action_plan} onGoalCreated={() => setGoalsRefreshKey(k => k + 1)} />
           </CollapsibleSection>
         </>
       )}
@@ -1010,33 +1027,154 @@ function SpendingBreakdown({ categories }: { categories: CategoryBreakdown[] }) 
 }
 
 function RecurringBillsList({ bills }: { bills: RecurringBill[] }) {
+  const [billTagOptions, setBillTagOptions] = useState<string[]>([]);
+  const [billTags, setBillTags] = useState<Record<string, string[]>>({});
+  const [materialized, setMaterialized] = useState<Set<string>>(new Set());
+  const [openTagDropdown, setOpenTagDropdown] = useState<string | null>(null);
+
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+  // Derive auto-tags from bill properties (frequency + category)
+  const getAutoTags = (bill: RecurringBill) => {
+    const tags: string[] = [];
+    if (bill.frequency) tags.push(capitalize(bill.frequency));
+    if (bill.category) tags.push(bill.category);
+    return [...new Set(tags)];
+  };
+
+  useEffect(() => {
+    getTagOptions().then(opts => setBillTagOptions(opts.bill_tags || [])).catch(() => {});
+  }, []);
+
+  // Initialize tags: use user_tags if present, otherwise auto-derive from frequency + category
+  useEffect(() => {
+    const tags: Record<string, string[]> = {};
+    const alreadySaved = new Set<string>();
+    for (const b of bills) {
+      if (b.merchant_stem) {
+        const userTags = b.user_tags || [];
+        if (userTags.length > 0) {
+          tags[b.merchant_stem] = [...userTags];
+          alreadySaved.add(b.merchant_stem);
+        } else {
+          tags[b.merchant_stem] = getAutoTags(b);
+        }
+      }
+    }
+    setBillTags(tags);
+    setMaterialized(alreadySaved);
+  }, [bills]);
+
   if (bills.length === 0) {
     return <p className="text-slate-500 text-sm">No recurring bills detected yet.</p>;
   }
 
+  // Persist auto-derived tags to DB so future add/remove works correctly
+  const ensureMaterialized = async (stem: string) => {
+    if (materialized.has(stem)) return;
+    const currentTags = billTags[stem] || [];
+    for (const tag of currentTags) {
+      await addIncomeStreamTag(stem, tag);
+    }
+    setMaterialized(prev => new Set(prev).add(stem));
+  };
+
+  const handleAddBillTag = async (bill: RecurringBill, tag: string) => {
+    const stem = bill.merchant_stem;
+    setBillTags(prev => ({ ...prev, [stem]: [...(prev[stem] || []), tag] }));
+    setOpenTagDropdown(null);
+    try {
+      await ensureMaterialized(stem);
+      await addIncomeStreamTag(stem, tag);
+    } catch {
+      setBillTags(prev => ({ ...prev, [stem]: (prev[stem] || []).filter(t => t !== tag) }));
+    }
+  };
+
+  const handleRemoveBillTag = async (bill: RecurringBill, tag: string) => {
+    const stem = bill.merchant_stem;
+    const remaining = (billTags[stem] || []).filter(t => t !== tag);
+    setBillTags(prev => ({ ...prev, [stem]: remaining }));
+    try {
+      if (!materialized.has(stem)) {
+        // Materialize only the remaining tags (skips the removed one)
+        for (const t of remaining) {
+          await addIncomeStreamTag(stem, t);
+        }
+        setMaterialized(prev => new Set(prev).add(stem));
+      } else {
+        await removeIncomeStreamTag(stem, tag);
+      }
+    } catch {
+      console.error('Failed to remove bill tag');
+    }
+  };
+
   return (
     <div className="divide-y divide-slate-100">
-      {bills.map((bill, i) => (
-        <div key={i} className="flex items-center justify-between py-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-50 rounded-lg">
-              <CreditCard className="h-4 w-4 text-orange-600" />
+      {bills.map((bill, i) => {
+        const stem = bill.merchant_stem || `bill-${i}`;
+        const tags = billTags[stem] || [];
+        const availableTags = billTagOptions.filter(t => !tags.includes(t));
+        const isDropdownOpen = openTagDropdown === stem;
+
+        return (
+          <div key={i} className="py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-50 rounded-lg">
+                  <CreditCard className="h-4 w-4 text-orange-600" />
+                </div>
+                <p className="font-medium text-slate-900 text-sm">{bill.name}</p>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold text-slate-900 text-sm">{formatCurrency(bill.monthly_amount ?? bill.amount)}/mo</p>
+              </div>
             </div>
-            <div>
-              <p className="font-medium text-slate-900 text-sm">{bill.name}</p>
-              <p className="text-xs text-slate-500">
-                {bill.frequency} &bull; {bill.category}
-              </p>
+            {/* Tags row — frequency + category auto-derived, plus user tags */}
+            <div className="flex items-center gap-1.5 mt-1.5 ml-11 flex-wrap">
+              {tags.map(tag => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700 border border-orange-200"
+                >
+                  {tag}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRemoveBillTag(bill, tag); }}
+                    className="opacity-60 hover:opacity-100 hover:text-red-500 ml-0.5"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              ))}
+              {availableTags.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setOpenTagDropdown(isDropdownOpen ? null : stem); }}
+                    className="inline-flex items-center px-1 py-0.5 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                    title="Add label"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+                      {availableTags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={(e) => { e.stopPropagation(); handleAddBillTag(bill, tag); }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-          <div className="text-right">
-            <p className="font-semibold text-slate-900 text-sm">{formatCurrency(bill.monthly_amount ?? bill.amount)}/mo</p>
-            <p className="text-xs text-slate-400">
-              {formatCurrency(bill.amount)} × {bill.frequency}
-            </p>
-          </div>
-        </div>
-      ))}
+        );
+      })}
       <div className="pt-3">
         <div className="flex justify-between text-sm font-medium">
           <span className="text-slate-600">Total Monthly Bills</span>
@@ -1108,11 +1246,10 @@ function IncomeStreamsList({ streams }: { streams: IncomeStream[] }) {
       [stem]: (prev[stem] || []).filter(t => t !== tag),
     }));
     try {
-      const isSalaryOverride = tag === 'Salary' ? false : undefined;
-      if (isSalaryOverride !== undefined) {
-        // When removing Salary, also update the salary override
+      if (tag === 'Salary') {
+        // Override auto-detection — keep the row with is_auto_salary_override=false
+        // so the backend knows the user rejected the salary classification
         await addIncomeStreamTag(stem, tag, false);
-        await removeIncomeStreamTag(stem, tag);
       } else {
         await removeIncomeStreamTag(stem, tag);
       }
@@ -1263,7 +1400,25 @@ function MonthlyTrends({ averages }: { averages: MonthlyAverage[] }) {
   );
 }
 
-function ActionPlanList({ items }: { items: ActionItem[] }) {
+function ActionPlanList({ items, onGoalCreated }: { items: ActionItem[]; onGoalCreated?: () => void }) {
+  const [addedGoals, setAddedGoals] = useState<Set<number>>(new Set());
+  const [addingGoal, setAddingGoal] = useState<number | null>(null);
+
+  // On mount, check existing goals to persist "Added to Goals" state across reloads
+  useEffect(() => {
+    if (items.length === 0) return;
+    getGoals().then(data => {
+      const goalNames = new Set(data.goals.map(g => g.name.toLowerCase()));
+      const matched = new Set<number>();
+      items.forEach((item, i) => {
+        if (goalNames.has(item.title.slice(0, 60).toLowerCase())) {
+          matched.add(i);
+        }
+      });
+      if (matched.size > 0) setAddedGoals(matched);
+    }).catch(() => {});
+  }, [items]);
+
   if (items.length === 0) {
     return <p className="text-slate-500 text-sm">No action items at this time.</p>;
   }
@@ -1274,10 +1429,48 @@ function ActionPlanList({ items }: { items: ActionItem[] }) {
     low: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-600', badge: 'bg-blue-100 text-blue-700' },
   };
 
+  const inferGoalType = (title: string): GoalType => {
+    const lower = title.toLowerCase();
+    if (/save|saving|emergency fund/i.test(lower)) return 'savings';
+    if (/reduce|cut|limit|spend/i.test(lower)) return 'spending_limit';
+    if (/debt|pay off|loan/i.test(lower)) return 'debt_paydown';
+    if (/income|earn/i.test(lower)) return 'income_target';
+    return 'ad_hoc';
+  };
+
+  const handleAddAsGoal = async (item: ActionItem, index: number) => {
+    setAddingGoal(index);
+    try {
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + 30);
+      const targetAmount = item.potential_savings
+        ? Math.round(item.potential_savings * 6)
+        : 500;
+
+      await createGoal({
+        goal_type: inferGoalType(item.title),
+        name: item.title.slice(0, 60),
+        description: item.description,
+        target_amount: targetAmount,
+        target_date: targetDate.toISOString().split('T')[0],
+        linked_account_ids: [],
+      });
+      setAddedGoals(prev => new Set(prev).add(index));
+      onGoalCreated?.();
+    } catch (err) {
+      console.error('Failed to create goal:', err);
+    } finally {
+      setAddingGoal(null);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {items.map((item, i) => {
         const config = priorityConfig[item.priority];
+        const isAdded = addedGoals.has(i);
+        const isAdding = addingGoal === i;
+
         return (
           <div key={i} className={`p-4 rounded-xl border ${config.bg} ${config.border}`}>
             <div className="flex items-start gap-3">
@@ -1296,6 +1489,24 @@ function ActionPlanList({ items }: { items: ActionItem[] }) {
                     Potential savings: {formatCurrency(item.potential_savings)}/month
                   </p>
                 )}
+                <button
+                  onClick={() => handleAddAsGoal(item, i)}
+                  disabled={isAdded || isAdding}
+                  className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    isAdded
+                      ? 'bg-emerald-100 text-emerald-700 cursor-default'
+                      : 'bg-white/80 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300'
+                  }`}
+                >
+                  {isAdding ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : isAdded ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Target className="h-3.5 w-3.5" />
+                  )}
+                  {isAdded ? 'Added to Goals' : 'Add as Goal'}
+                </button>
               </div>
             </div>
           </div>

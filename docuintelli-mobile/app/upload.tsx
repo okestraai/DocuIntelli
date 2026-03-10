@@ -454,7 +454,7 @@ export default function UploadScreen() {
                   fullWidth
                   icon={<Zap size={16} color={colors.white} />}
                 />
-                <Text style={styles.upgradePriceHint}>Starting at $7/mo · Cancel anytime</Text>
+                <Text style={styles.upgradePriceHint}>Starting at $9/mo · Cancel anytime</Text>
               </View>
             </Card>
           )}

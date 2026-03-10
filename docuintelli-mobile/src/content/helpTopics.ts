@@ -46,8 +46,8 @@ export const HELP_TOPICS: HelpTopic[] = [
     questions: [
       { question: 'How does AI chat work?', answer: 'Our AI analyzes your document content to answer questions. You can ask about specific details, request summaries, or compare information across documents using Global Chat.' },
       { question: 'How accurate are the AI responses?', answer: 'The AI provides answers based strictly on your document content. It cites specific sources and indicates confidence levels. Always verify critical information with the original document.' },
-      { question: 'What counts as an AI question?', answer: 'Each message you send in document chat or global chat counts as one AI question. Follow-up questions in the same conversation each count separately.' },
-      { question: 'When do my AI questions reset?', answer: 'Free plan AI questions reset daily at midnight UTC. Starter and Pro plans have unlimited AI questions.' },
+      { question: 'How do AI tokens work?', answer: 'Each AI chat uses tokens to process your question and generate a response. Free plan users get 50K tokens per month, Starter gets 500K, and Pro gets 2M.' },
+      { question: 'When does my token budget reset?', answer: 'Your token budget resets automatically on the 1st of each month.' },
     ],
   },
   {

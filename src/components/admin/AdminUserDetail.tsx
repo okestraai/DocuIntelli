@@ -225,7 +225,7 @@ export default function AdminUserDetail({ userId, onBack }: { userId: string; on
           className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          {actionLoading === 'ai' ? 'Resetting...' : `Reset AI Questions (${subscription?.ai_questions_used || 0} used)`}
+          {actionLoading === 'ai' ? 'Resetting...' : `Reset Token Budget (${((subscription?.tokens_used || 0) / 1000).toFixed(0)}K used)`}
         </button>
       </div>
 
@@ -236,7 +236,7 @@ export default function AdminUserDetail({ userId, onBack }: { userId: string; on
           <InfoRow label="Status" value={subscription?.status} />
           <InfoRow label="Payment Status" value={subscription?.payment_status} />
           <InfoRow label="Document Limit" value={`${documents.length} / ${subscription?.document_limit}`} />
-          <InfoRow label="AI Questions" value={`${subscription?.ai_questions_used} / ${subscription?.ai_questions_limit}`} />
+          <InfoRow label="Monthly Tokens" value={`${((subscription?.tokens_used ?? 0) / 1000).toFixed(0)}K / ${((subscription?.tokens_limit ?? 50000) / 1000).toFixed(0)}K`} />
           <InfoRow label="Monthly Uploads" value={`${subscription?.monthly_uploads_used} / ${subscription?.monthly_upload_limit}`} />
           <InfoRow label="Bank Account Limit" value={subscription?.bank_account_limit} />
           {subscription?.stripe_subscription_id && (

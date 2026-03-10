@@ -564,6 +564,7 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
             )}
           </div>
         )}
+
       </div>
 
       {/* Health Panel Sidebar — Pro only */}

@@ -12,8 +12,8 @@ interface UpgradeModalProps {
   currentUsage?: {
     documents: number;
     documentLimit: number;
-    aiQuestions: number;
-    aiQuestionsLimit: number;
+    tokensUsed: number;
+    tokensLimit: number;
     monthlyUploads?: number;
     monthlyUploadLimit?: number;
   };
@@ -32,7 +32,7 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
       case 'documents':
         return 'Document Limit Reached';
       case 'ai-questions':
-        return 'AI Question Limit Reached';
+        return 'Token Budget Exceeded';
       case 'monthly-uploads':
         return 'Monthly Upload Limit Reached';
       case 'features':
@@ -47,13 +47,13 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
       case 'documents':
         return `You've reached your limit of ${currentUsage?.documentLimit || 3} documents. Upgrade to get more storage.`;
       case 'ai-questions':
-        return `You've used all ${currentUsage?.aiQuestionsLimit || 5} AI questions this month. Upgrade for unlimited AI chats.`;
+        return `You've used all your monthly AI tokens. Upgrade for a higher token budget.`;
       case 'monthly-uploads':
         return `You've used all ${currentUsage?.monthlyUploadLimit || 3} uploads for this month. Upgrade your plan for a higher monthly upload quota.`;
       case 'features':
         return 'Life Events and Document Health are Pro-exclusive features. Weekly Audit is available from the Starter plan.';
       default:
-        return 'Unlock more documents and unlimited AI chats with our paid plans.';
+        return 'Unlock more documents and a higher token budget with our paid plans.';
     }
   };
 
@@ -103,17 +103,15 @@ export function UpgradeModal({ isOpen, onClose, onUpgrade, reason = 'features', 
                 </div>
               </div>
               <div className="bg-white p-4 rounded-lg border border-slate-200">
-                <div className="text-sm text-slate-600 mb-1">AI Questions This Month</div>
+                <div className="text-sm text-slate-600 mb-1">Monthly Tokens</div>
                 <div className="text-2xl font-bold text-slate-900">
-                  {currentUsage.aiQuestions} / {currentUsage.aiQuestionsLimit >= 999999 ? '\u221E' : currentUsage.aiQuestionsLimit}
+                  {((currentUsage.tokensUsed ?? 0) / 1000).toFixed(0)}K / {((currentUsage.tokensLimit ?? 50000) / 1000).toFixed(0)}K
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
                   <div
                     className="bg-gradient-to-r from-emerald-600 to-teal-600 h-2 rounded-full transition-all"
                     style={{
-                      width: currentUsage.aiQuestionsLimit >= 999999
-                        ? '0%'
-                        : `${Math.min((currentUsage.aiQuestions / currentUsage.aiQuestionsLimit) * 100, 100)}%`
+                      width: `${Math.min(((currentUsage.tokensUsed ?? 0) / (currentUsage.tokensLimit ?? 50000)) * 100, 100)}%`
                     }}
                   />
                 </div>

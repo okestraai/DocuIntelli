@@ -54,13 +54,13 @@ export function TermsPage({ onBack }: TermsPageProps) {
           <section>
             <h2 className="text-xl font-semibold text-slate-900 mb-3">4. Subscription Plans & Billing</h2>
             <p className="text-slate-600 leading-relaxed mb-3">
-              DocuIntelli AI offers three subscription tiers: Free, Starter ($7/month or $70/year), and Pro ($19/month or $190/year). Each plan includes specific limits on document storage, monthly uploads, and AI questions as described on the pricing page.
+              DocuIntelli AI offers three subscription tiers: Free, Starter ($9/month or $90/year), and Pro ($15/month or $150/year). Each plan includes specific limits on document storage, monthly uploads, and AI token budgets as described on the pricing page.
             </p>
             <ul className="list-disc pl-6 text-slate-600 space-y-2">
               <li><strong>Upgrades</strong> take effect immediately. You will be charged a prorated amount for the remainder of your current billing cycle.</li>
               <li><strong>Downgrades</strong> take effect at the end of your current billing period. If your document count exceeds the lower plan's limit, you will be asked to select which documents to retain.</li>
               <li><strong>Cancellations</strong> take effect at the end of the current billing period. After cancellation, your account reverts to the Free plan.</li>
-              <li><strong>Monthly counters</strong> (uploads and AI questions) reset automatically at the start of each billing month. Unused quota does not carry over.</li>
+              <li><strong>Monthly counters</strong> (uploads and token budgets) reset automatically at the start of each month. Unused quota does not carry over.</li>
             </ul>
           </section>
 

@@ -28,14 +28,14 @@ const TABS = [
     route: '/financial-insights',
     icon: Landmark,
     match: ['/financial-insights'],
-    requiredPlan: 'starter' as null | 'starter' | 'pro',
+    requiredPlan: null as null | 'starter' | 'pro',
   },
   {
     label: 'Life Events',
     route: '/life-events',
     icon: Compass,
     match: ['/life-events'],
-    requiredPlan: 'pro' as null | 'starter' | 'pro',
+    requiredPlan: null as null | 'starter' | 'pro',
   },
   {
     label: 'Settings',

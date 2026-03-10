@@ -200,7 +200,7 @@ export function BetaPage({ onGetStarted, onBack }: BetaPageProps) {
                 step: 4,
                 icon: <CreditCard className="h-5 w-5 text-white" />,
                 title: 'Test a Paid Plan (Optional)',
-                description: 'Want to test Starter ($7/mo) or Pro ($19/mo) features? Use the test credit card info below — you will NOT be charged real money.',
+                description: 'Want to test Starter ($9/mo) or Pro ($15/mo) features? Use the test credit card info below — you will NOT be charged real money.',
               },
             ].map((item) => (
               <div key={item.step} className="flex gap-4 bg-white border border-slate-200 rounded-xl p-5 border-l-4 border-l-emerald-500">

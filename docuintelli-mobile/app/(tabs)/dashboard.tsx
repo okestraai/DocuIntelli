@@ -156,7 +156,7 @@ export default function DashboardScreen() {
 
   const aiQuestionsLeft = subscription
     ? subscription.plan === 'free'
-      ? Math.max(0, subscription.ai_questions_limit - subscription.ai_questions_used)
+      ? Math.max(0, (subscription.tokens_limit ?? 50000) - (subscription.tokens_used ?? 0))
       : -1 // unlimited
     : 0;
 
@@ -259,8 +259,6 @@ export default function DashboardScreen() {
               subtitle="Ask anything"
               cardWidth={actionCardWidth}
               onPress={() => router.push('/(tabs)/chat')}
-              locked={!isPro}
-              requiredPlan="pro"
             />
           </View>
         </View>
@@ -464,13 +462,13 @@ export default function DashboardScreen() {
                 </View>
               </View>
 
-              {/* AI questions (free plan only) */}
+              {/* Monthly Tokens (free plan only) */}
               {subscription.plan === 'free' && (
                 <View style={styles.usageBlock}>
                   <View style={styles.usageLabelRow}>
-                    <Text style={styles.usageLabelText}>AI Questions</Text>
+                    <Text style={styles.usageLabelText}>Monthly Tokens</Text>
                     <Text style={styles.usageValueText}>
-                      {subscription.ai_questions_used} / {subscription.ai_questions_limit}
+                      {((subscription.tokens_used ?? 0) / 1000).toFixed(0)}K / {((subscription.tokens_limit ?? 50000) / 1000).toFixed(0)}K
                     </Text>
                   </View>
                   <View style={styles.progressBarTrack}>
@@ -488,8 +486,8 @@ export default function DashboardScreen() {
                           width: `${Math.max(
                             2,
                             Math.round(
-                              (subscription.ai_questions_used /
-                                subscription.ai_questions_limit) *
+                              ((subscription.tokens_used ?? 0) /
+                                (subscription.tokens_limit ?? 50000)) *
                                 100,
                             ),
                           )}%`,

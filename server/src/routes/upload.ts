@@ -14,6 +14,7 @@ import {
   invalidateSubscriptionCache,
 } from '../middleware/subscriptionGuard';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
+import { processDocumentPipeline } from '../services/documentPipeline';
 
 const router = Router();
 
@@ -156,125 +157,18 @@ router.post('/upload', upload.single('file'), checkDunningRestriction, checkDocu
       }
     });
 
-    // Trigger document processing using Node.js text extractor (non-blocking)
+    // Trigger document processing pipeline (non-blocking)
     console.log(`🔄 Triggering document text extraction for: ${documentData.id}`);
 
-    (async () => {
-      try {
-        let chunksCreated = 0;
-
-        // Attempt 1: Local text extraction (wrapped in its own try-catch so
-        // failures don't skip the edge function fallback below)
-        try {
-          const extractionResult = await TextExtractor.extractAndChunk(file.buffer, file.mimetype);
-          console.log(`✂️ Local extractor created ${extractionResult.chunks.length} text chunks`);
-
-          if (extractionResult.chunks.length > 0) {
-            // Build a multi-row INSERT for all chunks
-            const values: any[] = [];
-            const placeholders: string[] = [];
-            extractionResult.chunks.forEach(({ index, content }, i) => {
-              const offset = i * 4;
-              placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`);
-              values.push(documentData.id, userId, index, content);
-            });
-
-            try {
-              await query(
-                `INSERT INTO document_chunks (document_id, user_id, chunk_index, chunk_text)
-                 VALUES ${placeholders.join(', ')}`,
-                values
-              );
-              chunksCreated = extractionResult.chunks.length;
-              console.log(`✅ Stored ${chunksCreated} chunks in DB`);
-              await query(
-                `UPDATE documents SET processed = true WHERE id = $1`,
-                [documentData.id]
-              );
-              console.log(`✅ Document marked as processed: ${documentData.id}`);
-            } catch (chunkErr: any) {
-              console.error('⚠️ Failed to store chunks:', chunkErr.message);
-            }
-          }
-        } catch (localErr: any) {
-          console.warn(`⚠️ Local text extraction failed: ${localErr.message}. Will try edge function fallback...`);
-        }
-
-        // Attempt 2: Fallback to chunking service if local extraction yielded 0 chunks
-        if (chunksCreated === 0) {
-          console.log(`⚠️ Local extraction yielded 0 chunks for ${documentData.id}, falling back to chunking service...`);
-          try {
-            await query('UPDATE documents SET processed = false WHERE id = $1', [documentData.id]);
-            const processResult = await reprocessDocument(documentData.id);
-            chunksCreated = processResult.chunksProcessed || 0;
-            console.log(`🔄 Chunking service fallback: ${chunksCreated} chunks processed`);
-          } catch (fallbackErr: any) {
-            console.error('⚠️ Chunking service fallback error:', fallbackErr.message);
-          }
-        }
-
-        // If we have chunks from either method, trigger embeddings
-        if (chunksCreated > 0) {
-          // Send processing complete email (non-blocking)
-          resolveUserInfo(userId).then(userInfo => {
-            if (userInfo) {
-              sendNotificationEmail(userId, 'document_processing_complete', {
-                userName: userInfo.userName,
-                documentName: name.trim(),
-                category: category,
-                tagsGenerated: 0,
-                embeddingsCreated: false,
-                expirationDetected: expirationDate || undefined,
-              }).catch(() => {});
-            }
-          });
-
-          // Trigger metadata extraction (non-blocking, independent of embeddings)
-          extractDocumentMetadata(documentData.id, userId, name.trim(), category).catch(err => {
-            console.error('⚠️ Metadata extraction failed:', err.message);
-          });
-
-          // Trigger embedding generation directly
-          console.log(`🔄 Triggering embedding generation for: ${documentData.id}`);
-          processDocumentVLLMEmbeddings(documentData.id)
-            .then(result => {
-              if (result.success) {
-                console.log(`✅ Embeddings generated: ${result.processed} chunks processed`);
-              } else {
-                console.error('⚠️ Embedding generation failed:', result.error);
-              }
-            })
-            .catch(embErr => {
-              console.error('⚠️ Failed to trigger embedding generation:', embErr.message);
-            });
-        } else {
-          // Both extraction methods failed — notify user
-          console.error(`❌ All extraction methods failed for ${documentData.id} (0 chunks). Document may be empty or unreadable.`);
-          resolveUserInfo(userId).then(userInfo => {
-            if (userInfo) {
-              sendNotificationEmail(userId, 'document_processing_failed', {
-                userName: userInfo.userName,
-                documentName: name.trim(),
-                errorMessage: 'Could not extract text from this file. The document may be empty, image-only, or in an unsupported format.',
-              }).catch(() => {});
-            }
-          });
-        }
-      } catch (err: any) {
-        console.error(`⚠️ Text extraction failed for ${documentData.id}:`, err.message || err);
-
-        // Send processing failure email (non-blocking)
-        resolveUserInfo(userId).then(userInfo => {
-          if (userInfo) {
-            sendNotificationEmail(userId, 'document_processing_failed', {
-              userName: userInfo.userName,
-              documentName: name,
-              errorMessage: err.message || 'An unexpected error occurred during text extraction.',
-            }).catch(emailErr => console.error('📧 Processing failed email error:', emailErr));
-          }
-        });
-      }
-    })();
+    processDocumentPipeline({
+      documentId: documentData.id,
+      userId,
+      documentName: name.trim(),
+      category,
+      expirationDate,
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+    });
 
     res.json({
       success: true,
@@ -408,12 +302,18 @@ router.get('/documents/:id/content', async (req: Request, res: Response): Promis
       [id, userId]
     );
 
-    if (docResult.rows.length === 0 || !docResult.rows[0]?.file_path) {
+    if (docResult.rows.length === 0) {
       res.status(404).json({ success: false, error: 'Document not found' });
       return;
     }
 
     const { file_path, type, name } = docResult.rows[0];
+
+    if (!file_path) {
+      res.status(404).json({ success: false, error: 'Document file not found' });
+      return;
+    }
+
     const buffer = await downloadFromStorage(file_path);
 
     res.setHeader('Content-Type', type || 'application/octet-stream');

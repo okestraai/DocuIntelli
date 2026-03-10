@@ -5,7 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { loadSubscription, requireFeature, checkAIQuestionLimit, incrementAIQuestions } from '../middleware/subscriptionGuard';
+import { loadSubscription, requireFeature, checkAIQuestionLimit, incrementAIQuestions, checkAIChatRateLimit, checkTokenBudget, incrementTokensUsed } from '../middleware/subscriptionGuard';
 import { detectImpersonation } from '../middleware/impersonation';
 import {
   parseAtMention,
@@ -17,6 +17,7 @@ import {
   DocRef,
 } from '../services/globalChat';
 import { query } from '../services/db';
+import { getLLMConfig, estimateTokens } from '../services/llmRouter';
 
 const router = Router();
 
@@ -25,7 +26,9 @@ router.post(
   loadSubscription,
   detectImpersonation,
   requireFeature('global_search'),
+  checkAIChatRateLimit,
   checkAIQuestionLimit,
+  checkTokenBudget,
   async (req: Request, res: Response) => {
     try {
       const userId = req.userId;
@@ -68,8 +71,9 @@ router.post(
       console.log(`[GlobalChat] chunks=${chunks.length} sources=${sources.length}${chunks.length > 0 ? ` top_doc="${chunks[0].document_name}"` : ' (NO CONTEXT)'}`);
 
       // ── Step 4: Build messages + stream (sequential — depends on above) ──
-      const messages = buildChatMessages(chunks, cleanedQuery, history);
-      const fullAnswer = await streamChatResponse(res, messages, sources);
+      const llmConfig = getLLMConfig(req.subscription?.plan || 'free');
+      const messages = buildChatMessages(chunks, cleanedQuery, history, documents);
+      const fullAnswer = await streamChatResponse(res, messages, sources, llmConfig);
 
       // Persist messages and increment quota (fire-and-forget)
       // Skip entirely when impersonated — admin testing should be invisible to the user
@@ -88,6 +92,13 @@ router.post(
             'UPDATE user_subscriptions SET ai_questions_used = $1, updated_at = $2 WHERE id = $3',
             [(req.subscription.ai_questions_used || 0) + 1, new Date().toISOString(), req.subscription.id]
           ).catch(() => {});
+        }
+
+        // Track token usage (fire-and-forget)
+        if (req.subscription) {
+          const promptTokens = estimateTokens(JSON.stringify(messages));
+          const completionTokens = estimateTokens(fullAnswer);
+          incrementTokensUsed(req.subscription.id, promptTokens + completionTokens).catch(() => {});
         }
       }
     } catch (error) {

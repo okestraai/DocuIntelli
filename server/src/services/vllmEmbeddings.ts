@@ -4,17 +4,36 @@
  * Uses the self-hosted vLLM API with Cloudflare Access authentication
  * and instruction-based grounding for better semantic embeddings.
  *
- * API: https://embedder.affinityecho.com
- * Model: intfloat/e5-mistral-7b-instruct (4096 dimensions)
+ * API: https://vllm-embedder.docuintelli.com
+ * Model: BAAI/bge-m3 (1024 dimensions)
  */
 
 import { query } from './db';
 
-const vllmEmbedderUrl = process.env.VLLM_EMBEDDER_URL || 'https://embedder.affinityecho.com';
+const vllmEmbedderUrl = process.env.VLLM_EMBEDDER_URL || 'https://vllm-embedder.docuintelli.com';
 const cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID!;
 const cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET!;
-const embeddingModel = 'intfloat/e5-mistral-7b-instruct';
-const embeddingDimensions = 4096;
+const embeddingModel = 'BAAI/bge-m3';
+const embeddingDimensions = 1024;
+
+/** Retry a fetch with exponential backoff for transient errors (502, 503, 504) */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 2
+): Promise<globalThis.Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+    if (response.ok || attempt === maxRetries || ![502, 503, 504].includes(response.status)) {
+      return response;
+    }
+    const delay = 1000 * (attempt + 1); // 1s, 2s
+    console.warn(`[Embedder] ${response.status} on attempt ${attempt + 1}, retrying in ${delay}ms...`);
+    await new Promise(r => setTimeout(r, delay));
+  }
+  // Unreachable, but TypeScript needs it
+  throw new Error('fetchWithRetry exhausted');
+}
 
 /**
  * Format input text with instruction prefix for better embeddings
@@ -42,7 +61,7 @@ export async function generateVLLMEmbedding(
     // Format text with instruction prefix
     const formattedText = formatWithInstruction(text, instruction);
 
-    const response = await fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+    const response = await fetchWithRetry(`${vllmEmbedderUrl}/v1/embeddings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -108,7 +127,7 @@ export async function generateVLLMEmbeddingsBatch(
 
     console.log(`🧮 Generating embeddings for ${texts.length} texts (batch mode)...`);
 
-    const response = await fetch(`${vllmEmbedderUrl}/v1/embeddings`, {
+    const response = await fetchWithRetry(`${vllmEmbedderUrl}/v1/embeddings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

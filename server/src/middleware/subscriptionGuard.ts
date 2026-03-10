@@ -8,7 +8,9 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../services/authService';
 import { query } from '../services/db';
 import { sendNotificationEmail, resolveUserInfo } from '../services/emailService';
-import { cacheGet, cacheSet, cacheDel } from '../services/redisClient';
+import { cacheGet, cacheSet, cacheDel, cacheIncr } from '../services/redisClient';
+import { getRedisClient } from '../services/redisClient';
+import { RATE_LIMITS } from '../services/llmRouter';
 
 const SUB_CACHE_TTL = 300;      // 5 minutes
 const DOC_COUNT_CACHE_TTL = 120; // 2 minutes
@@ -45,6 +47,9 @@ export interface SubscriptionInfo {
   bank_account_limit: number;
   monthly_uploads_used: number;
   monthly_upload_reset_date: string;
+  tokens_used: number;
+  tokens_limit: number;
+  tokens_reset_date: string | null;
   feature_flags: FeatureFlags;
   stripe_subscription_id?: string | null;
   current_period_end?: string | null;
@@ -69,6 +74,18 @@ declare global {
       isImpersonated?: boolean;
     }
   }
+}
+
+/**
+ * PostgreSQL bigint columns are returned as strings by the pg driver.
+ * Cast token fields to numbers so downstream comparisons work correctly.
+ */
+function sanitizeBigints(row: any): any {
+  return {
+    ...row,
+    tokens_used: Number(row.tokens_used) || 0,
+    tokens_limit: Number(row.tokens_limit) || 50000,
+  };
 }
 
 /**
@@ -129,7 +146,7 @@ export async function loadSubscription(
             [decoded.userId, 'free', 'active']
           );
 
-          const newSub = insertResult.rows[0];
+          const newSub = sanitizeBigints(insertResult.rows[0]);
           req.subscription = newSub as SubscriptionInfo;
           await cacheSet(cacheKey, newSub, SUB_CACHE_TTL);
 
@@ -148,7 +165,7 @@ export async function loadSubscription(
           return;
         }
       } else {
-        const subscription = subResult.rows[0];
+        const subscription = sanitizeBigints(subResult.rows[0]);
         req.subscription = subscription as SubscriptionInfo;
         await cacheSet(cacheKey, subscription, SUB_CACHE_TTL);
       }
@@ -474,6 +491,141 @@ export async function checkAIQuestionLimit(
 }
 
 /**
+ * Middleware to check if user has remaining monthly token budget
+ */
+export async function checkTokenBudget(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const userId = req.userId;
+    const subscription = req.subscription;
+
+    if (!subscription || !userId) {
+      res.status(403).json({ error: 'Subscription not loaded' });
+      return;
+    }
+
+    const used = Number(subscription.tokens_used) || 0;
+    const limit = Number(subscription.tokens_limit) || 50000;
+
+    if (used >= limit) {
+      await logLimitViolation(userId, 'token_budget', used, limit);
+
+      res.status(403).json({
+        error: 'Monthly token budget exceeded',
+        code: 'TOKEN_BUDGET_EXCEEDED',
+        limit,
+        current: used,
+        plan: subscription.plan,
+        upgrade_required: true,
+        message: `You've used all ${limit.toLocaleString()} tokens for this month on the ${subscription.plan} plan. Upgrade for a higher token budget.`,
+      });
+      return;
+    }
+
+    next();
+  } catch (error) {
+    console.error('Token budget check error:', error);
+    res.status(500).json({ error: 'Failed to check token budget' });
+  }
+}
+
+/**
+ * Increment the user's token usage counter (fire-and-forget).
+ * Call after a successful AI response with the estimated token count.
+ */
+export async function incrementTokensUsed(
+  subscriptionId: string,
+  tokensConsumed: number
+): Promise<void> {
+  try {
+    await query(
+      `UPDATE user_subscriptions
+       SET tokens_used = tokens_used + $1, updated_at = $2
+       WHERE id = $3`,
+      [tokensConsumed, new Date().toISOString(), subscriptionId]
+    );
+  } catch (err) {
+    console.error('Error incrementing tokens_used:', err);
+    // Don't throw — this should not block the response
+  }
+}
+
+/**
+ * Per-user, per-tier rate limiting for AI chat endpoints.
+ * Uses Redis sliding window counters with automatic expiry.
+ * Falls through (allows) when Redis is unavailable.
+ */
+export async function checkAIChatRateLimit(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const userId = req.userId;
+    const plan = req.subscription?.plan || 'free';
+
+    if (!userId) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const redis = getRedisClient();
+    if (!redis) {
+      // No Redis — skip rate limiting (graceful degradation)
+      next();
+      return;
+    }
+
+    const limits = RATE_LIMITS[plan] || RATE_LIMITS.free;
+
+    // Check all three windows in parallel
+    const windows = [
+      { key: `rl:chat:min:${userId}`, ttl: 60, limit: limits.perMinute, label: 'per minute' },
+      { key: `rl:chat:hr:${userId}`,  ttl: 3600, limit: limits.perHour,   label: 'per hour' },
+      { key: `rl:chat:day:${userId}`, ttl: 86400, limit: limits.perDay,    label: 'per day' },
+    ];
+
+    for (const w of windows) {
+      const count = await cacheIncr(w.key);
+
+      if (count === 1) {
+        // First request in this window — set expiry
+        try { await redis.expire(w.key, w.ttl); } catch {}
+      }
+
+      if (count !== null && count > w.limit) {
+        // Get remaining TTL for retry-after header
+        let retryAfter = w.ttl;
+        try {
+          const ttl = await redis.ttl(w.key);
+          if (ttl > 0) retryAfter = ttl;
+        } catch {}
+
+        res.status(429).json({
+          error: 'Rate limit exceeded',
+          code: 'RATE_LIMIT_EXCEEDED',
+          limit: w.limit,
+          window: w.label,
+          plan,
+          retry_after: retryAfter,
+          message: `You've exceeded the ${w.limit} requests ${w.label} limit for the ${plan} plan.`,
+        });
+        return;
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('AI chat rate limit check error:', error);
+    // Don't block on rate limit errors — allow the request
+    next();
+  }
+}
+
+/**
  * Middleware factory to check feature access
  * Usage: app.use(requireFeature('url_ingestion'))
  */
@@ -761,7 +913,7 @@ async function logFeatureUsage(
  */
 async function logLimitViolation(
   userId: string,
-  limitType: 'document' | 'ai_question' | 'monthly_upload' | 'device' | 'bank_account',
+  limitType: 'document' | 'ai_question' | 'monthly_upload' | 'device' | 'bank_account' | 'token_budget',
   currentValue: number,
   limitValue: number
 ): Promise<void> {

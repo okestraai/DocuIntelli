@@ -67,8 +67,8 @@ export default function IncomeStreamsList({ streams }: IncomeStreamsListProps) {
     setLocalTags(prev => ({ ...prev, [stem]: (prev[stem] || []).filter(t => t !== tag) }));
     try {
       if (tag === 'Salary') {
+        // Override auto-detection — keep the row with is_auto_salary_override=false
         await addIncomeStreamTag(stem, tag, false);
-        await removeIncomeStreamTag(stem, tag);
       } else {
         await removeIncomeStreamTag(stem, tag);
       }

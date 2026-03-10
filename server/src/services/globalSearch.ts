@@ -115,7 +115,7 @@ export async function executeGlobalSearch(
   } catch (err) {
     console.error('Global search: embedding generation failed, falling back to FTS-only:', err);
     // Fall back to FTS-only by providing a zero vector
-    queryEmbedding = new Array(4096).fill(0);
+    queryEmbedding = new Array(1024).fill(0);
   }
 
   // Request a larger batch from the DB so total_matches per document

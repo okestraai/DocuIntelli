@@ -59,6 +59,9 @@ export default function FinancialInsightsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Goals refresh key — increment to force FinancialGoalsSection to remount
+  const [goalsRefreshKey, setGoalsRefreshKey] = useState(0);
+
   // Account selection modal state
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newItemId, setNewItemId] = useState<string | null>(null);
@@ -79,6 +82,19 @@ export default function FinancialInsightsScreen() {
 
       if (summaryData.status === 'fulfilled') {
         setSummary(summaryData.value);
+
+        // If AI insights are missing (still generating in background), auto-refresh once
+        const hasAIData = summaryData.value?.account_analysis && Object.keys(summaryData.value.account_analysis).length > 0;
+        if (!hasAIData) {
+          setTimeout(async () => {
+            try {
+              const refreshed = await getFinancialSummary();
+              if (refreshed?.account_analysis && Object.keys(refreshed.account_analysis).length > 0) {
+                setSummary(refreshed);
+              }
+            } catch { /* silent retry */ }
+          }, 20000);
+        }
       }
       if (accountsData.status === 'fulfilled') {
         const fullyLoaded = accountsData.value.filter(
@@ -393,7 +409,7 @@ export default function FinancialInsightsScreen() {
             />
 
             {/* Financial Goals */}
-            <FinancialGoalsSection connectedAccounts={connectedAccounts} />
+            <FinancialGoalsSection key={goalsRefreshKey} connectedAccounts={connectedAccounts} />
 
             {/* Smart Document Prompts — "Optimize Your Debts" */}
             <SmartDocumentPrompts onUploadComplete={loadData} />
@@ -442,7 +458,7 @@ export default function FinancialInsightsScreen() {
             />
 
             {/* Action Plan */}
-            <ActionPlanSection items={summary.action_plan} />
+            <ActionPlanSection items={summary.action_plan} onGoalCreated={() => setGoalsRefreshKey(k => k + 1)} />
           </View>
         )}
 

@@ -15,7 +15,7 @@ import {
   removeAccountsAndCleanup,
   getTransactionsByCategory,
 } from '../services/plaidService';
-import { generateAIInsights, invalidateInsightsCache } from '../services/financialAnalyzer';
+import { generateAIInsights, invalidateInsightsCache, getCachedInsights as getCachedAIInsights } from '../services/financialAnalyzer';
 import { detectLoanPayments } from '../services/loanDetector';
 import { analyzeLoanDocument } from '../services/loanAnalyzer';
 import {
@@ -144,27 +144,35 @@ router.get('/summary', async (req: Request, res: Response) => {
     // Cache miss — build summary from DB
     const summary = await getFinancialSummary(userId);
 
-    // Try AI enrichment (has its own 24h Supabase cache, so usually fast)
+    // Check if we have a cached AI enrichment (24h DB cache — fast)
     try {
-      const aiResult = await generateAIInsights(userId, summary);
-      if (aiResult.insights.length > 0) {
-        summary.insights = aiResult.insights;
+      const cachedAI = await getCachedAIInsights(userId);
+      if (cachedAI) {
+        if (cachedAI.insights.length > 0) summary.insights = cachedAI.insights;
+        if (cachedAI.action_plan.length > 0) summary.action_plan = cachedAI.action_plan;
+        (summary as any).ai_recommendations = cachedAI.ai_recommendations;
+        (summary as any).account_analysis = cachedAI.account_analysis;
       }
-      if (aiResult.action_plan.length > 0) {
-        summary.action_plan = aiResult.action_plan;
-      }
-      (summary as any).ai_recommendations = aiResult.ai_recommendations;
-      (summary as any).account_analysis = aiResult.account_analysis;
-    } catch (aiErr) {
-      console.error('AI analysis failed (using rule-based):', aiErr);
-    }
+    } catch { /* proceed without AI cache */ }
 
     const response = { success: true, ...summary };
 
     // Cache the full response in Redis
     await cacheSet(cacheKey, response, SUMMARY_CACHE_TTL);
 
+    // Return immediately with rule-based (or cached AI) insights
     res.json(response);
+
+    // Fire-and-forget: generate AI insights in background for next load
+    generateAIInsights(userId, summary).then(async (aiResult) => {
+      // Update Redis cache with AI-enriched response
+      if (aiResult.insights.length > 0) summary.insights = aiResult.insights;
+      if (aiResult.action_plan.length > 0) summary.action_plan = aiResult.action_plan;
+      (summary as any).ai_recommendations = aiResult.ai_recommendations;
+      (summary as any).account_analysis = aiResult.account_analysis;
+      const enriched = { success: true, ...summary };
+      await cacheSet(cacheKey, enriched, SUMMARY_CACHE_TTL);
+    }).catch(err => console.error('Background AI enrichment failed:', err));
   } catch (error) {
     console.error('Error generating financial summary:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';

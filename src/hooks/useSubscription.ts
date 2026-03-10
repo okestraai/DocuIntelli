@@ -14,6 +14,9 @@ export interface Subscription {
   ai_questions_limit: number;
   ai_questions_used: number;
   ai_questions_reset_date: string;
+  tokens_used: number;
+  tokens_limit: number;
+  tokens_reset_date: string | null;
   monthly_upload_limit: number;
   monthly_uploads_used: number;
   monthly_upload_reset_date: string;
@@ -196,7 +199,7 @@ export function useSubscription(): UseSubscriptionReturn {
   const canAskQuestion = loading
     ? true
     : subscription
-    ? subscription.plan !== 'free' || subscription.ai_questions_used < subscription.ai_questions_limit
+    ? (subscription.tokens_used ?? 0) < (subscription.tokens_limit ?? 50000)
     : false;
 
   const bankAccountLimit = subscription?.bank_account_limit ?? 0;

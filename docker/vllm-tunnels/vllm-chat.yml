@@ -1,0 +1,7 @@
+tunnel: 5f5e4c8c-c3ec-4a1e-b98f-62a0400980a3
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: vllm-chat.docuintelli.com
+    service: http://vllm-chat:8000
+  - service: http_status:404

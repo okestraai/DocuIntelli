@@ -244,8 +244,12 @@ const ALWAYS_SEND_TEMPLATES: EmailTemplate[] = [
   'dunning_deletion_warning',
   'dunning_final_confirmation',
   'dunning_payment_recovered',
+  'new_device_login',
   'emergency_contact_invite',
+  'emergency_invite_accepted',
   'emergency_access_requested',
+  'emergency_access_granted',
+  'emergency_access_denied',
   'emergency_cooldown_reminder',
   'support_ticket_created',
 ];

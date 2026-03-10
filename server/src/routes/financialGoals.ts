@@ -41,8 +41,8 @@ async function buildGoalsResponse(userId: string): Promise<any> {
       [userId, ['completed', 'expired']]
     ),
     query(
-      'SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false ORDER BY created_at DESC LIMIT 20',
-      [userId]
+      `SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false AND type = ANY($2) ORDER BY created_at DESC LIMIT 20`,
+      [userId, ['goal_milestone', 'goal_completed', 'goal_expired', 'goal_deadline_approaching']]
     ),
   ]);
 
@@ -423,8 +423,8 @@ router.get('/notifications', async (req: Request, res: Response) => {
     const userId = req.userId!;
 
     const result = await query(
-      'SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false ORDER BY created_at DESC LIMIT 20',
-      [userId]
+      `SELECT * FROM in_app_notifications WHERE user_id = $1 AND read = false AND type = ANY($2) ORDER BY created_at DESC LIMIT 20`,
+      [userId, ['goal_milestone', 'goal_completed', 'goal_expired', 'goal_deadline_approaching']]
     );
 
     res.json(result.rows || []);

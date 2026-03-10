@@ -8,7 +8,7 @@ import { query } from '../services/db';
 import type { FinancialSummary } from './plaidService';
 import { getTagSummaryForUser, type TagSummary } from './transactionTagService';
 
-const INSIGHT_CACHE_TTL_HOURS = 24;
+const INSIGHT_CACHE_TTL_HOURS = 96; // 4 days — regenerate ~twice per week
 
 /**
  * Invalidate cached insights for a user (e.g. when a new account is connected).
@@ -43,13 +43,11 @@ export async function generateAIInsights(
     return cached;
   }
 
-  const vllmChatUrl = process.env.VLLM_CHAT_URL;
-  const cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID;
-  const cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
+  const togetherApiKey = process.env.TOGETHER_API_KEY;
 
-  // If vLLM is not configured, return the rule-based analysis as-is
-  if (!vllmChatUrl || !cfAccessClientId || !cfAccessClientSecret) {
-    console.log('📊 vLLM not configured — using rule-based financial analysis');
+  // If Together AI is not configured, return the rule-based analysis as-is
+  if (!togetherApiKey) {
+    console.log('📊 Together AI not configured — using rule-based financial analysis');
     return {
       insights: summary.insights,
       account_analysis: {},
@@ -68,23 +66,22 @@ export async function generateAIInsights(
     const prompt = buildAnalysisPrompt(summary, tagSummary);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout for thinking model
 
-    const chatResponse = await fetch(`${vllmChatUrl}/v1/chat/completions`, {
+    const chatResponse = await fetch('https://api.together.xyz/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'CF-Access-Client-Id': cfAccessClientId,
-        'CF-Access-Client-Secret': cfAccessClientSecret,
+        Authorization: `Bearer ${togetherApiKey}`,
       },
       body: JSON.stringify({
-        model: 'hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4',
+        model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',
         messages: [
           { role: 'system', content: FINANCIAL_ADVISOR_SYSTEM_PROMPT },
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 1200,
+        max_tokens: 8000,
         stream: false,
       }),
       signal: controller.signal,
@@ -302,7 +299,7 @@ function parseAIResponse(
 
 // ── Cache ───────────────────────────────────────────────────────
 
-async function getCachedInsights(userId: string): Promise<AIInsightsResult | null> {
+export async function getCachedInsights(userId: string): Promise<AIInsightsResult | null> {
   try {
     const result = await query(
       `SELECT report_data, ai_recommendations, expires_at FROM financial_insights

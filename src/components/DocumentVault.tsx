@@ -1,10 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle, HeartPulse } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle, HeartPulse, Cloud, Link2 } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { WeeklyAudit } from './WeeklyAudit';
+import { CloudFileBrowserModal } from './CloudFileBrowserModal';
+import { CloudProviderIcon } from './CloudProviderIcon';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
 import { formatUTCDate } from '../lib/dateUtils';
+import { getCloudProviders, connectProvider, disconnectProvider, CloudProvider } from '../lib/cloudStorageApi';
+import { getCurrentUser } from '../lib/auth';
+
+// Cloud storage is in beta — only visible to these accounts
+const CLOUD_BETA_EMAILS = new Set(['okestraai@gmail.com', 'reviewer@docuintelli.com']);
 
 export type VaultTab = 'documents' | 'health';
 
@@ -30,9 +37,83 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 9;
 
+  // Cloud storage state (beta-gated)
+  const [cloudEnabled, setCloudEnabled] = useState(false);
+  const [cloudProviders, setCloudProviders] = useState<CloudProvider[]>([]);
+  const [showCloudBrowser, setShowCloudBrowser] = useState(false);
+  const [activeCloudProvider, setActiveCloudProvider] = useState<CloudProvider | null>(null);
+  const [showCloudPicker, setShowCloudPicker] = useState(false);
+  const [disconnectConfirm, setDisconnectConfirm] = useState<CloudProvider | null>(null);
+
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
+
+  // Load cloud providers on mount + detect ?cloud_connected param
+  const loadCloudProviders = useCallback(async () => {
+    try {
+      const providers = await getCloudProviders();
+      setCloudProviders(providers);
+    } catch {
+      // Non-critical — cloud import is optional
+    }
+  }, []);
+
+  const providerDisplayNames: Record<string, string> = {
+    google_drive: 'Google Drive',
+    dropbox: 'Dropbox',
+    onedrive: 'OneDrive',
+  };
+
+  useEffect(() => {
+    // Check if user is in the cloud storage beta
+    getCurrentUser().then(user => {
+      if (user?.email && CLOUD_BETA_EMAILS.has(user.email)) {
+        setCloudEnabled(true);
+
+        const params = new URLSearchParams(window.location.search);
+        const connectedProvider = params.get('cloud_connected');
+
+        if (connectedProvider) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('cloud_connected');
+          window.history.replaceState({}, '', url.toString());
+
+          setActiveCloudProvider({
+            name: connectedProvider,
+            displayName: providerDisplayNames[connectedProvider] || connectedProvider,
+            connected: true,
+          });
+          setShowCloudBrowser(true);
+        }
+        loadCloudProviders();
+      }
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCloudImportClick = () => {
+    setShowCloudPicker(!showCloudPicker);
+  };
+
+  const handlePickProvider = async (provider: CloudProvider) => {
+    setShowCloudPicker(false);
+    if (provider.connected) {
+      setActiveCloudProvider(provider);
+      setShowCloudBrowser(true);
+    } else {
+      await connectProvider(provider.name);
+    }
+  };
+
+  const handleDisconnectProvider = async (providerName: string) => {
+    try {
+      await disconnectProvider(providerName);
+      setDisconnectConfirm(null);
+      await loadCloudProviders();
+    } catch (err) {
+      console.error('Failed to disconnect:', err);
+    }
+  };
 
   const categories = [
     { value: 'all', label: 'All Documents' },
@@ -180,13 +261,69 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
         <p className="text-sm sm:text-base text-slate-600 mb-6 max-w-md mx-auto">
           Upload your legal and financial documents to start organizing and getting AI-powered insights.
         </p>
-        <button
-          onClick={() => setShowUploadModal(true)}
-          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-medium transition-all inline-flex items-center gap-2 shadow-lg hover:shadow-xl text-sm sm:text-base"
-        >
-          <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
-          <span>Add Document</span>
-        </button>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button
+            onClick={() => setShowUploadModal(true)}
+            className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-medium transition-all inline-flex items-center gap-2 shadow-lg hover:shadow-xl text-sm sm:text-base"
+          >
+            <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+            <span>Add Document</span>
+          </button>
+          {cloudEnabled && (
+            <div className="relative">
+              <button
+                onClick={handleCloudImportClick}
+                className="border-2 border-emerald-300 hover:border-emerald-400 bg-white hover:bg-emerald-50 text-emerald-700 px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-medium transition-all inline-flex items-center gap-2 text-sm sm:text-base"
+              >
+                <Cloud className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+                <span>Import from Cloud</span>
+              </button>
+              {showCloudPicker && cloudProviders.length > 0 && (
+                <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowCloudPicker(false)} />
+                <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-200 py-2 min-w-[220px] z-50">
+                  {cloudProviders.map(p => (
+                    <button
+                      key={p.name}
+                      onClick={() => handlePickProvider(p)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 flex items-center gap-3 transition-colors"
+                    >
+                      <CloudProviderIcon provider={p.name} className="h-4 w-4" />
+                      <span className="text-sm font-medium text-slate-700">{p.displayName}</span>
+                      {p.connected ? (
+                        <span className="ml-auto text-xs text-emerald-600 font-medium">Connected</span>
+                      ) : (
+                        <span className="ml-auto text-xs text-slate-400">Connect</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Connected source indicator — click to open file browser */}
+        {cloudEnabled && cloudProviders.filter(p => p.connected).map(p => (
+          <div key={p.name} className="mt-4 inline-flex items-center gap-2 text-xs text-slate-500 bg-white/80 px-3 py-1.5 rounded-full border border-slate-200">
+            <button
+              onClick={() => { setActiveCloudProvider(p); setShowCloudBrowser(true); }}
+              className="inline-flex items-center gap-2 hover:text-emerald-600 transition-colors"
+              title={`Browse ${p.displayName} files`}
+            >
+              <CloudProviderIcon provider={p.name} className="h-3.5 w-3.5" />
+              <span>Connected: {p.email || p.displayName}</span>
+            </button>
+            <button
+              onClick={() => setDisconnectConfirm(p)}
+              className="text-slate-400 hover:text-red-500 ml-1"
+              title="Disconnect"
+            >
+              &times;
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* Expiration Stats */}
@@ -301,7 +438,15 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
               </div>
 
               <h3 className="font-semibold text-slate-900 mb-2 line-clamp-2 text-sm sm:text-base">{doc.name}</h3>
-              <p className="text-xs sm:text-sm text-slate-500 mb-3">{doc.type} • {doc.size}</p>
+              <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-500 mb-3">
+                <span>{doc.type} • {doc.size}</span>
+                {doc.source && doc.source !== 'upload' && (
+                  <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">
+                    <CloudProviderIcon provider={doc.source} className="h-3 w-3" />
+                    {doc.source === 'google_drive' ? 'Drive' : doc.source === 'dropbox' ? 'Dropbox' : doc.source === 'onedrive' ? 'OneDrive' : doc.source}
+                  </span>
+                )}
+              </div>
 
               <div className="flex items-center justify-between mb-3">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(doc.category)}`}>
@@ -502,11 +647,61 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
         </div>
       )}
 
+      {/* Disconnect Confirmation Modal */}
+      {disconnectConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-slate-100 w-12 h-12 rounded-full flex items-center justify-center">
+                <CloudProviderIcon provider={disconnectConfirm.name} className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Disconnect {disconnectConfirm.displayName}</h3>
+                <p className="text-sm text-gray-600">{disconnectConfirm.email || ''}</p>
+              </div>
+            </div>
+
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to disconnect {disconnectConfirm.displayName}? Previously imported documents will remain in your vault, but you won't be able to import new files until you reconnect.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                onClick={() => setDisconnectConfirm(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDisconnectProvider(disconnectConfirm.name)}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <UploadModal
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
         onUpload={handleDocumentUploadNew}
       />
+
+      {activeCloudProvider && (
+        <CloudFileBrowserModal
+          isOpen={showCloudBrowser}
+          onClose={() => { setShowCloudBrowser(false); setActiveCloudProvider(null); }}
+          provider={activeCloudProvider.name}
+          providerDisplayName={activeCloudProvider.displayName}
+          onImportComplete={() => {
+            // Trigger document list refresh via parent
+            // The documents prop will update when parent refetches
+            window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 }

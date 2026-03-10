@@ -918,6 +918,22 @@ async function runAIQuestionsReset(userId?: string): Promise<Record<string, unkn
 }
 
 // ============================================================================
+// Task 10b: Token Budget Reset — 1st of month 00:10 UTC
+// ============================================================================
+
+async function runTokenBudgetReset(userId?: string): Promise<Record<string, unknown>> {
+  const result = userId
+    ? await query(
+        'UPDATE user_subscriptions SET tokens_used = 0, tokens_reset_date = NOW(), updated_at = NOW() WHERE user_id = $1',
+        [userId]
+      )
+    : await query(
+        'UPDATE user_subscriptions SET tokens_used = 0, tokens_reset_date = NOW(), updated_at = NOW()'
+      );
+  return { reset: result.rowCount || 0 };
+}
+
+// ============================================================================
 // Task 11: Data Cleanup — Daily 02:00 UTC
 // ============================================================================
 
@@ -1058,6 +1074,13 @@ export function startScheduler(): void {
     { timezone: TIMEZONE },
   );
 
+  // Task 10b: Token Budget Reset — 1st of month 00:10 UTC
+  cron.schedule(
+    '10 0 1 * *',
+    wrapTask('token-budget-reset', runTokenBudgetReset),
+    { timezone: TIMEZONE },
+  );
+
   // Task 11: Data Cleanup — daily 2am UTC
   cron.schedule(
     '0 2 * * *',
@@ -1086,9 +1109,10 @@ export function startScheduler(): void {
     { timezone: TIMEZONE },
   );
 
-  console.log('[SCHEDULER] All 14 cron jobs registered');
+  console.log('[SCHEDULER] All 15 cron jobs registered');
   console.log('[SCHEDULER] Schedule summary:');
   console.log('  00:05 UTC daily     — AI questions reset');
+  console.log('  00:10 UTC 1st/mo    — Token budget reset');
   console.log('  00:30 UTC daily     — Preparedness snapshots');
   console.log('  02:00 UTC daily     — Data cleanup');
   console.log('  03:00 UTC daily     — Life event readiness');
@@ -1138,6 +1162,7 @@ export const cronTasks: Record<string, (userId?: string) => Promise<Record<strin
   'dunning-escalation': runDunningEscalationTask,
   'goal-deadline-check': runGoalDeadlineCheck,
   'ai-questions-reset': runAIQuestionsReset,
+  'token-budget-reset': runTokenBudgetReset,
   'data-cleanup': runDataCleanup,
   'emergency-auto-grant': runEmergencyAutoGrant,
   'emergency-cooldown-reminders': runEmergencyCooldownReminders,

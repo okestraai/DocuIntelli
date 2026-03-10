@@ -12,7 +12,7 @@ import { sendNotificationEmail, resolveUserInfo } from './emailService';
 
 // ─── vLLM Configuration ────────────────────────────────────────────────────────
 
-const VLLM_CHAT_URL = process.env.VLLM_CHAT_URL || 'https://chat.affinityecho.com';
+const VLLM_CHAT_URL = process.env.VLLM_CHAT_URL || 'https://vllm-chat.docuintelli.com';
 
 function getCfHeaders(): Record<string, string> {
   const cfId = process.env.CF_ACCESS_CLIENT_ID;

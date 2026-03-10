@@ -349,12 +349,14 @@ interface CategoryBreakdown {
 interface RecurringBill {
   name: string;
   merchant: string | null;
+  merchant_stem: string;
   amount: number;
   monthly_amount: number;
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   category: string;
   last_date: string;
   next_expected: string;
+  user_tags: string[];
 }
 
 interface IncomeStream {
@@ -388,13 +390,15 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const cutoffDate = twelveMonthsAgo.toISOString().split('T')[0];
 
-  // Fetch accounts and transactions in parallel
-  const [accountsResult, transactionsResult] = await Promise.all([
+  // Fetch accounts, transactions, and income tags in parallel
+  const { getIncomeStreamTags } = require('./transactionTagService');
+  const [accountsResult, transactionsResult, incomeTagsResult] = await Promise.all([
     query('SELECT * FROM plaid_accounts WHERE user_id = $1', [userId]),
     query(
       'SELECT * FROM plaid_transactions WHERE user_id = $1 AND pending = false AND date >= $2 ORDER BY date DESC',
       [userId, cutoffDate]
     ),
+    getIncomeStreamTags(userId).catch(() => ({} as Record<string, any>)),
   ]);
 
   // pg returns numeric columns as strings — normalize to numbers
@@ -478,24 +482,28 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   // Detect recurring bills
   const recurringBills = detectRecurringBills(expenses);
 
-  // Detect income streams and merge user tags
+  // Detect income streams and merge user tags (pre-fetched in parallel above)
   const incomeStreams = detectIncomeStreams(incomeTransactions);
-  try {
-    const { getIncomeStreamTags } = require('./transactionTagService');
-    const userIncomeTags = await getIncomeStreamTags(userId);
-    for (const stream of incomeStreams) {
-      const tagInfo = userIncomeTags[stream.merchant_stem];
-      if (tagInfo) {
-        stream.user_tags = tagInfo.tags;
-        // Apply salary override if user explicitly set it
-        if (tagInfo.is_auto_salary_override !== null) {
-          stream.is_salary = tagInfo.is_auto_salary_override;
-        }
+  for (const stream of incomeStreams) {
+    const tagInfo = incomeTagsResult[stream.merchant_stem];
+    if (tagInfo) {
+      // If user explicitly rejected salary classification, filter 'Salary' from visible tags
+      stream.user_tags = tagInfo.is_auto_salary_override === false
+        ? tagInfo.tags.filter((t: string) => t !== 'Salary')
+        : tagInfo.tags;
+      // Apply salary override if user explicitly set it
+      if (tagInfo.is_auto_salary_override !== null) {
+        stream.is_salary = tagInfo.is_auto_salary_override;
       }
     }
-  } catch (err) {
-    // Tag tables may not exist yet; don't break summary
-    console.error('[Financial] Failed to load income stream tags:', err);
+  }
+
+  // Merge user tags into recurring bills (same tag table, keyed by merchant_stem)
+  for (const bill of recurringBills) {
+    const tagInfo = incomeTagsResult[bill.merchant_stem];
+    if (tagInfo) {
+      bill.user_tags = tagInfo.tags;
+    }
   }
 
   // Monthly averages
@@ -719,12 +727,14 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
       bills.push({
         name: txns[0].merchant_name || txns[0].name || key,
         merchant: txns[0].merchant_name || null,
+        merchant_stem: key,
         amount: Math.round(avgAmount * 100) / 100,
         monthly_amount: Math.round(avgAmount * mult * 100) / 100,
         frequency,
         category: formatCategoryName(txns[0].category || 'OTHER'),
         last_date: dateToString(lastTxn.date),
         next_expected: nextExpected.toISOString().split('T')[0],
+        user_tags: [],
       });
       continue;
     }
@@ -747,12 +757,14 @@ function detectRecurringBills(expenses: any[]): RecurringBill[] {
       bills.push({
         name: txns[0].merchant_name || txns[0].name || key,
         merchant: txns[0].merchant_name || null,
+        merchant_stem: key,
         amount: Math.round(avgAmount * 100) / 100,
         monthly_amount: Math.round(avgAmount * 100) / 100,
         frequency,
         category: formatCategoryName(category || 'OTHER'),
         last_date: dateToString(lastTxn.date),
         next_expected: nextExpected.toISOString().split('T')[0],
+        user_tags: [],
       });
     }
   }

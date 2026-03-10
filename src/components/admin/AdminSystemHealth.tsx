@@ -121,6 +121,7 @@ function ProblemDocTable({ docs, processing, onReprocess, label }: {
 
 const CRON_JOB_LABELS: Record<string, string> = {
   'ai-questions-reset': 'AI Questions Reset',
+  'token-budget-reset': 'Token Budget Reset',
   'preparedness-snapshots': 'Preparedness Snapshots',
   'data-cleanup': 'Data Cleanup',
   'life-event-readiness': 'Life Event Readiness',

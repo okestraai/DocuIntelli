@@ -93,6 +93,8 @@ export interface Document {
   size: string;
   status: 'active' | 'expiring' | 'expired';
   tags?: string[];
+  source?: 'upload' | 'google_drive' | 'dropbox' | 'onedrive';
+  cloud_file_id?: string;
 }
 
 function App() {
@@ -125,6 +127,7 @@ function App() {
   const [vaultInitialTab, setVaultInitialTab] = useState<'documents' | 'health'>(getVaultTabFromUrl);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [profileChecked, setProfileChecked] = useState(false);
   const hasInitialAuth = useRef(false);
   const [dashboardDataVersion, setDashboardDataVersion] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -324,12 +327,17 @@ function App() {
       setIsAdmin(false);
       return;
     }
+    setProfileChecked(false);
     getUserProfile().then(profile => {
-      if (!isOnboardingComplete(profile)) {
+      if (isOnboardingComplete(profile)) {
+        setShowOnboarding(false);
+      } else {
         setShowOnboarding(true);
       }
     }).catch(() => {
       // Fail-open: don't block the user if profile fetch fails
+    }).finally(() => {
+      setProfileChecked(true);
     });
     // Check admin status (non-blocking)
     checkAdminStatus().then(setIsAdmin).catch(() => setIsAdmin(false));
@@ -910,8 +918,8 @@ function App() {
           currentUsage={{
             documents: documentCount,
             documentLimit: subscription.document_limit,
-            aiQuestions: subscription.ai_questions_used,
-            aiQuestionsLimit: subscription.ai_questions_limit,
+            tokensUsed: subscription.tokens_used ?? 0,
+            tokensLimit: subscription.tokens_limit ?? 50000,
             monthlyUploads: subscription.monthly_uploads_used,
             monthlyUploadLimit: subscription.monthly_upload_limit,
           }}
@@ -992,7 +1000,7 @@ function App() {
       )}
 
       {/* Onboarding Modal — non-dismissable, shown when profile is incomplete */}
-      {showOnboarding && isAuthenticated && (
+      {profileChecked && showOnboarding && isAuthenticated && (
         <OnboardingModal onComplete={() => setShowOnboarding(false)} />
       )}
 

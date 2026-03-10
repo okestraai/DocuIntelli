@@ -639,9 +639,16 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
     );
     const docCount = parseInt(countResult.rows[0]?.count || '0', 10);
 
+    // PostgreSQL bigint columns return as strings — cast to numbers for JSON
+    const sanitized = {
+      ...subscription,
+      tokens_used: Number(subscription.tokens_used) || 0,
+      tokens_limit: Number(subscription.tokens_limit) || 50000,
+    };
+
     res.json({
       success: true,
-      subscription,
+      subscription: sanitized,
       documentCount: docCount,
     });
   } catch (err: any) {

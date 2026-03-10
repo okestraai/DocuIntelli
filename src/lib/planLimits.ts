@@ -35,7 +35,7 @@ export const PLANS: PlanData[] = [
     features: [
       { text: '3 documents', included: true },
       { text: '3 uploads per month', included: true },
-      { text: '5 AI questions per month', included: true },
+      { text: '50K AI tokens per month', included: true },
       { text: 'File upload only', included: true },
       { text: '1 device', included: true },
       { text: 'Standard LLM queue (lowest priority)', included: true },
@@ -57,7 +57,7 @@ export const PLANS: PlanData[] = [
     features: [
       { text: '25 documents', included: true },
       { text: '30 uploads per month', included: true },
-      { text: 'Unlimited AI chats', included: true },
+      { text: '500K AI tokens per month', included: true },
       { text: 'File + URL ingestion', included: true },
       { text: 'OCR for images', included: true },
       { text: 'Weekly Audit', included: true },
@@ -83,7 +83,7 @@ export const PLANS: PlanData[] = [
     features: [
       { text: '100 documents', included: true },
       { text: '150 uploads per month', included: true },
-      { text: 'Unlimited AI chats', included: true },
+      { text: '2M AI tokens per month', included: true },
       { text: 'File + URL ingestion', included: true },
       { text: 'All Starter features', included: true },
       { text: 'Life Events planner', included: true },

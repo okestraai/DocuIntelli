@@ -30,8 +30,20 @@ const INCOME_TAGS = [
   'Other',
 ];
 
+const BILL_TAGS = [
+  'Essential',
+  'Non-essential',
+  'Subscription',
+  'Negotiable',
+  'Tax Deductible',
+  'Business Expense',
+  'Loan',
+  'Mortgage',
+  'Utilities',
+];
+
 export function getTagOptions() {
-  return { transaction_tags: TRANSACTION_TAGS, income_tags: INCOME_TAGS };
+  return { transaction_tags: TRANSACTION_TAGS, income_tags: INCOME_TAGS, bill_tags: BILL_TAGS };
 }
 
 // ── Transaction Tags ────────────────────────────────────────────
@@ -151,17 +163,24 @@ export async function setIncomeStreamTag(
   }
 }
 
-/** Remove an income stream tag */
+/** Remove an income stream tag and its learning rule so it won't be re-created */
 export async function removeIncomeStreamTag(
   userId: string,
   merchantStem: string,
   tag: string
 ): Promise<void> {
-  await query(
-    `DELETE FROM income_stream_tags
-     WHERE user_id = $1 AND merchant_stem = $2 AND tag = $3`,
-    [userId, merchantStem, tag]
-  );
+  await Promise.all([
+    query(
+      `DELETE FROM income_stream_tags
+       WHERE user_id = $1 AND merchant_stem = $2 AND tag = $3`,
+      [userId, merchantStem, tag]
+    ),
+    query(
+      `DELETE FROM tag_learning_rules
+       WHERE user_id = $1 AND merchant_stem = $2 AND tag = $3`,
+      [userId, merchantStem, tag]
+    ),
+  ]);
 }
 
 // ── Learning Engine ─────────────────────────────────────────────

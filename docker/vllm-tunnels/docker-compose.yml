@@ -1,0 +1,113 @@
+# ============================================================
+# vLLM Stack — Model Servers + Cloudflare Tunnels
+# Deploy: docker compose -f docker/vllm-tunnels/docker-compose.yml up -d
+# ============================================================
+
+services:
+  # ─── vLLM Chat (Llama 3.1 8B AWQ) ─────────────────────────
+  vllm-chat:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - /home/okestraailabs/.cache/huggingface:/root/.cache/huggingface
+    shm_size: 8g
+    command:
+      - --model
+      - hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
+      - --quantization
+      - awq
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --max-model-len
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.55"
+      - --dtype
+      - auto
+      - --enforce-eager
+      - --disable-log-requests
+      - --max-num-seqs
+      - "256"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - vllm-net
+
+  # ─── vLLM Embedder (e5-mistral-7b) ────────────────────────
+  vllm-embedder:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-embedder
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - /home/okestraailabs/.cache/huggingface:/root/.cache/huggingface
+    shm_size: 8g
+    command:
+      - --model
+      - intfloat/e5-mistral-7b-instruct
+      - --revision
+      - "07163b72af1488142a360786df853f237b1a3ca1"
+      - --task
+      - embedding
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8001"
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.35"
+      - --dtype
+      - auto
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - vllm-net
+
+  # ─── Cloudflare Tunnel — Chat ──────────────────────────────
+  vllm-chat-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: vllm-chat-tunnel
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
+    volumes:
+      - ./vllm-chat.yml:/etc/cloudflared/config.yml:ro
+      - ${HOME}/.cloudflared/5f5e4c8c-c3ec-4a1e-b98f-62a0400980a3.json:/etc/cloudflared/credentials.json:ro
+    depends_on:
+      - vllm-chat
+    networks:
+      - vllm-net
+
+  # ─── Cloudflare Tunnel — Embedder ──────────────────────────
+  vllm-embedder-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: vllm-embedder-tunnel
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
+    volumes:
+      - ./vllm-embedder.yml:/etc/cloudflared/config.yml:ro
+      - ./embedder-credentials.json:/etc/cloudflared/credentials.json:ro
+    depends_on:
+      - vllm-embedder
+    networks:
+      - vllm-net
+
+networks:
+  vllm-net:
+    driver: bridge

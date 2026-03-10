@@ -331,7 +331,7 @@ export function FeaturesPage({ onBack, onGetStarted, onViewPricing }: FeaturesPa
             Ready to simplify your legal documents?
           </h2>
           <p className="text-lg text-emerald-50 mb-8">
-            Start for free with 3 documents and 5 AI questions per month. No credit card required.
+            Start for free with 3 documents and 50K AI tokens per month. No credit card required.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             {onGetStarted && (

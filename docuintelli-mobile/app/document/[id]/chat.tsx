@@ -197,7 +197,7 @@ export default function DocumentChatScreen() {
             id: Date.now().toString(),
             role: 'assistant',
             content:
-              'You have reached your daily AI question limit. Please upgrade your plan for unlimited questions.',
+              'You have reached your monthly token budget. Please upgrade your plan for a higher token budget.',
             created_at: new Date().toISOString(),
           },
         ]);
@@ -301,8 +301,8 @@ export default function DocumentChatScreen() {
   if (subLoading || loadingHistory) return <LoadingSpinner fullScreen />;
 
   const isFree = subscription?.plan === 'free';
-  const questionsUsed = subscription?.ai_questions_used ?? 0;
-  const questionsLimit = subscription?.ai_questions_limit ?? 5;
+  const questionsUsed = subscription?.tokens_used ?? 0;
+  const questionsLimit = subscription?.tokens_limit ?? 50000;
   const showSuggestions = messages.length === 0;
 
   return (
@@ -410,13 +410,13 @@ export default function DocumentChatScreen() {
 
         {/* Input Bar */}
         <View style={styles.inputBarContainer}>
-          {/* AI question limit indicator for free tier */}
+          {/* Token budget indicator for free tier */}
           {isFree && (
             <View style={styles.limitBar}>
               <View style={styles.limitRow}>
                 <Sparkles size={12} color={colors.primary[600]} />
                 <Text style={styles.limitText}>
-                  {questionsUsed} / {questionsLimit} questions used today
+                  {(questionsUsed / 1000).toFixed(0)}K / {(questionsLimit / 1000).toFixed(0)}K tokens used
                 </Text>
               </View>
               <View style={styles.limitTrack}>

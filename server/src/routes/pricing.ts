@@ -48,8 +48,8 @@ async function fetchStripePrices(): Promise<PricingResponse> {
     stripe.prices.retrieve(stripeProPriceId),
   ]);
 
-  const starterMonthly = (starterPrice.unit_amount || 700) / 100;
-  const proMonthly = (proPrice.unit_amount || 1900) / 100;
+  const starterMonthly = (starterPrice.unit_amount || 900) / 100;
+  const proMonthly = (proPrice.unit_amount || 1500) / 100;
 
   // Use yearly price IDs if available, otherwise derive from monthly
   let starterYearly = starterMonthly * 10;

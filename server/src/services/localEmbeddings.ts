@@ -1,9 +1,9 @@
-// Local embedding service using e5-mistral-7b-instruct
+// Local embedding service using BAAI/bge-m3
 import { query } from './db';
 
 const embeddingApiUrl = process.env.EMBEDDING_API_URL || 'http://localhost:8001/v1/embeddings';
-const embeddingModel = process.env.EMBEDDING_MODEL || 'intfloat/e5-mistral-7b-instruct';
-const embeddingDimensions = parseInt(process.env.EMBEDDING_DIMENSIONS || '4096');
+const embeddingModel = process.env.EMBEDDING_MODEL || 'BAAI/bge-m3';
+const embeddingDimensions = parseInt(process.env.EMBEDDING_DIMENSIONS || '1024');
 
 console.log('🧮 Local Embedding Service Configuration:');
 console.log(`   API URL: ${embeddingApiUrl}`);

@@ -61,7 +61,9 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     // Build dynamic column list from updates object
     const allowedColumns = [
       'display_name', 'bio', 'full_name', 'date_of_birth', 'phone', 'avatar_url',
-      'email_notifications', 'document_reminders', 'security_alerts',
+      'email_notifications', 'document_reminders',
+      'security_alerts', 'billing_alerts', 'document_alerts',
+      'engagement_digests', 'life_event_alerts', 'activity_alerts',
       'expo_push_token',
     ];
 
