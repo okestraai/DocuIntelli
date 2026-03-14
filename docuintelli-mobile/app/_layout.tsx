@@ -192,6 +192,18 @@ export default function RootLayout() {
           name="status"
           options={{ headerShown: true, title: 'System Status' }}
         />
+        <Stack.Screen
+          name="esign/sign/[token]"
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
+        <Stack.Screen
+          name="esign/sign-auth"
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
+        <Stack.Screen
+          name="esign/create"
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
       </Stack>
 
       {/* Persistent bottom navigation — visible on all pages */}

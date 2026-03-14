@@ -36,9 +36,11 @@ import {
   Maximize2,
   Share2,
   RefreshCw,
+  FileSignature,
 } from 'lucide-react-native';
 import { auth, deleteDocument } from '../../../src/lib/auth';
 import type { SupabaseDocument } from '../../../src/lib/auth';
+import { useAuth } from '../../../src/hooks/useAuth';
 import { API_BASE } from '../../../src/lib/config';
 import Card from '../../../src/components/ui/Card';
 import Button from '../../../src/components/ui/Button';
@@ -129,9 +131,13 @@ function isViewableFile(mimeType: string, fileName: string): boolean {
 const PREVIEW_HEIGHT = 300;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// E-signature access gate (matches web's ALLOWED_INITIATOR_EMAILS)
+const ESIGN_ALLOWED_EMAILS = new Set(['okestraai@gmail.com']);
+
 export default function DocumentViewerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [doc, setDoc] = useState<SupabaseDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -675,6 +681,28 @@ export default function DocumentViewerScreen() {
             icon={<MessageSquare size={20} color={colors.white} />}
             fullWidth
           />
+          {user?.email && ESIGN_ALLOWED_EMAILS.has(user.email) && doc && previewUrl && (
+            isPdfFile(doc.type || '', doc.original_name || doc.name || '') ||
+            isWordFile(doc.type || '', doc.original_name || doc.name || '')
+          ) && (
+            <Button
+              title="Get Signature"
+              onPress={() => {
+                router.push({
+                  pathname: '/esign/create',
+                  params: {
+                    documentId: doc.id,
+                    documentName: doc.name,
+                    pdfUrl: previewUrl || '',
+                  },
+                });
+              }}
+              variant="outline"
+              size="lg"
+              icon={<FileSignature size={20} color={colors.slate[700]} />}
+              fullWidth
+            />
+          )}
           <View style={styles.bottomActionsRow}>
             <View style={styles.bottomActionHalf}>
               <Button

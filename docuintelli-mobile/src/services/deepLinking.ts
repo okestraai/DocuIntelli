@@ -45,6 +45,15 @@ export function handleDeepLink(url: string) {
     return;
   }
 
+  // Handle e-signature signing links (docuintelli://sign/{token})
+  if (parsed.path?.startsWith('sign/')) {
+    const signingToken = parsed.path.replace('sign/', '');
+    if (signingToken) {
+      router.push({ pathname: '/esign/sign/[token]', params: { token: signingToken } });
+    }
+    return;
+  }
+
   // For all other deep links, Expo Router handles them automatically
 }
 

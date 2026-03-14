@@ -46,18 +46,18 @@ const TABS = [
   },
 ];
 
-// Screens where the tab bar should be hidden (auth, splash)
+// Screens where the tab bar should be hidden (auth, splash, full-screen flows)
 const HIDDEN_ON = ['/', '/index', '/login', '/signup', '/forgot-password'];
+const HIDDEN_PREFIXES = ['/(auth)', '/esign'];
 
 export default function PersistentTabBar() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { isPro, isStarterOrAbove, loading: subLoading } = useSubscription();
 
-  // Hide on auth / splash screens
-  const shouldHide = HIDDEN_ON.some(
-    (p) => pathname === p || pathname.startsWith('/(auth)'),
-  );
+  // Hide on auth / splash / full-screen signing screens
+  const shouldHide = HIDDEN_ON.some((p) => pathname === p) ||
+    HIDDEN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   if (shouldHide) return null;
 
   const bottomPadding = Platform.select({

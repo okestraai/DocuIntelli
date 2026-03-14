@@ -36,6 +36,7 @@ import {
   Tag,
   HeartPulse,
   Cloud,
+  FileSignature,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useDocuments } from '../../src/hooks/useDocuments';
@@ -59,11 +60,12 @@ import { spacing, borderRadius } from '../../src/theme/spacing';
 import { DOCUMENT_CATEGORIES, type DocumentCategory } from '../../src/types/document';
 import type { Document } from '../../src/types/document';
 import { AuditContent } from '../audit';
+import SignatureRequestList from '../../src/components/esign/SignatureRequestList';
 
 // Cloud storage is in beta — only visible to these accounts
 const CLOUD_BETA_EMAILS = new Set(['okestraai@gmail.com', 'reviewer@docuintelli.com']);
 
-type VaultTab = 'documents' | 'health';
+type VaultTab = 'documents' | 'signatures' | 'health';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ── Category icon mapping ────────────────────────────────────────────
@@ -317,6 +319,16 @@ export default function VaultScreen() {
                 {documents.length}
               </Text>
             </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setActiveTab('signatures')}
+            activeOpacity={0.7}
+            style={[styles.tabSegment, activeTab === 'signatures' && styles.tabSegmentActive]}
+          >
+            <FileSignature size={16} color={activeTab === 'signatures' ? colors.primary[700] : colors.slate[400]} strokeWidth={2} />
+            <Text style={[styles.tabSegmentText, activeTab === 'signatures' && styles.tabSegmentTextActive]}>
+              Signatures
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setActiveTab('health')}
@@ -647,7 +659,17 @@ export default function VaultScreen() {
         style={styles.bgGradient}
       />
 
-      {activeTab === 'health' ? (
+      {activeTab === 'signatures' ? (
+        <View style={{ flex: 1 }}>
+          <View style={styles.headerSection}>
+            {renderTitleAndTabs()}
+          </View>
+          <SignatureRequestList
+            userEmail={user?.email || ''}
+            onRefreshDocuments={refetch}
+          />
+        </View>
+      ) : activeTab === 'health' ? (
         <ScrollView
           contentContainerStyle={styles.healthScrollContent}
           showsVerticalScrollIndicator={false}
