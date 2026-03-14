@@ -18,8 +18,12 @@
 
 import { Router, Request, Response } from 'express';
 import mammoth from 'mammoth';
+import { execFile } from 'child_process';
+import { promises as fs } from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import { query } from '../services/db';
-import { downloadFromStorage, uploadToStorage } from '../services/storage';
+import { downloadFromStorage, uploadToStorage, uploadToStoragePath } from '../services/storage';
 import { TextExtractor } from '../services/textExtractor';
 import { TextChunker } from '../services/chunking';
 import {
@@ -588,22 +592,12 @@ router.post('/convert-to-pdf', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    console.log('Converting document to HTML:', filePath);
-
     // Download file from Azure Blob Storage
     const fileBuffer = await downloadFromStorage(filePath);
-    console.log('File downloaded, size:', fileBuffer.length);
 
     // Convert DOCX to HTML using mammoth
     const result = await mammoth.convertToHtml({ buffer: fileBuffer });
     const html = result.value;
-    const messages = result.messages;
-
-    if (messages.length > 0) {
-      console.log('Conversion messages:', messages);
-    }
-
-    console.log('Converted to HTML, length:', html.length);
 
     const styledHtml = `
 <!DOCTYPE html>
@@ -649,6 +643,74 @@ ${html}
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error occurred',
     });
+  }
+});
+
+/**
+ * POST /convert-docx-to-pdf
+ *
+ * Convert a DOCX file to actual PDF using LibreOffice headless.
+ * Returns the PDF binary or uploads to Azure and returns the blob path.
+ */
+router.post('/convert-docx-to-pdf', async (req: Request, res: Response): Promise<void> => {
+  const userId = extractUserId(req, res);
+  if (!userId) return;
+
+  const { filePath, upload } = req.body;
+
+  if (!filePath) {
+    res.status(400).json({ error: 'filePath is required' });
+    return;
+  }
+
+  const tmpId = crypto.randomUUID();
+  const tmpDir = `/tmp/docx2pdf_${tmpId}`;
+  const inputPath = path.join(tmpDir, 'input.docx');
+
+  try {
+    await fs.mkdir(tmpDir, { recursive: true });
+
+    // Download DOCX from Azure Blob Storage
+    const fileBuffer = await downloadFromStorage(filePath);
+    await fs.writeFile(inputPath, fileBuffer);
+
+    // Convert using LibreOffice headless
+    await new Promise<void>((resolve, reject) => {
+      execFile('libreoffice', [
+        '--headless', '--norestore', '--convert-to', 'pdf',
+        '--outdir', tmpDir, inputPath,
+      ], { timeout: 60000 }, (error, _stdout, stderr) => {
+        if (error) {
+          console.error('LibreOffice conversion error:', stderr);
+          reject(new Error('Document conversion failed'));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    const outputPath = path.join(tmpDir, 'input.pdf');
+    const pdfBuffer = await fs.readFile(outputPath);
+
+    // If upload=true, store the converted PDF in Azure and return the path
+    if (upload) {
+      const ext = path.extname(filePath);
+      const pdfBlobPath = filePath.replace(ext, '_converted.pdf');
+      await uploadToStoragePath(pdfBlobPath, pdfBuffer, 'application/pdf');
+      res.json({ success: true, pdfPath: pdfBlobPath });
+    } else {
+      // Return PDF binary directly
+      res.setHeader('Content-Type', 'application/pdf');
+      res.send(pdfBuffer);
+    }
+  } catch (error) {
+    console.error('Error converting DOCX to PDF:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Conversion failed',
+    });
+  } finally {
+    // Clean up temp files
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 

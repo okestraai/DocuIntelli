@@ -88,6 +88,20 @@ export async function uploadToStorage(
   }
 }
 
+/**
+ * Upload a buffer to a specific blob path (no auto-generated path).
+ */
+export async function uploadToStoragePath(
+  filePath: string,
+  file: Buffer,
+  mimeType: string
+): Promise<void> {
+  const blockBlobClient = containerClient.getBlockBlobClient(filePath);
+  await blockBlobClient.upload(file, file.length, {
+    blobHTTPHeaders: { blobContentType: mimeType },
+  });
+}
+
 export async function deleteFromStorage(filePath: string): Promise<boolean> {
   try {
     const blockBlobClient = containerClient.getBlockBlobClient(filePath);

@@ -2503,6 +2503,103 @@ export function supportTicketCreatedEmail(data: SupportTicketCreatedData): { sub
   };
 }
 
+// ─── e-Signature Templates ──────────────────────────────────────────────────
+
+export interface SignatureRequestEmailData {
+  signerName: string;
+  signerEmail: string;
+  signingUrl: string;
+  documentName: string;
+  ownerName?: string;
+  message?: string;
+}
+
+export function signatureRequestEmail(data: SignatureRequestEmailData): { subject: string; html: string } {
+  const firstName = data.signerName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('✍️', BRAND.primaryColor)}
+    ${heading('Signature Requested')}
+    ${subheading(`Hi ${firstName}, you've been asked to sign a document on ${BRAND.name}.`)}
+    ${paragraph(`<strong>Document:</strong> ${data.documentName}`)}
+    ${data.ownerName ? paragraph(`<strong>From:</strong> ${data.ownerName}`) : ''}
+    ${data.message ? paragraph(`<strong>Message:</strong> ${data.message}`) : ''}
+    ${paragraph('Please review the document and complete your signature. You\'ll need a DocuIntelli account to sign — creating one is free and takes less than a minute.')}
+    ${primaryButton('Review & Sign', data.signingUrl)}
+    ${paragraph('<em style="font-size:12px;color:#64748b;">This link will expire in 30 days. If you did not expect this request, you can safely ignore this email.</em>')}
+  `;
+  return {
+    subject: `Action Required: Please sign "${data.documentName}" — ${BRAND.name}`,
+    html: baseLayout(content, `You've been asked to sign ${data.documentName}.`),
+  };
+}
+
+export interface SignatureCompletedEmailData {
+  documentName: string;
+  title: string;
+  signerCount?: number;
+}
+
+export function signatureCompletedEmail(data: SignatureCompletedEmailData): { subject: string; html: string } {
+  const content = `
+    ${iconBadge('✅', BRAND.successColor)}
+    ${heading('All Signatures Completed')}
+    ${subheading('Great news! All parties have signed your document.')}
+    ${paragraph(`<strong>Document:</strong> ${data.documentName}`)}
+    ${data.signerCount ? paragraph(`<strong>Signers:</strong> ${data.signerCount} completed`) : ''}
+    ${paragraph('The signed document with a tamper-resistant audit trail has been saved to your Vault. You can download it at any time.')}
+    ${primaryButton('View Signed Document', `${BRAND.appUrl}/vault`)}
+  `;
+  return {
+    subject: `Completed: All signatures received for "${data.documentName}" — ${BRAND.name}`,
+    html: baseLayout(content, `All signatures have been collected for ${data.documentName}.`),
+  };
+}
+
+export interface SignerCompletedEmailData {
+  signerName: string;
+  documentName: string;
+}
+
+export function signerCompletedEmail(data: SignerCompletedEmailData): { subject: string; html: string } {
+  const content = `
+    ${iconBadge('✍️', BRAND.primaryColor)}
+    ${heading('Signer Completed')}
+    ${subheading(`${data.signerName} has signed your document.`)}
+    ${paragraph(`<strong>Document:</strong> ${data.documentName}`)}
+    ${paragraph('You\'ll be notified when all parties have completed signing.')}
+    ${primaryButton('View Progress', `${BRAND.appUrl}/vault`)}
+  `;
+  return {
+    subject: `${data.signerName} signed "${data.documentName}" — ${BRAND.name}`,
+    html: baseLayout(content, `${data.signerName} has signed ${data.documentName}.`),
+  };
+}
+
+export interface SignatureReminderEmailData {
+  signerName: string;
+  signerEmail: string;
+  documentName: string;
+  ownerName?: string;
+  signingUrl?: string;
+}
+
+export function signatureReminderEmail(data: SignatureReminderEmailData): { subject: string; html: string } {
+  const firstName = data.signerName?.split(' ')[0] || 'there';
+  const content = `
+    ${iconBadge('⏰', BRAND.warningColor)}
+    ${heading('Signature Reminder')}
+    ${subheading(`Hi ${firstName}, a document is still waiting for your signature.`)}
+    ${paragraph(`<strong>Document:</strong> ${data.documentName}`)}
+    ${data.ownerName ? paragraph(`<strong>From:</strong> ${data.ownerName}`) : ''}
+    ${paragraph('Please complete your signature at your earliest convenience.')}
+    ${data.signingUrl ? primaryButton('Sign Now', data.signingUrl) : primaryButton('Open DocuIntelli', BRAND.appUrl)}
+  `;
+  return {
+    subject: `Reminder: Please sign "${data.documentName}" — ${BRAND.name}`,
+    html: baseLayout(content, `Reminder: ${data.documentName} is waiting for your signature.`),
+  };
+}
+
 // ─── Template Map (for programmatic access) ────────────────────────────────────
 
 export type EmailTemplate =
@@ -2568,4 +2665,8 @@ export type EmailTemplate =
   | 'emergency_access_denied'
   | 'emergency_cooldown_reminder'
   | 'support_ticket_created'
-  | 'metadata_extracted';
+  | 'metadata_extracted'
+  | 'signature_request'
+  | 'signature_completed'
+  | 'signer_completed'
+  | 'signature_reminder';

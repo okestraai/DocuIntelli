@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle, HeartPulse, Cloud, Link2 } from 'lucide-react';
+import { FileText, Search, Filter, Calendar, Eye, Plus, Trash2, FolderOpen, Shield, Sparkles, AlertTriangle, Clock, CheckCircle, HeartPulse, Cloud, Link2, FileSignature } from 'lucide-react';
 import type { Document } from '../App';
 import { UploadModal } from './UploadModal';
 import { WeeklyAudit } from './WeeklyAudit';
@@ -7,13 +7,15 @@ import { CloudFileBrowserModal } from './CloudFileBrowserModal';
 import { CloudProviderIcon } from './CloudProviderIcon';
 import { DocumentUploadRequest } from '../hooks/useDocuments';
 import { formatUTCDate } from '../lib/dateUtils';
+import { SignatureRequestList } from './esignature/SignatureRequestList';
 import { getCloudProviders, connectProvider, disconnectProvider, CloudProvider } from '../lib/cloudStorageApi';
-import { getCurrentUser } from '../lib/auth';
+import { getCurrentUser, auth } from '../lib/auth';
+import { useTabParam } from '../hooks/useTabParams';
 
 // Cloud storage is in beta — only visible to these accounts
 const CLOUD_BETA_EMAILS = new Set(['okestraai@gmail.com', 'reviewer@docuintelli.com']);
 
-export type VaultTab = 'documents' | 'health';
+export type VaultTab = 'documents' | 'health' | 'signatures';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -23,11 +25,17 @@ interface DocumentVaultProps {
   onDocumentDelete?: (documentId: string) => Promise<void>;
   initialTab?: VaultTab;
   onNavigateToDocument?: (documentId: string) => void;
+  userEmail?: string | null;
+  onStartSigning?: (signerId: string) => void;
+  onRefreshDocuments?: () => void;
 }
 
 
-export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete, initialTab, onNavigateToDocument }: DocumentVaultProps) {
-  const [activeTab, setActiveTab] = useState<VaultTab>(initialTab ?? 'documents');
+const VAULT_TABS = ['documents', 'health', 'signatures'] as const;
+
+export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onDocumentUpload, onDocumentDelete, initialTab, onNavigateToDocument, userEmail, onStartSigning, onRefreshDocuments }: DocumentVaultProps) {
+  const [activeTab, setActiveTab] = useTabParam<VaultTab>('tab', 'documents', VAULT_TABS);
+  const [pendingSignatureCount, setPendingSignatureCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'expiring' | 'expired'>('all');
@@ -45,6 +53,7 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
   const [showCloudPicker, setShowCloudPicker] = useState(false);
   const [disconnectConfirm, setDisconnectConfirm] = useState<CloudProvider | null>(null);
 
+  // Sync with parent when initialTab prop changes (e.g., programmatic navigation)
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
@@ -90,6 +99,31 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
       }
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Eagerly fetch pending signature count on mount (so badge shows on Documents tab)
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        const { data: { session } } = await auth.getSession();
+        if (!session) return;
+
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+        const res = await fetch(`${API_BASE}/api/esignature/my-signatures`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const { data } = await res.json();
+        const received: any[] = data.received || [];
+        const sentItems: any[] = data.sent || [];
+        const pendingReceived = received.filter((r: any) => r.signer_status !== 'signed' && r.request_status === 'pending');
+        const pendingSent = sentItems.filter((r: any) => r.status === 'pending');
+        setPendingSignatureCount(pendingReceived.length + pendingSent.length);
+      } catch {
+        // Non-critical — badge just won't show
+      }
+    };
+    fetchPendingCount();
+  }, []);
 
   const handleCloudImportClick = () => {
     setShowCloudPicker(!showCloudPicker);
@@ -235,6 +269,22 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
           }`}>{documents.length}</span>
         </button>
         <button
+          onClick={() => setActiveTab('signatures')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'signatures'
+              ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <FileSignature className="h-4 w-4" />
+          <span>Signatures</span>
+          {pendingSignatureCount > 0 && (
+            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500 text-white font-bold min-w-[18px] text-center">
+              {pendingSignatureCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab('health')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
             activeTab === 'health'
@@ -246,6 +296,16 @@ export function DocumentVault({ documents, onDocumentSelect, onDocumentView, onD
           <span>Health</span>
         </button>
       </div>
+
+      {activeTab === 'signatures' && (
+        <SignatureRequestList
+          userEmail={userEmail || null}
+          onStartSigning={onStartSigning}
+          onRefreshDocuments={onRefreshDocuments}
+          onPendingCountChange={setPendingSignatureCount}
+          onViewDocument={onNavigateToDocument}
+        />
+      )}
 
       {activeTab === 'health' && (
         <WeeklyAudit embedded onNavigateToDocument={onNavigateToDocument} />

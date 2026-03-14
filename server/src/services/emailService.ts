@@ -71,6 +71,10 @@ import {
   emergencyCooldownReminderEmail,
   supportTicketCreatedEmail,
   metadataExtractedEmail,
+  signatureRequestEmail,
+  signatureCompletedEmail,
+  signerCompletedEmail,
+  signatureReminderEmail,
   type EmailTemplate,
 } from './emailTemplates';
 
@@ -221,6 +225,12 @@ const TEMPLATE_CATEGORY_MAP: Record<EmailTemplate, NotificationCategory> = {
 
   // Metadata Extraction
   metadata_extracted: 'document_alerts',
+
+  // e-Signature
+  signature_request: 'document_alerts',
+  signature_completed: 'document_alerts',
+  signer_completed: 'document_alerts',
+  signature_reminder: 'document_alerts',
 };
 
 // Templates that bypass preference checks (always sent regardless of user settings)
@@ -587,6 +597,16 @@ function generateEmail(template: EmailTemplate, data: any): { subject: string; h
     // Metadata Extraction
     case 'metadata_extracted':
       return metadataExtractedEmail(data);
+
+    // e-Signature
+    case 'signature_request':
+      return signatureRequestEmail(data);
+    case 'signature_completed':
+      return signatureCompletedEmail(data);
+    case 'signer_completed':
+      return signerCompletedEmail(data);
+    case 'signature_reminder':
+      return signatureReminderEmail(data);
     default:
       return null;
   }

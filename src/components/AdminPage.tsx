@@ -1,5 +1,6 @@
-import React, { useState, Suspense } from 'react';
+import React, { Suspense } from 'react';
 import { Shield, BarChart3, Users, Activity, Server, ScrollText, Ticket, Headset } from 'lucide-react';
+import { useTabParam } from '../hooks/useTabParams';
 
 const AdminDashboard = React.lazy(() => import('./admin/AdminDashboard'));
 const AdminUsers = React.lazy(() => import('./admin/AdminUsers'));
@@ -10,6 +11,7 @@ const AdminCoupons = React.lazy(() => import('./admin/AdminCoupons'));
 const AdminSupportTickets = React.lazy(() => import('./admin/AdminSupportTickets'));
 
 type AdminTab = 'overview' | 'users' | 'activity' | 'system' | 'audit' | 'coupons' | 'support';
+const ADMIN_TABS = ['overview', 'users', 'activity', 'system', 'audit', 'coupons', 'support'] as const;
 
 const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -35,7 +37,7 @@ function TabSkeleton() {
 }
 
 export function AdminPage() {
-  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [activeTab, setActiveTab] = useTabParam<AdminTab>('tab', 'overview', ADMIN_TABS);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8">

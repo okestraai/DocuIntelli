@@ -21,6 +21,7 @@ import { useFeedback } from '../hooks/useFeedback';
 import { ToastContainer } from './Toast';
 import { EmergencyAccessPanel } from './EmergencyAccessPanel';
 import { SharedWithMeSection } from './SharedWithMePage';
+import { useTabParam } from '../hooks/useTabParams';
 
 // ---------------------------------------------------------------------------
 // Icon map (lucide icons referenced by string name from templates)
@@ -67,6 +68,7 @@ type SubView = 'list' | 'start' | 'intake' | 'detail' | 'export' | 'create-custo
 // Main component
 // ---------------------------------------------------------------------------
 type ListTab = 'my-events' | 'shared';
+const LIST_TABS = ['my-events', 'shared'] as const;
 
 interface Props {
   documents: Document[];
@@ -80,7 +82,7 @@ interface Props {
 export function LifeEventsPage({ documents, onShowUpload, hasSharedAccess, isPro, currentPlan, onUpgrade }: Props) {
   const feedback = useFeedback();
   const [subView, setSubView] = useState<SubView>('list');
-  const [listTab, setListTab] = useState<ListTab>('my-events');
+  const [listTab, setListTab] = useTabParam<ListTab>('tab', 'my-events', LIST_TABS);
   const [templates, setTemplates] = useState<TemplateOverview[]>([]);
   const [events, setEvents] = useState<LifeEvent[]>([]);
   const [archivedEvents, setArchivedEvents] = useState<LifeEvent[]>([]);

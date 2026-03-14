@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, Download, FileText, Image, AlertCircle, Loader2, PanelRightOpen, PanelRightClose, Crown, RefreshCw, MessageSquare } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download, FileText, Image, AlertCircle, Loader2, PanelRightOpen, PanelRightClose, Crown, RefreshCw, MessageSquare, FileSignature } from 'lucide-react';
 import type { Document } from '../App';
 import { useFeedback } from '../hooks/useFeedback';
 import { auth } from '../lib/auth';
 import { fetchDocumentRelationships } from '../lib/engagementApi';
 import { DocumentHealthPanel } from './DocumentHealthPanel';
+import { SignatureRequestBuilder } from './esignature/SignatureRequestBuilder';
 
 interface DocumentViewerProps {
   document: Document;
@@ -20,9 +21,11 @@ interface DocumentViewerProps {
   hideDownload?: boolean;
   /** Render in overlay/modal mode (h-full instead of h-screen) */
   isOverlay?: boolean;
+  /** User's email — used to gate e-Signature feature */
+  userEmail?: string;
 }
 
-export function DocumentViewer({ document, onBack, onChatWithDocument, currentPlan, onUpgrade, onUploadRenewal, onNavigateToDocument, preloadedBlobUrl, hideDownload, isOverlay }: DocumentViewerProps) {
+export function DocumentViewer({ document, onBack, onChatWithDocument, currentPlan, onUpgrade, onUploadRenewal, onNavigateToDocument, preloadedBlobUrl, hideDownload, isOverlay, userEmail }: DocumentViewerProps) {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +34,10 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
   const [isConvertedDoc, setIsConvertedDoc] = useState(false);
   const isPro = currentPlan === 'pro';
   const [showHealthPanel, setShowHealthPanel] = useState(isPro);
+  const [showSignatureBuilder, setShowSignatureBuilder] = useState(false);
+  const [signaturePdfUrl, setSignaturePdfUrl] = useState<string | null>(null);
+  const [isConvertingForSignature, setIsConvertingForSignature] = useState(false);
+  const canInitiateSignature = userEmail?.toLowerCase() === 'okestraai@gmail.com';
   const [olderVersion, setOlderVersion] = useState<{ id: string; name: string } | null>(null);
   const [newerVersion, setNewerVersion] = useState<{ id: string; name: string } | null>(null);
   const feedback = useFeedback();
@@ -89,12 +96,6 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
       const fetchUrl = previewData.url;
       const filePath = previewData.filePath;
 
-      console.log('=== DOCUMENT VIEWER DEBUG ===');
-      console.log('Document ID:', document.id);
-      console.log('Document Name:', document.name);
-      console.log('Document Type (MIME):', document.type);
-      console.log('Preview URL:', fetchUrl);
-
       setDocumentUrl(fetchUrl);
 
       // Check if this is a Word document that needs conversion
@@ -104,7 +105,6 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
                         document.name.toLowerCase().endsWith('.doc');
 
       if (isWordDoc) {
-        console.log('Word document detected, converting to HTML...');
         setIsConverting(true);
 
         try {
@@ -132,12 +132,8 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
           }
 
           const htmlContent = await conversionResponse.text();
-          console.log('HTML conversion complete, length:', htmlContent.length);
-
-          // Create a blob URL from the HTML content
           const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
           const objectURL = URL.createObjectURL(htmlBlob);
-          console.log('Object URL created from converted HTML:', objectURL);
           setBlobUrl(objectURL);
           setIsConvertedDoc(true);
         } catch (conversionError) {
@@ -148,7 +144,6 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         }
       } else {
         // Fetch via backend proxy (avoids CORS issues with Azure Blob Storage)
-        console.log('Fetching document via backend proxy...');
         const { data: { session: proxySession } } = await auth.getSession();
         const proxyUrl = `${API_BASE}/api/documents/${document.id}/content`;
         const response = await fetch(proxyUrl, {
@@ -161,14 +156,9 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         }
 
         const blob = await response.blob();
-        console.log('Blob created, size:', blob.size, 'type:', blob.type);
-
         const objectURL = URL.createObjectURL(blob);
-        console.log('Object URL created:', objectURL);
         setBlobUrl(objectURL);
       }
-
-      console.log('=== END DEBUG ===');
     } catch (err) {
       console.error('Error loading document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -178,7 +168,6 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
   }, [document, preloadedBlobUrl]);
 
   useEffect(() => {
-    console.log('DocumentViewer mounted or document changed');
     loadDocument();
   }, [loadDocument]);
 
@@ -344,6 +333,55 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
                   PRO
                 </span>
               )}
+            </button>
+          )}
+          {canInitiateSignature && (isPDFFile() || isWordFile()) && !preloadedBlobUrl && (
+            <button
+              onClick={async () => {
+                if (isPDFFile()) {
+                  setShowSignatureBuilder(true);
+                } else if (isWordFile()) {
+                  // Convert Word doc to PDF first
+                  setIsConvertingForSignature(true);
+                  try {
+                    const { data: { session } } = await auth.getSession();
+                    if (!session) throw new Error('Not authenticated');
+                    const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+                    const previewRes = await fetch(`${API_BASE}/api/documents/${document.id}/preview-url`, {
+                      headers: { 'Authorization': `Bearer ${session.access_token}` },
+                    });
+                    if (!previewRes.ok) throw new Error('Failed to get document path');
+                    const { filePath } = await previewRes.json();
+                    const convRes = await fetch(`${API_BASE}/api/documents/convert-docx-to-pdf`, {
+                      method: 'POST',
+                      headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ filePath }),
+                    });
+                    if (!convRes.ok) {
+                      const errData = await convRes.json().catch(() => ({}));
+                      throw new Error(errData.error || 'Failed to convert document to PDF');
+                    }
+                    const pdfBlob = await convRes.blob();
+                    const pdfObjectUrl = URL.createObjectURL(pdfBlob);
+                    setSignaturePdfUrl(pdfObjectUrl);
+                    setShowSignatureBuilder(true);
+                  } catch (err) {
+                    feedback.showError('Conversion failed', err instanceof Error ? err.message : 'Could not convert document to PDF');
+                  } finally {
+                    setIsConvertingForSignature(false);
+                  }
+                }
+              }}
+              disabled={isConvertingForSignature}
+              className="flex items-center space-x-2 bg-white text-slate-700 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 px-3 py-2 rounded-lg font-medium text-sm transition-all disabled:opacity-50"
+              title="Request signatures on this document"
+            >
+              {isConvertingForSignature ? (
+                <Loader2 className="h-4 w-4 text-emerald-600 animate-spin" />
+              ) : (
+                <FileSignature className="h-4 w-4 text-emerald-600" />
+              )}
+              <span className="hidden sm:inline">{isConvertingForSignature ? 'Converting...' : 'Get Signature'}</span>
             </button>
           )}
           {onChatWithDocument && (
@@ -581,6 +619,22 @@ export function DocumentViewer({ document, onBack, onChatWithDocument, currentPl
         </div>
       )}
       </div>
+
+      {/* Signature Request Builder modal */}
+      {showSignatureBuilder && (signaturePdfUrl || blobUrl) && (
+        <SignatureRequestBuilder
+          documentId={document.id}
+          documentName={document.name}
+          pdfUrl={signaturePdfUrl || blobUrl!}
+          userEmail={userEmail}
+          onClose={() => { setShowSignatureBuilder(false); if (signaturePdfUrl) { URL.revokeObjectURL(signaturePdfUrl); setSignaturePdfUrl(null); } }}
+          onSuccess={() => {
+            setShowSignatureBuilder(false);
+            if (signaturePdfUrl) { URL.revokeObjectURL(signaturePdfUrl); setSignaturePdfUrl(null); }
+            feedback.showSuccess('Signature request sent', 'Signers will receive an email invitation.');
+          }}
+        />
+      )}
     </div>
   );
 }

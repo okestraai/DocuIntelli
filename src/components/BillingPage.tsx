@@ -40,6 +40,7 @@ import { DowngradeComplianceModal } from './DowngradeComplianceModal';
 import { ToastContainer } from './Toast';
 import { requiresCompliance, PLAN_LIMITS, type PlanId } from '../lib/planLimits';
 import { usePricing } from '../hooks/usePricing';
+import { useTabParam } from '../hooks/useTabParams';
 
 interface BillingPageProps {
   onClose?: () => void;
@@ -47,6 +48,7 @@ interface BillingPageProps {
 }
 
 type BillingTab = 'subscription' | 'payment-method' | 'transactions' | 'usage';
+const BILLING_TABS = ['subscription', 'payment-method', 'transactions', 'usage'] as const;
 
 interface PaymentMethod {
   id: string;
@@ -86,7 +88,7 @@ interface Transaction {
 }
 
 export function BillingPage({ onClose, onSubscriptionChange }: BillingPageProps) {
-  const [activeTab, setActiveTab] = useState<BillingTab>('subscription');
+  const [activeTab, setActiveTab] = useTabParam<BillingTab>('billtab', 'subscription', BILLING_TABS);
   const [isLoading, setIsLoading] = useState(true);
   const { plans } = usePricing();
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -1474,7 +1476,7 @@ function UsageTab({ subscription, documentCount }: any) {
       </div>
 
       {/* Upgrade Recommendation */}
-      {(docUsagePercent >= 80 || aiUsagePercent >= 80 || uploadUsagePercent >= 80) && subscription?.plan !== 'pro' && (
+      {(docUsagePercent >= 80 || tokenUsagePercent >= 80 || uploadUsagePercent >= 80) && subscription?.plan !== 'pro' && (
         <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-2xl p-4 sm:p-8 shadow-xl">
           <div className="flex items-start gap-4 sm:gap-6">
             <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-3 sm:p-4 rounded-2xl flex-shrink-0">

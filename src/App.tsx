@@ -48,6 +48,7 @@ const DataRetentionPolicyPage = React.lazy(() => import('./components/DataRetent
 const VulnerabilityManagementPage = React.lazy(() => import('./components/VulnerabilityManagementPage').then(m => ({ default: m.VulnerabilityManagementPage })));
 const AdminPage = React.lazy(() => import('./components/AdminPage').then(m => ({ default: m.AdminPage })));
 const EmergencyInvitePage = React.lazy(() => import('./components/EmergencyInvitePage').then(m => ({ default: m.EmergencyInvitePage })));
+const SigningPage = React.lazy(() => import('./components/esignature/SigningPage').then(m => ({ default: m.SigningPage })));
 
 export type Page = 'landing' | 'dashboard' | 'vault' | 'pricing' | 'settings' | 'life-events' | 'financial-insights' | 'admin' | 'terms' | 'privacy' | 'cookies' | 'help' | 'status' | 'features' | 'beta' | 'security-policy' | 'data-retention' | 'vulnerability-management' | 'emergency-invite';
 
@@ -67,10 +68,6 @@ function getPageFromPath(): Page | null {
   return null;
 }
 
-function getVaultTabFromUrl(): 'documents' | 'health' {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('tab') === 'health' ? 'health' : 'documents';
-}
 
 function navigateTo(page: Page, replace = false) {
   const target = page === 'landing' ? '/' : `/${page}`;
@@ -102,6 +99,7 @@ function App() {
     return getPageFromPath() || 'landing';
   });
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
@@ -115,16 +113,17 @@ function App() {
   const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [renewalContext, setRenewalContext] = useState<{ documentId: string; name: string; category: string } | null>(null);
+  const [signingRedirect, setSigningRedirect] = useState<{ signerId: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { documents, loading: documentsLoading, uploadDocuments, deleteDocument } = useDocuments(isAuthenticated);
+  const { documents, loading: documentsLoading, uploadDocuments, deleteDocument, refetch: refetchDocuments } = useDocuments(isAuthenticated);
   const { subscription, loading: subscriptionLoading, documentCount, refreshSubscription } = useSubscription();
   const feedback = useFeedback();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'security' | 'preferences' | 'billing' | 'support'>('profile');
-  const [vaultInitialTab, setVaultInitialTab] = useState<'documents' | 'health'>(getVaultTabFromUrl);
+  // Tab params are managed by useTabParam in each component
+  // Tab params are now managed by useTabParam in each component (reads ?tab= from URL)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [profileChecked, setProfileChecked] = useState(false);
@@ -166,7 +165,7 @@ function App() {
       const page = getPageFromPath();
       if (page) {
         setCurrentPage(page);
-        if (page === 'vault') setVaultInitialTab(getVaultTabFromUrl());
+        // Tab params are now handled by useTabParam hook in each component
       } else if (isAuthenticated) {
         setCurrentPage('dashboard');
       } else {
@@ -275,13 +274,31 @@ function App() {
         setIsLoading(false);
         if (event === 'SIGNED_IN' && session?.user) {
           setIsAuthenticated(true);
+          setUserEmail(session.user.email || null);
           setShowAuthModal(false);
           // Clean up OAuth params from URL after auth has consumed them
           // PKCE flow uses ?code= query param; implicit flow uses #access_token=
           const params = new URLSearchParams(window.location.search);
           const hash = window.location.hash;
+          // Check if there's a pending e-signature token to restore after OAuth redirect
+          const pendingSignToken = localStorage.getItem('esign_pending_token');
           if (params.has('code') || (hash && hash.includes('access_token'))) {
-            window.history.replaceState(null, '', window.location.pathname);
+            if (pendingSignToken) {
+              // Restore the signing route — user was signing a document before OAuth redirect
+              localStorage.removeItem('esign_pending_token');
+              window.history.replaceState(null, '', `${window.location.pathname}#/sign/${pendingSignToken}`);
+              hasInitialAuth.current = true;
+            } else {
+              window.history.replaceState(null, '', window.location.pathname);
+            }
+          } else if (pendingSignToken) {
+            // Pending sign token but hash doesn't match — restore it
+            localStorage.removeItem('esign_pending_token');
+            window.history.replaceState(null, '', `${window.location.pathname}#/sign/${pendingSignToken}`);
+            hasInitialAuth.current = true;
+          } else if (hash.startsWith('#/sign/')) {
+            // User is on a signing page (e.g. email/password login) — don't redirect away
+            hasInitialAuth.current = true;
           }
           // Only navigate to dashboard on fresh sign-in (not token refresh/page reload)
           if (!hasInitialAuth.current) {
@@ -296,13 +313,19 @@ function App() {
         } else if (event === 'SIGNED_OUT') {
           hasInitialAuth.current = false;
           setIsAuthenticated(false);
+          setUserEmail(null);
           navigateTo('landing', true);
           setCurrentPage('landing');
           setSelectedDocument(null);
         } else if (event === 'INITIAL_SESSION') {
           if (session?.user) {
             setIsAuthenticated(true);
+            setUserEmail(session.user.email || null);
             hasInitialAuth.current = true;
+            // Don't navigate away from signing pages (email link flow)
+            if (window.location.hash.startsWith('#/sign/')) {
+              return;
+            }
             // Restore page from pathname or default to dashboard
             const pathPage = getPageFromPath();
             if (pathPage && pathPage !== 'landing') {
@@ -459,8 +482,7 @@ function App() {
     // Clear any selected/viewing document states when navigating
     setSelectedDocument(null);
     setViewingDocument(null);
-    // Reset vault tab when navigating to vault without explicit tab
-    if (page === 'vault') setVaultInitialTab('documents');
+    // Tab params reset automatically via useTabParam reading the URL
     // Push to history so back/forward buttons work
     navigateTo(page);
     setCurrentPage(page);
@@ -469,7 +491,6 @@ function App() {
   const handleNavigateToVaultHealth = () => {
     setSelectedDocument(null);
     setViewingDocument(null);
-    setVaultInitialTab('health');
     setCurrentPage('vault');
     window.history.pushState(null, '', '/vault?tab=health');
   };
@@ -620,12 +641,25 @@ function App() {
   };
 
   const handleManageSubscription = () => {
-    setSettingsInitialTab('billing');
-    navigateTo('settings');
     setCurrentPage('settings');
+    window.history.pushState(null, '', '/settings?tab=billing');
   };
 
   const renderPage = () => {
+    // In-app signing redirect (from vault Signatures tab)
+    if (signingRedirect) {
+      return <SigningPage signerId={signingRedirect.signerId} onBack={() => setSigningRedirect(null)} />;
+    }
+
+    // e-Signature signing page via email link — standalone, works for any auth state
+    const hash = window.location.hash;
+    if (hash.startsWith('#/sign/')) {
+      const signingToken = hash.replace('#/sign/', '');
+      if (signingToken) {
+        return <SigningPage token={signingToken} />;
+      }
+    }
+
     // Public pages — accessible whether signed in or not
     const publicBackTarget = isAuthenticated ? 'dashboard' : 'landing';
     const publicBack = () => handleNavigate(publicBackTarget as Page);
@@ -708,6 +742,7 @@ function App() {
             const doc = documents.find(d => d.id === docId);
             if (doc) setViewingDocument(doc);
           }}
+          userEmail={userEmail || undefined}
         />
       );
     }
@@ -726,7 +761,7 @@ function App() {
       case 'settings':
         return (
           <ErrorBoundary>
-            <AccountSettingsPage initialTab={settingsInitialTab} onSubscriptionChange={refreshSubscription} currentPlan={subscription?.plan} />
+            <AccountSettingsPage onSubscriptionChange={refreshSubscription} currentPlan={subscription?.plan} />
           </ErrorBoundary>
         );
       case 'dashboard':
@@ -760,11 +795,13 @@ function App() {
               onDocumentView={handleDocumentView}
               onDocumentUpload={handleDocumentsUploadNew}
               onDocumentDelete={handleDocumentDelete}
-              initialTab={vaultInitialTab}
               onNavigateToDocument={(docId) => {
                 const doc = documents.find(d => d.id === docId);
                 if (doc) handleDocumentView(doc);
               }}
+              userEmail={userEmail}
+              onStartSigning={(signerId) => setSigningRedirect({ signerId })}
+              onRefreshDocuments={refetchDocuments}
             />
           </ErrorBoundary>
         );
@@ -866,7 +903,7 @@ function App() {
             currentPage={currentPage}
             onNavigate={handleNavigate}
             onSignOut={() => setShowLogoutConfirm(true)}
-            onOpenProfile={() => { setSettingsInitialTab('profile'); handleNavigate('settings'); }}
+            onOpenProfile={() => handleNavigate('settings')}
             onOpenNotifications={() => setShowNotificationsModal(true)}
             notificationCount={expiringDocuments.filter(d => !seenNotificationIds.has(d.id)).length}
             currentPlan={subscription?.plan}

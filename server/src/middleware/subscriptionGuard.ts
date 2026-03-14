@@ -70,6 +70,7 @@ declare global {
     interface Request {
       subscription?: SubscriptionInfo;
       userId?: string;
+      userEmail?: string;
       deviceId?: string;
       isImpersonated?: boolean;
     }
@@ -117,6 +118,7 @@ export async function loadSubscription(
     }
 
     req.userId = decoded.userId;
+    req.userEmail = decoded.email;
 
     // Capture device ID from header (if present)
     const deviceId = req.headers['x-device-id'] as string | undefined;

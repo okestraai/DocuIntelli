@@ -15,6 +15,7 @@ import { processDocumentVLLMEmbeddings } from './vllmEmbeddings';
 import { generateDocumentTags } from './tagGeneration';
 import { runDunningEscalation } from './dunningService';
 import { autoGrantExpiredCooldowns, sendCooldownReminders, reverifyStaleContacts } from './emergencyAccessService';
+import { getPendingReminders, getExpiredRequests, expireRequest } from './esignatureService';
 
 // ============================================================================
 // Types
@@ -1109,7 +1110,21 @@ export function startScheduler(): void {
     { timezone: TIMEZONE },
   );
 
-  console.log('[SCHEDULER] All 15 cron jobs registered');
+  // Task 15: e-Signature Reminders — daily 10am UTC
+  cron.schedule(
+    '0 10 * * *',
+    wrapTask('esignature-reminders', runEsignatureReminders),
+    { timezone: TIMEZONE },
+  );
+
+  // Task 16: e-Signature Expiration — daily 1am UTC
+  cron.schedule(
+    '0 1 * * *',
+    wrapTask('esignature-expiration', runEsignatureExpiration),
+    { timezone: TIMEZONE },
+  );
+
+  console.log('[SCHEDULER] All 17 cron jobs registered');
   console.log('[SCHEDULER] Schedule summary:');
   console.log('  00:05 UTC daily     — AI questions reset');
   console.log('  00:10 UTC 1st/mo    — Token budget reset');
@@ -1125,6 +1140,8 @@ export function startScheduler(): void {
   console.log('  Every 30 min        — Stuck docs processing');
   console.log('  Every 15 min        — Emergency access auto-grant');
   console.log('  Every hour          — Emergency cooldown reminders');
+  console.log('  10:00 UTC daily     — e-Signature reminders');
+  console.log('  01:00 UTC daily     — e-Signature expiration');
   console.log('  10:00 UTC 1st/mo    — Contact re-verification');
 }
 
@@ -1148,6 +1165,52 @@ async function runContactReverification(): Promise<Record<string, unknown>> {
 }
 
 // ============================================================================
+// e-Signature Tasks
+// ============================================================================
+
+async function runEsignatureReminders(): Promise<Record<string, unknown>> {
+  const pending = await getPendingReminders();
+  let sent = 0;
+  for (const signer of pending) {
+    try {
+      await sendNotificationEmail(signer.signature_request_id, 'signature_reminder' as any, {
+        signerName: signer.signer_name,
+        signerEmail: signer.signer_email,
+        documentName: signer.document_name,
+        ownerName: signer.owner_name,
+      });
+      // Log reminder sent
+      await query(
+        `INSERT INTO signature_audit_log (signature_request_id, signer_id, action)
+         VALUES ($1, $2, 'reminder_sent')`,
+        [signer.signature_request_id, signer.signer_id]
+      );
+      sent++;
+    } catch (err) {
+      console.error(`[SCHEDULER] Failed to send e-Signature reminder to ${signer.signer_email}:`, err);
+    }
+  }
+  return { reminders_sent: sent, total_pending: pending.length };
+}
+
+async function runEsignatureExpiration(): Promise<Record<string, unknown>> {
+  const expired = await getExpiredRequests();
+  for (const req of expired) {
+    try {
+      await expireRequest(req.id);
+      // Notify owner
+      await sendNotificationEmail(req.owner_id, 'signature_completed' as any, {
+        documentName: req.title,
+        title: req.title,
+      });
+    } catch (err) {
+      console.error(`[SCHEDULER] Failed to expire signature request ${req.id}:`, err);
+    }
+  }
+  return { expired_count: expired.length };
+}
+
+// ============================================================================
 // Exported task functions for admin manual trigger
 // ============================================================================
 
@@ -1167,7 +1230,9 @@ export const cronTasks: Record<string, (userId?: string) => Promise<Record<strin
   'emergency-auto-grant': runEmergencyAutoGrant,
   'emergency-cooldown-reminders': runEmergencyCooldownReminders,
   'contact-reverification': runContactReverification,
+  'esignature-reminders': runEsignatureReminders,
+  'esignature-expiration': runEsignatureExpiration,
 };
 
 // Jobs that ignore userId (operate globally)
-export const GLOBAL_ONLY_JOBS = new Set(['dunning-escalation', 'data-cleanup', 'emergency-auto-grant', 'emergency-cooldown-reminders', 'contact-reverification']);
+export const GLOBAL_ONLY_JOBS = new Set(['dunning-escalation', 'data-cleanup', 'emergency-auto-grant', 'emergency-cooldown-reminders', 'contact-reverification', 'esignature-reminders', 'esignature-expiration']);

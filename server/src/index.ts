@@ -38,6 +38,7 @@ import couponRoutes from "./routes/coupon";
 import emergencyAccessRoutes from "./routes/emergencyAccess";
 import supportTicketRoutes from "./routes/supportTickets";
 import cloudStorageRoutes from "./routes/cloudStorage";
+import esignatureRoutes from "./routes/esignature";
 import { startEmbeddingMonitor } from "./services/embeddingMonitor";
 import { verifyEmailConnection } from "./services/emailService";
 import { initRedis, getRedisClient } from "./services/redisClient";
@@ -507,6 +508,7 @@ console.log("🔧 Environment Check:", {
   app.use("/api/admin/coupons", couponAdminRoutes);
   app.use("/api/coupons", couponRoutes);
   app.use("/api/cloud-storage", cloudStorageRoutes);
+  app.use("/api/esignature", esignatureRoutes);
   app.use("/api/documents", documentProcessingRoutes);
   app.use("/api/documents", processingRoutes);
   app.use("/api", uploadRoutes);

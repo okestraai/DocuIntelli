@@ -10,8 +10,10 @@ import { getDeviceId } from '../lib/deviceId';
 import { PhoneInput } from './PhoneInput';
 import { SupportTicketsTab } from './SupportTicketsTab';
 import { getUnreadTicketCount } from '../lib/supportTicketApi';
+import { useTabParam } from '../hooks/useTabParams';
 
 type TabType = 'profile' | 'security' | 'preferences' | 'billing' | 'devices' | 'support';
+const SETTINGS_TABS = ['profile', 'security', 'preferences', 'billing', 'devices', 'support'] as const;
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -34,13 +36,13 @@ interface AccountSettingsPageProps {
 }
 
 export function AccountSettingsPage({ initialTab = 'profile', onSubscriptionChange, currentPlan }: AccountSettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [activeTab, setActiveTab] = useTabParam<TabType>('tab', 'profile', SETTINGS_TABS);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Sync with parent when initialTab changes (e.g. navigating from Dashboard "Manage Plan")
   useEffect(() => {
-    setActiveTab(initialTab);
+    if (initialTab && initialTab !== 'profile') setActiveTab(initialTab);
   }, [initialTab]);
   const [isUpdating, setIsUpdating] = useState(false);
   const feedback = useFeedback();

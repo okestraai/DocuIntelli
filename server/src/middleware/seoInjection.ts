@@ -83,7 +83,7 @@ export function createSeoMiddleware(distPath: string) {
     const injectedHtml = html.replace(metaBlockRegex, buildMetaTags(seo));
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(injectedHtml);
   };
 }
