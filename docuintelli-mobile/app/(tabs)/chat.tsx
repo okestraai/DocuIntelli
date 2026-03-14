@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MessageSquare, Send, Sparkles, FileText } from 'lucide-react-native';
 import { globalChatStream, loadGlobalChatHistory, GlobalChatSource } from '../../src/lib/api';
+import ChatMarkdown from '../../src/components/chat/ChatMarkdown';
 import { useSubscription } from '../../src/hooks/useSubscription';
 import ProFeatureGate from '../../src/components/ProFeatureGate';
 import GradientIcon from '../../src/components/ui/GradientIcon';
@@ -251,9 +252,11 @@ export default function GlobalChatScreen() {
                     <Sparkles size={14} color={colors.primary[600]} />
                   </View>
                   <View style={styles.assistantBubble}>
-                    <Text style={styles.assistantText}>
-                      {item.content || (item.isStreaming ? '...' : '')}
-                    </Text>
+                    {item.content ? (
+                      <ChatMarkdown content={item.content} />
+                    ) : item.isStreaming ? (
+                      <Text style={styles.assistantText}>...</Text>
+                    ) : null}
                     {item.isStreaming && (
                       <View style={styles.streamingDots}>
                         <ActivityIndicator size="small" color={colors.primary[400]} />

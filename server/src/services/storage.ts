@@ -104,8 +104,9 @@ export async function getSignedUrl(filePath: string, expiresIn: number = 3600): 
   try {
     const blobClient = containerClient.getBlobClient(filePath);
 
-    const startsOn = new Date();
-    const expiresOn = new Date(startsOn.getTime() + expiresIn * 1000);
+    // Subtract 5 minutes to account for clock skew between this server and Azure
+    const startsOn = new Date(Date.now() - 5 * 60 * 1000);
+    const expiresOn = new Date(Date.now() + expiresIn * 1000);
 
     const sasToken = generateBlobSASQueryParameters(
       {

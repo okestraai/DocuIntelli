@@ -1,7 +1,10 @@
 # Dependencies (installed fresh inside container)
 node_modules
 server/node_modules
-docuintelli-mobile
+docuintelli-mobile/node_modules
+docuintelli-mobile/.expo
+docuintelli-mobile/android
+docuintelli-mobile/ios
 
 # Build outputs (built inside container)
 dist

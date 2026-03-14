@@ -1,9 +1,11 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
 
 export async function isBiometricAvailable(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
   const compatible = await LocalAuthentication.hasHardwareAsync();
   if (!compatible) return false;
   const enrolled = await LocalAuthentication.isEnrolledAsync();
@@ -11,6 +13,7 @@ export async function isBiometricAvailable(): Promise<boolean> {
 }
 
 export async function getBiometricType(): Promise<string> {
+  if (Platform.OS === 'web') return 'Biometric';
   const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
   if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
     return 'Face ID';
@@ -22,6 +25,7 @@ export async function getBiometricType(): Promise<string> {
 }
 
 export async function authenticate(promptMessage?: string): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
   const result = await LocalAuthentication.authenticateAsync({
     promptMessage: promptMessage ?? 'Unlock DocuIntelli',
     cancelLabel: 'Cancel',

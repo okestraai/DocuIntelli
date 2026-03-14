@@ -28,6 +28,26 @@ RUN npm run build
 
 
 # ============================================================
+# Stage 1b: Build the Expo Web frontend (mobile web)
+# ============================================================
+FROM node:20-alpine AS mobile-web-build
+
+WORKDIR /app/mobile
+
+# Copy mobile app package files
+COPY docuintelli-mobile/package.json docuintelli-mobile/package-lock.json ./
+
+# Install dependencies
+RUN npm ci --ignore-scripts
+
+# Copy mobile source
+COPY docuintelli-mobile/ ./
+
+# Build Expo for web (outputs to /app/mobile/dist/)
+RUN npx expo export --platform web
+
+
+# ============================================================
 # Stage 2: Build the Express backend (TypeScript)
 # ============================================================
 FROM node:20-alpine AS backend-build
@@ -67,6 +87,9 @@ WORKDIR /app
 
 # Copy built frontend (Vite output → /app/dist)
 COPY --from=frontend-build /app/dist ./dist
+
+# Copy built mobile web frontend (Expo output → /app/dist-mobile)
+COPY --from=mobile-web-build /app/mobile/dist ./dist-mobile
 
 # Copy compiled backend + production node_modules
 COPY --from=backend-build /app/server/dist ./server/dist

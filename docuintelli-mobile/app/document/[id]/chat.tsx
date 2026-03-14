@@ -17,6 +17,7 @@ import {
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { goBack } from '../../../src/utils/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
+import ChatMarkdown from '../../../src/components/chat/ChatMarkdown';
 import {
   ArrowLeft,
   Send,
@@ -287,9 +288,7 @@ export default function DocumentChatScreen() {
             {isStreamingPlaceholder ? (
               <StreamingDots />
             ) : (
-              <Text style={styles.assistantBubbleText}>
-                {item.content}
-              </Text>
+              <ChatMarkdown content={item.content} />
             )}
           </View>
         </View>

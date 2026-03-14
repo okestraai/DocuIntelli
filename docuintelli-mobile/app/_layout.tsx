@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { AppState, View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import NetInfo from '@react-native-community/netinfo';
-import { ArrowLeft, Shield } from 'lucide-react-native';
+import { ArrowLeft, Shield, Monitor } from 'lucide-react-native';
 import { goBack } from '../src/utils/navigation';
 import { auth } from '../src/lib/auth';
 import { useAuthStore } from '../src/store/authStore';
@@ -33,7 +33,29 @@ export default function RootLayout() {
   usePushNotifications();
 
   useEffect(() => {
-    initialize();
+    const boot = async () => {
+      // On web, check for OAuth callback tokens in the URL query params.
+      // After Google OAuth, the backend redirects back with ?access_token=...&refresh_token=...
+      if (Platform.OS === 'web') {
+        const params = new URLSearchParams(window.location.search);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          // Store the tokens and establish the session
+          await auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+
+          // Clean tokens from URL so they aren't bookmarked or leaked via Referer
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, '', cleanUrl);
+        }
+      }
+
+      // Now initialize (reads tokens from storage)
+      await initialize();
+    };
+
+    boot();
 
     const {
       data: { subscription },
@@ -83,6 +105,13 @@ export default function RootLayout() {
     }
     setUnlocking(false);
   };
+
+  const handleSwitchToDesktop = useCallback(() => {
+    if (Platform.OS === 'web') {
+      document.cookie = 'prefer_desktop=1; path=/; max-age=86400; SameSite=Lax';
+      window.location.reload();
+    }
+  }, []);
 
   if (!initialized || loading) {
     return <LoadingSpinner fullScreen />;
@@ -171,6 +200,18 @@ export default function RootLayout() {
       {/* Toast rendered inside the app shell so it centers within 480px on web */}
       <ToastRenderer />
 
+      {/* "View Desktop Site" link — web only */}
+      {Platform.OS === 'web' && (
+        <TouchableOpacity
+          style={desktopSwitchStyles.container}
+          onPress={handleSwitchToDesktop}
+          activeOpacity={0.7}
+        >
+          <Monitor size={14} color={colors.slate[500]} />
+          <Text style={desktopSwitchStyles.text}>View Desktop Site</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Biometric lock overlay */}
       {isLocked && (
         <View style={lockStyles.overlay}>
@@ -212,6 +253,23 @@ const webShell = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 16,
     elevation: 8,
+  },
+});
+
+const desktopSwitchStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.slate[200],
+    backgroundColor: colors.white,
+  },
+  text: {
+    fontSize: typography.fontSize.sm,
+    color: colors.slate[500],
   },
 });
 

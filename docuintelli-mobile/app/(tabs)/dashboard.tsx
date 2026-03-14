@@ -122,10 +122,13 @@ export default function DashboardScreen() {
     }
   }, [refetch, refreshSubscription]);
 
-  // Check if onboarding is complete
+  const [profileName, setProfileName] = useState<string | null>(null);
+
+  // Check if onboarding is complete and fetch display name
   useEffect(() => {
     if (!user?.id) return;
     getUserProfile().then(profile => {
+      if (profile?.display_name) setProfileName(profile.display_name);
       if (!isOnboardingComplete(profile)) {
         setShowOnboarding(true);
       }
@@ -133,7 +136,7 @@ export default function DashboardScreen() {
   }, [user?.id]);
 
   const displayName =
-    user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
+    profileName || user?.display_name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const firstName = displayName.split(' ')[0];
 
   // Derived data

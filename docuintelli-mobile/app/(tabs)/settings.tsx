@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -18,6 +18,7 @@ import {
   LifeBuoy,
 } from 'lucide-react-native';
 import { useAuthStore } from '../../src/store/authStore';
+import { getUserProfile } from '../../src/lib/auth';
 import { useSubscription } from '../../src/hooks/useSubscription';
 import Card from '../../src/components/ui/Card';
 import Badge from '../../src/components/ui/Badge';
@@ -98,6 +99,13 @@ const MENU_ITEMS = [
 export default function SettingsScreen() {
   const { user, signOut } = useAuthStore();
   const { subscription, loading: subLoading } = useSubscription();
+  const [displayName, setDisplayName] = useState<string | null>(null);
+
+  useEffect(() => {
+    getUserProfile().then((profile) => {
+      if (profile?.display_name) setDisplayName(profile.display_name);
+    }).catch(() => {});
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -136,7 +144,7 @@ export default function SettingsScreen() {
             </LinearGradient>
             <View style={styles.profileInfo}>
               <Text style={styles.displayName}>
-                {user?.user_metadata?.display_name || 'DocuIntelli User'}
+                {displayName || user?.display_name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'DocuIntelli User'}
               </Text>
               <View style={styles.emailRow}>
                 <Mail size={13} color={colors.slate[400]} strokeWidth={1.8} />

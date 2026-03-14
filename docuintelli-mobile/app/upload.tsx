@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, ScrollView, StyleSheet, Alert,
-  TouchableOpacity, Image,
+  TouchableOpacity, Image, Platform,
 } from 'react-native';
 import { useToast } from '../src/contexts/ToastContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -290,7 +290,8 @@ export default function UploadScreen() {
 
   const tabs: { key: UploadTab; label: string; icon: (active: boolean) => React.ReactNode; locked: boolean }[] = [
     { key: 'file', label: 'File', icon: (a) => <FileText size={14} color={a ? colors.white : colors.slate[600]} />, locked: false },
-    { key: 'scan', label: 'Scan', icon: (a) => <Camera size={14} color={a ? colors.white : colors.slate[600]} />, locked: !isStarterOrAbove },
+    // Camera/scan is not available on web
+    ...(Platform.OS !== 'web' ? [{ key: 'scan' as UploadTab, label: 'Scan', icon: (a: boolean) => <Camera size={14} color={a ? colors.white : colors.slate[600]} />, locked: !isStarterOrAbove }] : []),
     { key: 'url', label: 'URL', icon: (a) => <Link size={14} color={a ? colors.white : colors.slate[600]} />, locked: !isStarterOrAbove },
   ];
 

@@ -882,6 +882,20 @@ function App() {
         </Suspense>
       </div>
 
+      {/* "Switch to Mobile View" banner — shows when mobile user is viewing desktop site */}
+      {isMobile && document.cookie.includes('prefer_desktop=1') && (
+        <button
+          onClick={() => {
+            document.cookie = 'prefer_desktop=; path=/; max-age=0';
+            window.location.reload();
+          }}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white text-sm px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-slate-700 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+          Switch to Mobile View
+        </button>
+      )}
+
       {/* Footer — only show when not signed in */}
       {!isAuthenticated && !isLoading && (
         <Footer onNavigate={handleNavigate} />

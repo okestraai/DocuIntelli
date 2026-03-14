@@ -55,6 +55,7 @@ services:
       - APP_URL=https://docuintelli.com
     volumes:
       - app-logs:/app/logs
+      - mobile-web-dist:/app/dist-mobile
     depends_on:
       redis:
         condition: service_healthy
@@ -89,6 +90,7 @@ services:
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
       - certbot-webroot:/var/www/certbot:ro
+      - mobile-web-dist:/app/dist-mobile:ro
     depends_on:
       web:
         condition: service_healthy
@@ -121,4 +123,6 @@ volumes:
   app-logs:
     driver: local
   certbot-webroot:
+    driver: local
+  mobile-web-dist:
     driver: local
